@@ -2,6 +2,7 @@ import ArgumentParser
 import SlackRecKit
 
 extension VideoCodec: ExpressibleByArgument {}
+extension TranscriptionEngine: ExpressibleByArgument {}
 
 @main
 struct SlackRec: AsyncParsableCommand {
@@ -19,8 +20,8 @@ struct SlackRec: AsyncParsableCommand {
         """,
         version: "0.2.0",
         subcommands: [
-            Tui.self, Record.self, Apps.self, Windows.self, Displays.self, Mics.self,
-            Doctor.self,
+            Tui.self, Record.self, Transcribe.self, Apps.self, Windows.self, Displays.self,
+            Mics.self, Doctor.self,
         ],
         defaultSubcommand: Tui.self
     )

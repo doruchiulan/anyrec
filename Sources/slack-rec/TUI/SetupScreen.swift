@@ -4,7 +4,7 @@ import SlackRecKit
 /// The settings screen. Returns the chosen settings, or nil if the user backed out.
 struct SetupScreen {
     enum Row: Int, CaseIterable {
-        case capture, microphone, systemAudio, stopAfter, mux, start
+        case capture, microphone, systemAudio, stopAfter, mux, transcribe, start
 
         var label: String {
             switch self {
@@ -13,6 +13,7 @@ struct SetupScreen {
             case .stopAfter: "Stop"
             case .systemAudio: "Call audio"
             case .mux: "Merge"
+            case .transcribe: "Transcript"
             case .start: ""
             }
         }
@@ -56,6 +57,7 @@ struct SetupScreen {
         case .systemAudio: settings.systemAudio.toggle()
         case .mux: settings.mux.toggle()
         case .stopAfter: settings.cycleStop(by: delta)
+        case .transcribe: settings.cycleTranscribe(by: delta)
         default: break
         }
     }
@@ -65,7 +67,7 @@ struct SetupScreen {
         switch cursor {
         case .capture: await editCapture()
         case .microphone: editMicrophone()
-        case .systemAudio, .mux, .stopAfter: adjust(1)
+        case .systemAudio, .mux, .stopAfter, .transcribe: adjust(1)
         case .start: return true
         }
         return false
@@ -131,6 +133,7 @@ struct SetupScreen {
         case .systemAudio: settings.systemAudio ? "On" : "Off"
         case .stopAfter: settings.stopLabel
         case .mux: settings.muxLabel
+        case .transcribe: settings.transcribeLabel
         case .start: ""
         }
     }
@@ -146,6 +149,9 @@ struct SetupScreen {
         if let notice { return notice }
         if settings.mux, Muxer.ffmpegPath() == nil {
             return "ffmpeg is missing, so there will be no call.mp4: brew install ffmpeg"
+        }
+        if settings.transcribe == .whisper, WhisperTranscriber.binaryPath() == nil {
+            return "whisper is missing, so there will be no transcript: brew install whisper-cpp"
         }
         if settings.microphone == nil, !settings.systemAudio {
             return "Both audio tracks are off — this will be a silent video."

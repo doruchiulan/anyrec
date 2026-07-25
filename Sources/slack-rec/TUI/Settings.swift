@@ -23,11 +23,14 @@ struct Settings {
     var systemAudio = true
     var stopAfter: TimeInterval?
     var mux = true
+    /// Nil means no transcript is produced.
+    var transcribe: TranscriptionEngine?
     var fps = 30
     var codec: VideoCodec = .h264
     var outputRoot: String
 
     static let stopChoices: [TimeInterval?] = [nil, 900, 1_800, 2_700, 3_600, 7_200]
+    static let transcribeChoices: [TranscriptionEngine?] = [nil] + TranscriptionEngine.allCases
 
     var options: CaptureOptions {
         CaptureOptions(
@@ -55,9 +58,24 @@ struct Settings {
         return Muxer.ffmpegPath() == nil ? "On — but ffmpeg is missing" : "On — call.mp4"
     }
 
+    var transcribeLabel: String {
+        switch transcribe {
+        case nil: "Off"
+        case .auto: "On — pick the engine by language"
+        case .apple: "On — Apple, on-device"
+        case .whisper: "On — whisper.cpp"
+        }
+    }
+
     mutating func cycleStop(by delta: Int) {
         let index = Self.stopChoices.firstIndex { $0 == stopAfter } ?? 0
         let next = (index + delta + Self.stopChoices.count) % Self.stopChoices.count
         stopAfter = Self.stopChoices[next]
+    }
+
+    mutating func cycleTranscribe(by delta: Int) {
+        let index = Self.transcribeChoices.firstIndex { $0 == transcribe } ?? 0
+        let next = (index + delta + Self.transcribeChoices.count) % Self.transcribeChoices.count
+        transcribe = Self.transcribeChoices[next]
     }
 }

@@ -98,6 +98,8 @@ struct Doctor: AsyncParsableCommand {
             print("    brew install ffmpeg")
         }
 
+        for line in await transcriptionReport() { print(line) }
+
         guard Permissions.screenRecordingGranted() else { return }
         let apps = try await ContentInventory.runningCallApps()
         if apps.isEmpty {
@@ -105,6 +107,37 @@ struct Doctor: AsyncParsableCommand {
         } else {
             print("\(mark(true)) \(apps.map(\.name).joined(separator: ", "))")
         }
+    }
+
+    /// Transcription is optional throughout: every line here is informational.
+    private func transcriptionReport() async -> [String] {
+        var lines: [String] = []
+
+        if #available(macOS 26, *), AppleTranscriber.isAvailable {
+            let locales = await AppleTranscriber.supportedLanguages()
+            lines.append("\(mark(true)) apple speech, \(locales.count) languages, on-device")
+        } else {
+            lines.append("\(mark(false)) apple speech needs macOS 26 — whisper covers everything")
+        }
+
+        guard let whisper = WhisperTranscriber.binaryPath() else {
+            lines.append("\(mark(false)) whisper not found — no Romanian transcripts")
+            lines.append("    brew install whisper-cpp")
+            return lines
+        }
+        lines.append("\(mark(true)) whisper at \(whisper)")
+
+        let models = WhisperTranscriber.modelDirectory.path
+        guard let model = WhisperTranscriber.defaultModel() else {
+            lines.append("\(mark(false)) no whisper model in \(models)")
+            lines.append("    download one from https://huggingface.co/ggerganov/whisper.cpp")
+            return lines
+        }
+        lines.append("\(mark(true)) whisper model \(model.lastPathComponent)")
+        if WhisperTranscriber.voiceDetectionModel() == nil {
+            lines.append("\(mark(false)) no silero VAD model — whisper timestamps will be coarse")
+        }
+        return lines
     }
 
     private func mark(_ ok: Bool) -> String { ok ? "ok  " : "MISSING" }

@@ -44,6 +44,9 @@ struct Record: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
     var mux = true
 
+    @Option(name: .long, help: "Transcribe afterwards with auto, apple or whisper.")
+    var transcribe: TranscriptionEngine?
+
     func run() async throws {
         let seconds = try duration.map(DurationSpec.parse)
         try await Permissions.preflight(needsMicrophone: microphone)
@@ -62,6 +65,7 @@ struct Record: AsyncParsableCommand {
         print(Report.render(summary))
 
         if mux { try muxTracks(plan) }
+        if let transcribe { await TranscriptRun.follow(plan, engine: transcribe) }
     }
 
     private var target: CaptureTarget {

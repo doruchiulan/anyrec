@@ -53,6 +53,8 @@ struct TUISession {
         Terminal.restore()
         print(SummaryReport.render(summary, merged: merged))
         if let notice { print("\n" + notice) }
+        /// Only after raw mode is handed back: the engines print as they go.
+        if let engine = settings.transcribe { await TranscriptRun.follow(plan, engine: engine) }
     }
 
     private func merge(settings: Settings, plan: OutputPlan) -> URL? {

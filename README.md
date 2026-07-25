@@ -23,6 +23,7 @@ slack-rec
   Call audio  On
   Stop        when I press q
   Merge       On — call.mp4
+  Transcript  On — pick the engine by language
 
     Start recording
 
@@ -50,11 +51,14 @@ is over rather than after:
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
   call.mp4            everything together — play this one
+  transcript-apple.md who said what, in order
+  transcript-apple.srt subtitles for call.mp4
 ```
 
 Separate tracks mean you can drop your own microphone, duck one side against the
-other, or transcribe the two voices independently. `call.mp4` is the one you
-double-click; ffmpeg produces it after the recording, unless you pass `--no-mux`.
+other, or — see below — get a transcript that already knows who was talking.
+`call.mp4` is the one you double-click; ffmpeg produces it after the recording,
+unless you pass `--no-mux`.
 
 `screen.mov` deliberately carries no audio track. On its own it plays silent —
 that is the design, not a fault.
@@ -91,6 +95,9 @@ slack-rec doctor
 ok   Screen Recording
 ok   Microphone
 ok   ffmpeg at /opt/homebrew/bin/ffmpeg
+ok   apple speech, 10 languages, on-device
+ok   whisper at /opt/homebrew/bin/whisper-cli
+ok   whisper model ggml-large-v3-turbo-q5_0.bin
 ok   Slack, Zoom
 ```
 
@@ -132,8 +139,9 @@ truncated `.mov`.
 | `apps` | Applications with capturable windows, call apps first and marked `*`. |
 | `windows` | Call apps' capturable windows and their ids. `--all` for every app. |
 | `displays` | Capturable displays and their indices. |
+| `transcribe` | Transcribe a recording. Defaults to the newest one. |
 | `mics` | Input devices and the ids `--mic` accepts. |
-| `doctor` | Permissions, ffmpeg, and which call apps are running. |
+| `doctor` | Permissions, ffmpeg, transcription engines, running call apps. |
 
 | Flag | Default | |
 |---|---|---|
@@ -146,6 +154,72 @@ truncated `.mov`.
 | `--hide-cursor` | off | Leave the pointer out of the video. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
+| `--transcribe` | off | `auto`, `apple` or `whisper`, run after the recording. |
+
+## Transcripts
+
+Because your microphone and the call are already separate files, the transcript
+knows who spoke without any diarisation guesswork:
+
+```
+slack-rec transcribe                  # the newest recording
+slack-rec transcribe ~/Desktop/CallRec\ Recordings/slack-call-2026-07-25-131411
+slack-rec transcribe --engine whisper --language ro
+slack-rec record --for 45m --transcribe auto
+```
+
+```markdown
+# slack-call-2026-07-25-131411
+
+00:19 · English · transcribed by apple
+
+**[00:00] Me:** Hi everyone, thanks for joining. I want to walk through the KNX
+wiring plan for the Costi house before we get to the budget.
+
+**[00:11] Call:** Sounds good. My main question is whether we keep the existing
+Zigbee sensors or move everything to KNX.
+```
+
+You get `transcript-<engine>.md` and a matching `.srt` you can drop onto
+`call.mp4`.
+
+Two engines, both running entirely on your machine:
+
+| | | |
+|---|---|---|
+| `apple` | macOS 26 `SpeechAnalyzer` | ~12× realtime, no setup, 10 languages — no Romanian |
+| `whisper` | whisper.cpp | ~5× realtime, needs a model, 99 languages including Romanian |
+
+`auto` detects the spoken language first and picks accordingly: Apple when it has
+a model for that language, whisper otherwise. Detection needs whisper installed;
+without it, `auto` assumes English.
+
+For whisper, install the binary and put a model where slack-rec looks for it:
+
+```
+brew install whisper-cpp
+cd ~/Library/Application\ Support/slack-rec/models
+curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+curl -LO https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
+```
+
+The second one is voice-activity detection, and it matters more than its size
+suggests: each track is silent while the other person talks, and without VAD
+whisper stretches its first segment across that silence — which puts the turns
+in the wrong order. It also skips the silence instead of transcribing it.
+
+### Summaries
+
+`--summarize` hands the finished transcript to `claude -p`, which cleans up
+mishearings and pulls out decisions and action items in the language of the call:
+
+```
+slack-rec transcribe --summarize
+```
+
+This is the one part of the tool that leaves your machine — the transcript text
+is sent to Anthropic. Claude has no audio input, so it never sees the recording
+itself. Everything else, transcription included, is local.
 
 ## Consent
 
