@@ -3,20 +3,34 @@ import SlackRecKit
 
 enum Report {
     static func render(_ summary: RecordingSummary) -> String {
-        let rows = [
-            row(summary.plan.screen, count: summary.screenFrames, unit: "frames"),
-            row(summary.plan.systemAudio, count: summary.systemAudioSamples, unit: "buffers"),
-            row(summary.plan.microphone, count: summary.microphoneSamples, unit: "buffers"),
-        ]
-        var lines = ["", summary.plan.directory.path] + rows
+        var lines = ["", summary.plan.directory.path]
+        lines.append(row(summary.plan.screen, count: summary.screenFrames, unit: "frames"))
+        lines += AudioTrack.allCases.map { audioRow($0, in: summary) }
+
+        for note in notes(summary) { lines += ["", note] }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func audioRow(_ track: AudioTrack, in summary: RecordingSummary) -> String {
+        let url = track == .systemAudio ? summary.plan.systemAudio : summary.plan.microphone
+        let base = row(url, count: summary.samples(for: track), unit: "buffers")
+        guard summary.samples(for: track) > 0 else { return base }
+        return "\(base), peak \(MeterScale.reading(summary.peak(for: track))) dB"
+    }
+
+    private static func notes(_ summary: RecordingSummary) -> [String] {
+        var notes = AudioTrack.allCases.compactMap { track -> String? in
+            guard summary.samples(for: track) > 0 else { return nil }
+            return MeterScale.verdict(peak: summary.peak(for: track), for: track)
+                .map { "\(track.rawValue): \($0)" }
+        }
         if summary.droppedSamples > 0 {
-            lines.append("")
-            lines.append(
+            notes.append(
                 "\(summary.droppedSamples) buffers dropped — the encoder could not keep up. "
                     + "Try --fps 24 or --codec hevc."
             )
         }
-        return lines.joined(separator: "\n")
+        return notes
     }
 
     private static func row(_ url: URL, count: Int, unit: String) -> String {

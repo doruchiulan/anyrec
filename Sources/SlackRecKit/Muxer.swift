@@ -29,7 +29,7 @@ public enum Muxer {
         let audio = [plan.systemAudio, plan.microphone].filter { exists($0.path) }
         let output = plan.directory.appendingPathComponent("call.mp4")
 
-        var args = ["-y", "-i", plan.screen.path]
+        var args = ["-nostdin", "-y", "-i", plan.screen.path]
         args += audio.flatMap { ["-i", $0.path] }
 
         if audio.count > 1 {
@@ -62,6 +62,9 @@ public enum Muxer {
         let pipe = Pipe()
         process.standardError = pipe
         process.standardOutput = pipe
+        /// ffmpeg reads the terminal for interactive keys, which steals them from us
+        /// and blocks when the terminal is in raw mode.
+        process.standardInput = FileHandle.nullDevice
 
         try process.run()
         let log = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)

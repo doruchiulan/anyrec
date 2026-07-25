@@ -2,9 +2,15 @@
 
 ## Overview
 
-macOS CLI that records a Slack call as three separate tracks: Slack's windows
+macOS CLI that records a call as three separate tracks: the app's windows
 (including screen-shared content), system audio output, and microphone input.
-Built on ScreenCaptureKit, so no virtual audio driver is required.
+Built on ScreenCaptureKit, so no virtual audio driver is required. Slack, Teams,
+Zoom, Meet, Discord and browsers are recognised automatically; any window or
+display can be targeted explicitly.
+
+Running it with no arguments opens a TUI (setup screen, interactive capture and
+microphone pickers, live meters). `record` is the same thing driven by flags,
+and is what a non-tty falls back to.
 
 ## Tech Stack
 
@@ -31,17 +37,21 @@ scripts/release.sh <ver>    # universal + ad-hoc signed + tarball + sha256
 ## Architecture
 
 `SlackRecKit` holds everything testable and framework-facing; the `slack-rec`
-executable is argument parsing and output formatting only.
+executable is argument parsing, the TUI, and output formatting only.
 
 | File | |
 |---|---|
 | `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
-| `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
-| `ContentInventory.swift` | Read-only listing of windows and displays. |
+| `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions; auto-detects the running call app. |
+| `CallApps.swift` | The bundle-id registry behind auto-detection and the `*` marks in `apps`. |
+| `ContentInventory.swift` | Read-only listing of applications, windows and displays. |
+| `AudioLevel.swift`, `LevelMonitor.swift` | Peak/RMS off the raw buffers; lock-guarded hand-off to the UI. |
+| `MeterScale.swift` | Pure dBFS → bar/zone/verdict math. The tested part of the meters. |
 | `Permissions.swift` | TCC preflight and status. |
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. |
 | `OutputPlan.swift`, `DurationSpec.swift` | Paths and `--for` parsing. |
+| `slack-rec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `SetupScreen`, `RecordingScreen`, `TUISession`. |
 
 Invariants worth preserving:
 
@@ -52,8 +62,14 @@ Invariants worth preserving:
   A/V sync.
 - Non-`.complete` screen frames are discarded. Writing idle frames pads the
   video and drifts it against the audio.
-- Slack is captured by application filter, never by a single window id: a
+- An app is captured by application filter, never by a single window id: a
   huddle's screen-share is frequently a separate window.
+- The meters read the buffers already on their way to disk. Never add a second
+  audio tap to feed the UI.
+- Child processes must not inherit the terminal's stdin while raw mode is on —
+  ffmpeg is run with `-nostdin` and `/dev/null` for exactly this reason.
+- There is no output-device setting to add: ScreenCaptureKit taps app audio
+  before any output device.
 
 ## Permissions
 

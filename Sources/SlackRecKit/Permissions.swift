@@ -60,6 +60,12 @@ public enum Permissions {
         guard missing.isEmpty else { throw PermissionsError(missing: missing) }
     }
 
+    @discardableResult
+    public static func requestMicrophone() async -> Bool {
+        if microphoneGranted() { return true }
+        return await AVCaptureDevice.requestAccess(for: .audio)
+    }
+
     /// SCShareableContent throws an opaque error without this permission; fail readably instead.
     public static func requireScreenRecording() throws {
         guard screenRecordingGranted() else {

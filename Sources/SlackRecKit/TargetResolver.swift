@@ -17,7 +17,20 @@ public enum TargetResolver {
         case .application(let bundleID): try resolveApplication(bundleID, in: content)
         case .display(let index): try resolveDisplay(index, in: content)
         case .window(let id): try resolveWindow(id, in: content)
+        case .autoDetect: try resolveApplication(try detect(in: content), in: content)
         }
+    }
+
+    /// Dedicated clients win over browsers, and among equals the one with most windows.
+    private static func detect(in content: SCShareableContent) throws -> String {
+        let running = CallApps.known.filter { app in
+            content.applications.contains { $0.bundleIdentifier == app.bundleID }
+                && content.windows.contains { $0.owningApplication?.bundleIdentifier == app.bundleID }
+        }
+        guard let pick = running.first(where: { !$0.isBrowser }) ?? running.first else {
+            throw TargetError.noCallAppRunning
+        }
+        return pick.bundleID
     }
 
     private static func resolveApplication(
@@ -33,7 +46,8 @@ public enum TargetResolver {
         let filter = SCContentFilter(
             display: display, including: [app], exceptingWindows: []
         )
-        return describe(filter, as: "\(app.applicationName) (\(windows.count) windows)")
+        let count = "\(windows.count) window\(windows.count == 1 ? "" : "s")"
+        return describe(filter, as: "\(app.applicationName) (\(count))")
     }
 
     private static func resolveDisplay(

@@ -4,19 +4,24 @@ import SlackRecKit
 
 struct Windows: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "List capturable windows, Slack's by default."
+        abstract: "List capturable windows belonging to call apps."
     )
 
-    @Flag(name: .long, help: "List every application's windows, not just Slack's.")
+    @Flag(name: .long, help: "List every application's windows, not just call apps'.")
     var all = false
+
+    @Option(name: .long, help: "List one application's windows.")
+    var bundleId: String?
 
     func run() async throws {
         try Permissions.requireScreenRecording()
-        let windows = try await ContentInventory.windows(
-            bundleID: all ? nil : CaptureTarget.slackBundleID
-        )
+        let windows = try await ContentInventory.windows(bundleIDs: filter)
         guard !windows.isEmpty else {
-            print("No windows found. Is Slack open?")
+            print(
+                all
+                    ? "No capturable windows found."
+                    : "No call app windows found. Open one, or pass --all."
+            )
             return
         }
         for window in windows {
@@ -24,6 +29,27 @@ struct Windows: AsyncParsableCommand {
                 .padding(toLength: 12, withPad: " ", startingAt: 0)
             let id = String(window.id).padding(toLength: 8, withPad: " ", startingAt: 0)
             print("\(id)\(size)\(window.application) — \(window.title)")
+        }
+    }
+
+    private var filter: Set<String>? {
+        if let bundleId { return [bundleId] }
+        return all ? nil : CallApps.bundleIDs
+    }
+}
+
+struct Apps: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "List applications with capturable windows, call apps first."
+    )
+
+    func run() async throws {
+        try Permissions.requireScreenRecording()
+        for app in try await ContentInventory.applications() {
+            let mark = app.isKnownCallApp ? "*" : " "
+            let name = app.name.padding(toLength: 26, withPad: " ", startingAt: 0)
+            let windows = "\(app.windowCount) window\(app.windowCount == 1 ? "" : "s")"
+            print("\(mark) \(name)\(windows.padding(toLength: 12, withPad: " ", startingAt: 0))\(app.bundleID)")
         }
     }
 }
@@ -73,8 +99,12 @@ struct Doctor: AsyncParsableCommand {
         }
 
         guard Permissions.screenRecordingGranted() else { return }
-        let running = try await ContentInventory.isRunning(bundleID: CaptureTarget.slackBundleID)
-        print("\(mark(running)) Slack \(running ? "is running" : "is not running")")
+        let apps = try await ContentInventory.runningCallApps()
+        if apps.isEmpty {
+            print("\(mark(false)) no call app running — open one, or use --display/--window")
+        } else {
+            print("\(mark(true)) \(apps.map(\.name).joined(separator: ", "))")
+        }
     }
 
     private func mark(_ ok: Bool) -> String { ok ? "ok  " : "MISSING" }

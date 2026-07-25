@@ -9,16 +9,16 @@ struct Record: AsyncParsableCommand {
     )
 
     @Option(name: .shortAndLong, help: "Directory the recording folder is created in.")
-    var output = "~/Desktop/CallRec Recordings"
+    var output = Defaults.outputRoot
 
-    @Option(name: .long, help: "Capture a whole display instead of Slack's windows.")
+    @Option(name: .long, help: "Capture a whole display instead of one app's windows.")
     var display: Int?
 
     @Option(name: .long, help: "Capture one window id (see `slack-rec windows`).")
     var window: UInt32?
 
-    @Option(name: .long, help: "Bundle id of the app to capture.")
-    var bundleId = CaptureTarget.slackBundleID
+    @Option(name: .long, help: "Bundle id of the app to capture (see `slack-rec apps`).")
+    var bundleId: String?
 
     @Option(name: .long, help: "Frames per second (1–60).")
     var fps = 30
@@ -67,7 +67,8 @@ struct Record: AsyncParsableCommand {
     private var target: CaptureTarget {
         if let window { return .window(id: window) }
         if let display { return .display(index: display) }
-        return .application(bundleID: bundleId)
+        if let bundleId { return .application(bundleID: bundleId) }
+        return .autoDetect
     }
 
     private var options: CaptureOptions {

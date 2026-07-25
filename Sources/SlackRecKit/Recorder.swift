@@ -20,6 +20,28 @@ public struct RecordingSummary: Sendable {
     public let systemAudioSamples: Int
     public let microphoneSamples: Int
     public let droppedSamples: Int
+    public let systemAudioPeak: Float
+    public let microphonePeak: Float
+
+    public func peak(for track: AudioTrack) -> Float {
+        switch track {
+        case .systemAudio: systemAudioPeak
+        case .microphone: microphonePeak
+        }
+    }
+
+    public func samples(for track: AudioTrack) -> Int {
+        switch track {
+        case .systemAudio: systemAudioSamples
+        case .microphone: microphoneSamples
+        }
+    }
+}
+
+/// A snapshot safe to read from another thread while capture is running.
+public struct RecordingProgress: Sendable {
+    public let screenFrames: Int
+    public let droppedSamples: Int
 }
 
 /// Drives one SCStream and fans its three output types into three files.
@@ -31,6 +53,8 @@ public final class Recorder: NSObject {
     private let target: ResolvedTarget
     private let plan: OutputPlan
     private let queue = DispatchQueue(label: "ro.qlan.slack-rec.capture")
+
+    public let levels = LevelMonitor()
 
     private var stream: SCStream?
     private var writers: [SCStreamOutputType: TrackWriter] = [:]
@@ -73,8 +97,19 @@ public final class Recorder: NSObject {
             screenFrames: tracks[.screen]?.samplesWritten ?? 0,
             systemAudioSamples: tracks[.audio]?.samplesWritten ?? 0,
             microphoneSamples: tracks[.microphone]?.samplesWritten ?? 0,
-            droppedSamples: tracks.values.reduce(0) { $0 + $1.samplesDropped }
+            droppedSamples: tracks.values.reduce(0) { $0 + $1.samplesDropped },
+            systemAudioPeak: levels.sessionPeak(for: .systemAudio),
+            microphonePeak: levels.sessionPeak(for: .microphone)
         )
+    }
+
+    public func progress() -> RecordingProgress {
+        queue.sync {
+            RecordingProgress(
+                screenFrames: writers[.screen]?.samplesWritten ?? 0,
+                droppedSamples: writers.values.reduce(0) { $0 + $1.samplesDropped }
+            )
+        }
     }
 
     private func makeConfiguration() -> SCStreamConfiguration {
@@ -143,6 +178,10 @@ extension Recorder: SCStreamOutput {
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
         if type == .screen, !isCompleteFrame(sampleBuffer) { return }
 
+        if let track = AudioTrack(type), let level = AudioLevelMeter.measure(sampleBuffer) {
+            levels.record(level, for: track)
+        }
+
         do {
             let track = try writer(for: type, buffer: sampleBuffer)
             let presentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
@@ -151,6 +190,16 @@ extension Recorder: SCStreamOutput {
             track.append(sampleBuffer, sessionStart: start)
         } catch {
             failure = failure ?? error
+        }
+    }
+}
+
+extension AudioTrack {
+    init?(_ type: SCStreamOutputType) {
+        switch type {
+        case .audio: self = .systemAudio
+        case .microphone: self = .microphone
+        default: return nil
         }
     }
 }
