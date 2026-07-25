@@ -68,6 +68,10 @@ Invariants worth preserving:
   audio tap to feed the UI.
 - Child processes must not inherit the terminal's stdin while raw mode is on —
   ffmpeg is run with `-nostdin` and `/dev/null` for exactly this reason.
+- Raw mode owns SIGINT/SIGTERM/SIGHUP: `Terminal.readKey` reports them as
+  `.interrupt` so every loop exits through the same path and the writers
+  finalise. A loop that reads stdin directly would lose the recording — the
+  files end up `ftyp`+`mdat` with no `moov`, which nothing can open.
 - There is no output-device setting to add: ScreenCaptureKit taps app audio
   before any output device.
 

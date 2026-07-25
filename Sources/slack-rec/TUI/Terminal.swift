@@ -52,13 +52,19 @@ enum Terminal {
     }
 
     private static var saved: termios?
+    private static var signals: Interrupt?
 
+    /// Takes over the terminal, and with it Ctrl-C: a full-screen app has files to
+    /// finalise, so signals are turned into an `.interrupt` key rather than being
+    /// left to kill the process where it stands.
+    ///
     /// `pollTenths` is VTIME: reads give up after that many tenths of a second and
     /// return nothing, which is what paces the redraw loop.
     static func enterRawMode(pollTenths: UInt8 = 1) {
         var term = termios()
         guard tcgetattr(STDIN_FILENO, &term) == 0 else { return }
         saved = term
+        signals = Interrupt.watching()
 
         term.c_lflag &= ~(UInt(ECHO) | UInt(ICANON))
         withUnsafeMutablePointer(to: &term.c_cc) { tuple in
@@ -73,6 +79,7 @@ enum Terminal {
 
     static func restore() {
         write(showCursor + alternateScreenOff)
+        signals = nil
         guard var term = saved else { return }
         tcsetattr(STDIN_FILENO, TCSANOW, &term)
         saved = nil
@@ -80,6 +87,8 @@ enum Terminal {
 
     /// Nil means the poll interval elapsed with no key pressed.
     static func readKey() -> Key? {
+        if signals?.isTriggered == true { return .interrupt }
+
         var byte: UInt8 = 0
         guard read(STDIN_FILENO, &byte, 1) == 1 else { return nil }
         switch byte {
