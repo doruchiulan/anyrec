@@ -8,20 +8,23 @@ Everything runs through ScreenCaptureKit. There is no virtual audio driver to
 install, no BlackHole, no Aggregate Device to wire up in Audio MIDI Setup.
 
 ```
-slack-rec record --for 45m --mux
+slack-rec record --for 45m
 ```
 
 ```
-/Users/you/Recordings/slack-call-2026-07-25-131411
-  screen.mov          81043 frames, 1.4 GB
+~/Desktop/CallRec Recordings/slack-call-2026-07-25-131411
+  screen.mov          81043 frames, 1.4 GB     video only, no audio
   system-audio.m4a    2251 buffers, 43 MB
   microphone.m4a      2251 buffers, 41 MB
-  call.mp4            (with --mux)
+  call.mp4            everything together — play this one
 ```
 
 Separate tracks mean you can drop your own microphone, duck one side against the
-other, or transcribe the two voices independently. `--mux` folds them into a
-single `call.mp4` when you just want something playable.
+other, or transcribe the two voices independently. `call.mp4` is the one you
+double-click; ffmpeg produces it after the recording, unless you pass `--no-mux`.
+
+`screen.mov` deliberately carries no audio track. On its own it plays silent —
+that is the design, not a fault.
 
 ## Install
 
@@ -67,6 +70,14 @@ slack-rec record --no-microphone      # capture only what the call plays back
 slack-rec record --display 0          # a whole display rather than Slack
 slack-rec record --window 24619       # one specific window
 slack-rec record --mic BuiltInMicrophoneDevice
+slack-rec record --no-mux              # keep the tracks separate, skip call.mp4
+```
+
+ffmpeg is what merges the tracks. Without it you still get all three, but no
+`call.mp4` — `slack-rec doctor` and the recording banner both say so.
+
+```
+brew install ffmpeg
 ```
 
 Ctrl-C is handled: the writers finalise their files rather than leaving you a
@@ -82,11 +93,11 @@ truncated `.mov`.
 
 | Flag | Default | |
 |---|---|---|
-| `--output` | `~/Recordings` | Directory the timestamped folder is created in. |
+| `--output` | `~/Desktop/CallRec Recordings` | Directory the timestamped folder is created in. |
 | `--for` | — | `90s`, `45m`, `1h30m`. Without it, runs until Ctrl-C. |
 | `--fps` | `30` | 1–60. |
 | `--codec` | `h264` | `hevc` gives smaller files and costs more CPU. |
-| `--mux` | off | Merge into `call.mp4` with ffmpeg afterwards. |
+| `--[no-]mux` | on | Merge into `call.mp4` with ffmpeg afterwards. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |

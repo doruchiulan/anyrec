@@ -27,6 +27,12 @@ class SlackRec < Formula
       Quit and reopen your terminal after granting them, then run:
 
         slack-rec doctor
+
+      Recordings land in ~/Desktop/CallRec Recordings. ffmpeg is what merges the
+      three tracks into a playable call.mp4; without it you still get the tracks,
+      but screen.mov has no audio of its own:
+
+        brew install ffmpeg
     EOS
   end
 

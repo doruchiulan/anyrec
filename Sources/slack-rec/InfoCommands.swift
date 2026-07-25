@@ -65,8 +65,12 @@ struct Doctor: AsyncParsableCommand {
             if !granted { print("    \(permission.settingsURL.absoluteString)") }
         }
 
-        let ffmpeg = Muxer.ffmpegPath()
-        print("\(mark(ffmpeg != nil)) ffmpeg \(ffmpeg.map { "at \($0)" } ?? "not found (only needed for --mux)")")
+        if let ffmpeg = Muxer.ffmpegPath() {
+            print("\(mark(true)) ffmpeg at \(ffmpeg)")
+        } else {
+            print("\(mark(false)) ffmpeg not found — no call.mp4 will be produced")
+            print("    brew install ffmpeg")
+        }
 
         guard Permissions.screenRecordingGranted() else { return }
         let running = try await ContentInventory.isRunning(bundleID: CaptureTarget.slackBundleID)

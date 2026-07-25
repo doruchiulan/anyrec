@@ -12,7 +12,8 @@ Built on ScreenCaptureKit, so no virtual audio driver is required.
 - ScreenCaptureKit — capture; AVFoundation — encoding
 - swift-argument-parser — CLI
 - swift-testing — tests
-- ffmpeg (optional, runtime) — `--mux` only
+- ffmpeg (runtime) — merges the tracks into `call.mp4`; on by default, degrades
+  to a warning plus the separate tracks when absent
 
 Requires macOS 15+. `SCStreamConfiguration.captureMicrophone` and
 `SCStreamOutputType.microphone` are Sequoia APIs with no fallback.

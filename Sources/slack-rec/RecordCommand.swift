@@ -9,7 +9,7 @@ struct Record: AsyncParsableCommand {
     )
 
     @Option(name: .shortAndLong, help: "Directory the recording folder is created in.")
-    var output = "~/Recordings"
+    var output = "~/Desktop/CallRec Recordings"
 
     @Option(name: .long, help: "Capture a whole display instead of Slack's windows.")
     var display: Int?
@@ -41,8 +41,8 @@ struct Record: AsyncParsableCommand {
     @Flag(name: .long, help: "Leave the mouse cursor out of the video.")
     var hideCursor = false
 
-    @Flag(name: .long, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
-    var mux = false
+    @Flag(inversion: .prefixedNo, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
+    var mux = true
 
     func run() async throws {
         let seconds = try duration.map(DurationSpec.parse)
@@ -54,6 +54,7 @@ struct Record: AsyncParsableCommand {
 
         try await recorder.start()
         print(startBanner(resolved, plan: plan, seconds: seconds))
+        if let warning = ffmpegWarning() { print(warning) }
 
         await Interrupt.wait(timeout: seconds)
         print("\nFinishing…")
@@ -95,14 +96,33 @@ struct Record: AsyncParsableCommand {
         Tracks:    \(tracks)
         Folder:    \(plan.directory.path)
         Stops:     \(stopsAt)
+        Then:      \(mux ? "merges into call.mp4 (--no-mux to skip)" : "leaves the tracks separate")
 
         Everyone on this call should know it is being recorded.
         """
     }
 
+    private func ffmpegWarning() -> String? {
+        guard mux, Muxer.ffmpegPath() == nil else { return nil }
+        return """
+
+        Warning: ffmpeg is not on PATH, so there will be no combined call.mp4 —
+        only the separate tracks, and screen.mov carries no audio. Stop now and
+        run `brew install ffmpeg` if you want one playable file.
+        """
+    }
+
     private func muxTracks(_ plan: OutputPlan) throws {
         guard Muxer.ffmpegPath() != nil else {
-            print("Skipping mux: ffmpeg is not on PATH (brew install ffmpeg).")
+            print(
+                """
+                No call.mp4: ffmpeg is not on PATH. The separate tracks are intact —
+                install ffmpeg (brew install ffmpeg) and merge them with:
+                  ffmpeg -i screen.mov -i system-audio.m4a -i microphone.m4a \\
+                    -filter_complex "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
+                    -map 0:v -map "[a]" -c:v copy -c:a aac call.mp4
+                """
+            )
             return
         }
         print("Muxing with ffmpeg…")
