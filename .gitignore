@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+dist/
+.DS_Store
+*.xcodeproj
+Package.resolved
+
+# Never commit captures
+*.mov
+*.mp4
+*.m4a
+*.caf
+Recordings/
