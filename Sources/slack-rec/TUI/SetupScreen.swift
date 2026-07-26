@@ -153,6 +153,12 @@ struct SetupScreen {
         if settings.transcribe == .whisper, WhisperTranscriber.binaryPath() == nil {
             return "whisper is missing, so there will be no transcript: brew install whisper-cpp"
         }
+        if settings.transcribe == .openai, OpenAITranscriber.key() == nil {
+            return "No OpenAI key, so there will be no transcript: export OPENAI_API_KEY=…"
+        }
+        if settings.transcribe == .openai {
+            return "OpenAI transcribes off your machine — both audio tracks are uploaded."
+        }
         if settings.microphone == nil, !settings.systemAudio {
             return "Both audio tracks are off — this will be a silent video."
         }

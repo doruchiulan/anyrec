@@ -62,6 +62,17 @@ struct TranscriptTests {
         #expect(text.contains("**[00:00] Me:** a"))
     }
 
+    @Test("markdown puts a note above the lines it casts doubt on")
+    func note() {
+        let text = Transcript(
+            utterances: [line(0, 2, "a", .me)], language: "en", engine: "test",
+            notes: [SpeakerBleed.transcriptWarning]
+        ).markdown(title: "call")
+
+        #expect(text.contains("\n> The microphone picked up the speakers"))
+        #expect(text.range(of: "> The")!.lowerBound < text.range(of: "**[00:00]")!.lowerBound)
+    }
+
     @Test("srt numbers cues from one and stamps them to the millisecond")
     func srt() {
         let text = transcript([line(0, 1.5, "a", .me), line(3_661.25, 3_662, "b", .others)]).srt

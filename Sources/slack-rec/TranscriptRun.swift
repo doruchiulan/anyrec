@@ -20,6 +20,7 @@ enum TranscriptRun {
                 transcript, into: plan.directory, named: "transcript-\(transcript.engine)"
             )
             written.forEach { print("  Wrote \($0.path)") }
+            transcript.notes.forEach { print("\n  \($0)") }
         } catch {
             print("  No transcript: \(error)")
             print("  The recording is untouched — retry with `slack-rec transcribe`.")

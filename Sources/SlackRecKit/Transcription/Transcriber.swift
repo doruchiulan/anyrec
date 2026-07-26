@@ -4,12 +4,28 @@ public enum TranscriptionEngine: String, Sendable, CaseIterable {
     case auto
     case apple
     case whisper
+    case openai
+
+    /// The audio leaves the machine. `auto` never picks one of these.
+    public var isRemote: Bool { self == .openai }
+}
+
+/// What one engine heard in one track.
+public struct Speech: Sendable {
+    public let utterances: [Utterance]
+    /// The language the engine decided it was hearing, when it was not told.
+    public let language: String?
+
+    public init(utterances: [Utterance], language: String? = nil) {
+        self.utterances = utterances
+        self.language = language
+    }
 }
 
 public protocol Transcriber: Sendable {
     var name: String { get }
     /// `language` is a BCP-47 tag; nil means let the engine decide.
-    func utterances(of url: URL, language: String?) async throws -> [Utterance]
+    func speech(of url: URL, language: String?) async throws -> Speech
 }
 
 public enum TranscriptionError: Error, CustomStringConvertible {
@@ -20,6 +36,7 @@ public enum TranscriptionError: Error, CustomStringConvertible {
     case engineFailed(engine: String, log: String)
     case unsupportedLanguage(engine: String, language: String)
     case appleUnavailable
+    case openAIKeyMissing(URL)
 
     public var description: String {
         switch self {
@@ -42,6 +59,12 @@ public enum TranscriptionError: Error, CustomStringConvertible {
             "\(engine) has no model for \(language)."
         case .appleUnavailable:
             "Apple's on-device transcription needs macOS 26 or later."
+        case .openAIKeyMissing(let file):
+            """
+            No OpenAI API key. Bring your own, either way round:
+              export OPENAI_API_KEY=sk-…
+              printf %s sk-… > "\(file.path)"
+            """
         }
     }
 }

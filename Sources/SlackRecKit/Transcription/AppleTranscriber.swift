@@ -33,7 +33,7 @@ public struct AppleTranscriber: Transcriber {
         self.locale = locale
     }
 
-    public func utterances(of url: URL, language: String?) async throws -> [Utterance] {
+    public func speech(of url: URL, language: String?) async throws -> Speech {
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
         try await install(transcriber)
 
@@ -59,7 +59,7 @@ public struct AppleTranscriber: Transcriber {
         } else {
             await analyzer.cancelAndFinishNow()
         }
-        return try await collected.value
+        return Speech(utterances: try await collected.value)
     }
 
     private func install(_ transcriber: SpeechTranscriber) async throws {

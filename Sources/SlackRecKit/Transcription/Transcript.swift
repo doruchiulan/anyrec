@@ -41,14 +41,19 @@ public struct Transcript: Sendable, Equatable {
     public let utterances: [Utterance]
     public let language: String
     public let engine: String
+    /// What the reader has to know before believing the speaker labels.
+    public let notes: [String]
 
-    public init(utterances: [Utterance], language: String, engine: String) {
+    public init(
+        utterances: [Utterance], language: String, engine: String, notes: [String] = []
+    ) {
         self.utterances =
             utterances
             .filter { !$0.text.isEmpty }
             .sorted { ($0.start, $0.end) < ($1.start, $1.end) }
         self.language = language
         self.engine = engine
+        self.notes = notes
     }
 
     public var isEmpty: Bool { utterances.isEmpty }
@@ -75,12 +80,13 @@ public struct Transcript: Sendable, Equatable {
     }
 
     public func markdown(title: String) -> String {
-        let header = [
-            "# \(title)",
-            "",
-            "\(Self.clock(duration)) · \(languageName) · transcribed by \(engine)",
-            "",
-        ]
+        let header =
+            [
+                "# \(title)",
+                "",
+                "\(Self.clock(duration)) · \(languageName) · transcribed by \(engine)",
+                "",
+            ] + notes.flatMap { ["> \($0)", ""] }
         let body = turns.map {
             "**[\(Self.clock($0.start))] \($0.speaker.label):** \($0.text)"
         }

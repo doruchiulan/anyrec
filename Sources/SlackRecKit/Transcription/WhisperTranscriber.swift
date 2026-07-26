@@ -66,7 +66,7 @@ public struct WhisperTranscriber: Transcriber {
         return tag
     }
 
-    public func utterances(of url: URL, language: String?) async throws -> [Utterance] {
+    public func speech(of url: URL, language: String?) async throws -> Speech {
         let audio = try Self.wav(from: url)
         let scratch = audio.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: scratch) }
@@ -88,7 +88,7 @@ public struct WhisperTranscriber: Transcriber {
         }
 
         let json = try Data(contentsOf: prefix.appendingPathExtension("json"))
-        return try Self.parse(json)
+        return Speech(utterances: try Self.parse(json))
     }
 
     static func parse(_ data: Data) throws -> [Utterance] {

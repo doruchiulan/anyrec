@@ -10,16 +10,19 @@ struct Transcribe: AsyncParsableCommand {
         The microphone and the call are separate tracks, so every line is already \
         attributed: no diarisation, no guessing who spoke.
 
-        Everything runs on this machine. `apple` is the macOS 26 speech model — \
-        fast, thirty locales, no Romanian. `whisper` is whisper.cpp, slower but it \
-        handles Romanian. `auto` detects the language and picks accordingly.
+        `apple` is the macOS 26 speech model — fast, thirty locales, no Romanian. \
+        `whisper` is whisper.cpp, slower but it handles Romanian. `auto` detects the \
+        language and picks between the two. All three run on this machine.
+
+        `openai` is the exception: it uploads both audio tracks to OpenAI and needs \
+        your own API key in OPENAI_API_KEY. `auto` never picks it.
         """
     )
 
     @Argument(help: "A recording folder or an audio file. Defaults to the newest recording.")
     var path: String?
 
-    @Option(name: .long, help: "Which engine to use: auto, apple or whisper.")
+    @Option(name: .long, help: "Which engine to use: auto, apple, whisper or openai.")
     var engine: TranscriptionEngine = .auto
 
     @Option(name: .long, help: "Language tag such as en or ro. Detected when omitted.")
@@ -107,6 +110,8 @@ struct Transcribe: AsyncParsableCommand {
         return exists && directory.boolValue
     }
 
+    /// The notes are said twice on purpose: once before the wait, and again here,
+    /// where the minutes of engine output cannot bury them.
     private func report(_ transcript: Transcript, started: Date, written: [URL]) -> String {
         let elapsed = Date().timeIntervalSince(started)
         let speed = transcript.duration > 0 ? transcript.duration / elapsed : 0
@@ -117,7 +122,7 @@ struct Transcribe: AsyncParsableCommand {
             Took \(String(format: "%.1fs", elapsed))\
             \(speed > 0 ? String(format: " (%.1f× realtime)", speed) : "")
             \(written.map { "Wrote \($0.path)" }.joined(separator: "\n"))
-            """
+            """ + transcript.notes.map { "\n\n\($0)" }.joined()
     }
 
     private func writeSummary(_ transcript: Transcript, into directory: URL, engine: String) throws {

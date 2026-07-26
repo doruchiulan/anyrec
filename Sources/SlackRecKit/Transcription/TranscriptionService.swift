@@ -41,21 +41,44 @@ public enum TranscriptionService {
     ) async throws -> Transcript {
         guard !job.tracks.isEmpty else { throw TranscriptionError.noAudio }
 
+        /// Checked before the engines run, which take minutes: whoever is watching
+        /// should know the labels are unreliable before they wait for them.
+        let notes = bleedNote(job.tracks).map { [$0] } ?? []
+        notes.forEach(progress)
+
         let language = try language(for: job, progress: progress)
-        let transcriber = try await transcriber(for: job, language: language)
-        progress("Transcribing with \(transcriber.name) (\(language))…")
+        let transcriber = try await transcriber(for: job, language: language ?? "en")
+        progress("Transcribing with \(transcriber.name) (\(language ?? "language auto-detected"))…")
 
         var utterances: [Utterance] = []
+        var heard = language
         for track in job.tracks {
             progress("  \(track.url.lastPathComponent)…")
-            let spoken = try await transcriber.utterances(of: track.url, language: language)
-            utterances += spoken.map {
+            let spoken = try await transcriber.speech(of: track.url, language: language)
+            heard = heard ?? spoken.language
+            utterances += spoken.utterances.map {
                 var tagged = $0
                 tagged.speaker = track.speaker
                 return tagged
             }
         }
-        return Transcript(utterances: utterances, language: language, engine: transcriber.name)
+        return Transcript(
+            utterances: utterances, language: heard ?? "en", engine: transcriber.name, notes: notes
+        )
+    }
+
+    /// The far end coming back through the speakers is recorded on the microphone
+    /// track, and attribution is nothing but which track a line came from — so every
+    /// echoed sentence is filed under the wrong name. The two cannot be separated
+    /// afterwards: whisper fuses a real reply and an echoed one into a single
+    /// segment, so dropping the suspect lines would delete the user's own words.
+    private static func bleedNote(_ tracks: [Track]) -> String? {
+        guard let ffmpeg = Muxer.ffmpegPath(),
+            let microphone = tracks.first(where: { $0.speaker == .me })?.url,
+            let call = tracks.first(where: { $0.speaker == .others })?.url,
+            SpeakerBleed.detected(systemAudio: call, microphone: microphone, using: ffmpeg)
+        else { return nil }
+        return SpeakerBleed.transcriptWarning
     }
 
     /// The written files, in the order they were produced.
@@ -73,10 +96,14 @@ public enum TranscriptionService {
 
     /// Detection reads the opening of the fullest track: AAC compresses silence to
     /// almost nothing, so the largest file is the one with the most speech in it.
+    ///
+    /// Nil means nobody has decided yet — the remote engines detect as they go, and
+    /// running whisper locally first would defeat the point of not having it installed.
     private static func language(
         for job: Job, progress: @Sendable (String) -> Void
-    ) throws -> String {
+    ) throws -> String? {
         if let language = job.language { return language }
+        if job.engine.isRemote { return nil }
         guard let whisper = try? WhisperTranscriber(model: job.model) else { return "en" }
 
         progress("Detecting the language…")
@@ -93,7 +120,11 @@ public enum TranscriptionService {
             return try WhisperTranscriber(model: job.model)
         case .apple:
             return try await appleTranscriber(language: language)
+        case .openai:
+            return try OpenAITranscriber()
         case .auto:
+            /// Deliberately local-only: `auto` must never start uploading a call
+            /// because a model happened to be missing.
             if let apple = try? await appleTranscriber(language: language) { return apple }
             return try WhisperTranscriber(model: job.model)
         }

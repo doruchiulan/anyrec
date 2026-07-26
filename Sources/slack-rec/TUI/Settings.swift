@@ -64,6 +64,9 @@ struct Settings {
         case .auto: "On — pick the engine by language"
         case .apple: "On — Apple, on-device"
         case .whisper: "On — whisper.cpp"
+        case .openai:
+            OpenAITranscriber.key() == nil
+                ? "On — OpenAI, but no API key is set" : "On — OpenAI, uploads the audio"
         }
     }
 
