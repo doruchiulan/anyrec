@@ -42,8 +42,8 @@ struct MeterScaleTests {
     func verdicts() {
         #expect(MeterScale.verdict(peak: -20, for: .microphone) == nil)
         #expect(MeterScale.verdict(peak: -100, for: .microphone) != nil)
-        #expect(MeterScale.verdict(peak: -44, for: .microphone)?.contains("mics") == true)
-        #expect(MeterScale.verdict(peak: -44, for: .systemAudio)?.contains("mics") == false)
+        #expect(MeterScale.verdict(peak: -44, for: .microphone)?.contains("sources") == true)
+        #expect(MeterScale.verdict(peak: -44, for: .systemAudio)?.contains("sources") == false)
     }
 
     @Test("prints silence as a placeholder rather than -120")

@@ -53,7 +53,7 @@ struct RecordingScreen {
         lines += tracks.map { "  " + meter($0, width: width) }
         lines += ["", "  " + styled(clip(plan.directory.path, to: Terminal.size().columns - 4), .dim)]
 
-        if progress.droppedSamples > 0 {
+        if DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames) {
             lines.append(
                 "  " + styled("\(progress.droppedSamples) buffers dropped — try --fps 24", .yellow)
             )

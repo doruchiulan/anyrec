@@ -24,7 +24,9 @@ enum Report {
             return MeterScale.verdict(peak: summary.peak(for: track), for: track)
                 .map { "\(track.rawValue): \($0)" }
         }
-        if summary.droppedSamples > 0 {
+        let captured =
+            summary.screenFrames + AudioTrack.allCases.reduce(0) { $0 + summary.samples(for: $1) }
+        if DropRate.worthReporting(summary.droppedSamples, of: captured) {
             notes.append(
                 "\(summary.droppedSamples) buffers dropped — the encoder could not keep up. "
                     + "Try --fps 24 or --codec hevc."

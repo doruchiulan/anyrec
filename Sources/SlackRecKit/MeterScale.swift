@@ -38,7 +38,7 @@ public enum MeterScale {
             "silent — nothing reached this track"
         case .faint:
             track == .microphone
-                ? "very quiet — check the input device with `slack-rec mics`"
+                ? "very quiet — check the input device with `slack-rec sources`"
                 : "very quiet — was anything playing?"
         case .healthy:
             nil

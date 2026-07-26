@@ -17,10 +17,13 @@ struct TUISession {
         guard Terminal.isInteractive else { throw TUIError.notATerminal }
         try Permissions.requireScreenRecording()
 
+        /// Cold-starts AVFoundation (seconds) — must happen before the screen is blanked.
+        let prepared = withDefaultMicrophone(settings)
+
         Terminal.enterRawMode()
         defer { Terminal.restore() }
 
-        var screen = SetupScreen(settings: withDefaultMicrophone(settings))
+        var screen = SetupScreen(settings: prepared)
         guard var chosen = await screen.run() else { return }
 
         var notice: String?
@@ -57,7 +60,7 @@ struct TUISession {
         if let engine = settings.transcribe { await TranscriptRun.follow(plan, engine: engine) }
     }
 
-    private func merge(settings: Settings, plan: OutputPlan) -> URL? {
+    private func merge(settings: Settings, plan: OutputPlan) -> MuxOutcome? {
         guard settings.mux, Muxer.ffmpegPath() != nil else { return nil }
         Terminal.write(Terminal.home + "\r\n  Merging with ffmpeg…" + Terminal.clearToEnd)
         return try? Muxer.mux(plan)
@@ -75,10 +78,11 @@ struct TUISession {
 }
 
 enum SummaryReport {
-    static func render(_ summary: RecordingSummary, merged: URL?) -> String {
+    static func render(_ summary: RecordingSummary, merged: MuxOutcome?) -> String {
         var text = Report.render(summary)
         if let merged {
-            text += "\n\n  Play this one:  \(merged.path)"
+            text += "\n\n  Play this one:  \(merged.output.path)"
+            text += merged.notes.map { "\n\n  " + $0 }.joined()
         } else {
             text += "\n\n  screen.mov has no audio track. Install ffmpeg for a combined call.mp4."
         }

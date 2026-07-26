@@ -44,6 +44,14 @@ public struct RecordingProgress: Sendable {
     public let droppedSamples: Int
 }
 
+/// A few dropped buffers among thousands is ordinary encoder jitter, and saying so
+/// only teaches people to distrust the summary. Half a percent is a real shortfall.
+public enum DropRate {
+    public static func worthReporting(_ dropped: Int, of captured: Int) -> Bool {
+        dropped > 0 && dropped * 200 > captured
+    }
+}
+
 /// Drives one SCStream and fans its three output types into three files.
 ///
 /// Every stream output shares a single serial queue, so the writer table and the

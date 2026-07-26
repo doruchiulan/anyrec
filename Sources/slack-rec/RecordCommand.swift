@@ -5,7 +5,7 @@ import SlackRecKit
 struct Record: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "record",
-        abstract: "Record until Ctrl-C, or until --for elapses."
+        abstract: "Record until Ctrl-C."
     )
 
     @Option(name: .shortAndLong, help: "Directory the recording folder is created in.")
@@ -14,10 +14,10 @@ struct Record: AsyncParsableCommand {
     @Option(name: .long, help: "Capture a whole display instead of one app's windows.")
     var display: Int?
 
-    @Option(name: .long, help: "Capture one window id (see `slack-rec windows`).")
+    @Option(name: .long, help: "Capture one window id (see `slack-rec sources`).")
     var window: UInt32?
 
-    @Option(name: .long, help: "Bundle id of the app to capture (see `slack-rec apps`).")
+    @Option(name: .long, help: "Bundle id of the app to capture (see `slack-rec sources`).")
     var bundleId: String?
 
     @Option(name: .long, help: "Frames per second (1–60).")
@@ -26,11 +26,8 @@ struct Record: AsyncParsableCommand {
     @Option(name: .long, help: "Video codec.")
     var codec: VideoCodec = .h264
 
-    @Option(name: .long, help: "Microphone device id (see `slack-rec mics`).")
+    @Option(name: .long, help: "Microphone device id (see `slack-rec sources`).")
     var mic: String?
-
-    @Option(name: .customLong("for"), help: "Stop automatically after e.g. 45m, 90s, 1h30m.")
-    var duration: String?
 
     @Flag(inversion: .prefixedNo, help: "Record what the call plays back.")
     var systemAudio = true
@@ -44,11 +41,7 @@ struct Record: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
     var mux = true
 
-    @Option(name: .long, help: "Transcribe afterwards with auto, apple or whisper.")
-    var transcribe: TranscriptionEngine?
-
     func run() async throws {
-        let seconds = try duration.map(DurationSpec.parse)
         try await Permissions.preflight(needsMicrophone: microphone)
 
         let resolved = try await TargetResolver.resolve(target)
@@ -56,16 +49,15 @@ struct Record: AsyncParsableCommand {
         let recorder = Recorder(options: options, target: resolved, plan: plan)
 
         try await recorder.start()
-        print(startBanner(resolved, plan: plan, seconds: seconds))
+        print(startBanner(resolved, plan: plan))
         if let warning = ffmpegWarning() { print(warning) }
 
-        await Interrupt.wait(timeout: seconds)
+        await Interrupt.wait()
         print("\nFinishing…")
         let summary = try await recorder.stop()
         print(Report.render(summary))
 
         if mux { try muxTracks(plan) }
-        if let transcribe { await TranscriptRun.follow(plan, engine: transcribe) }
     }
 
     private var target: CaptureTarget {
@@ -86,21 +78,18 @@ struct Record: AsyncParsableCommand {
         )
     }
 
-    private func startBanner(
-        _ target: ResolvedTarget, plan: OutputPlan, seconds: TimeInterval?
-    ) -> String {
+    private func startBanner(_ target: ResolvedTarget, plan: OutputPlan) -> String {
         let tracks = [
             "video",
             systemAudio ? "system audio" : nil,
             microphone ? "microphone" : nil,
         ].compactMap { $0 }.joined(separator: " + ")
-        let stopsAt = seconds.map { "after \(Int($0))s" } ?? "on Ctrl-C"
 
         return """
         Recording \(target.describing) at \(target.width)×\(target.height), \(fps) fps
         Tracks:    \(tracks)
         Folder:    \(plan.directory.path)
-        Stops:     \(stopsAt)
+        Stops:     on Ctrl-C
         Then:      \(mux ? "merges into call.mp4 (--no-mux to skip)" : "leaves the tracks separate")
 
         Everyone on this call should know it is being recorded.
@@ -132,7 +121,8 @@ struct Record: AsyncParsableCommand {
         }
         print("Muxing with ffmpeg…")
         let merged = try Muxer.mux(plan)
-        print("Wrote \(merged.path)")
+        print("Wrote \(merged.output.path)")
+        for note in merged.notes { print("\n" + note) }
     }
 }
 
