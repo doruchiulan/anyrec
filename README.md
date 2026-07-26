@@ -60,6 +60,22 @@ other, or — see below — get a transcript that already knows who was talking.
 `call.mp4` is the one you double-click; ffmpeg produces it after the recording,
 unless you pass `--no-mux`.
 
+Before mixing, both audio tracks are measured and balanced to the same loudness.
+Your voice pauses and varies while call audio runs dense and continuous, so the
+two peak alike but average around 13 dB apart — a raw sum leaves you inaudible
+under whoever else is talking. The gain is static, so nothing is compressed, and
+it is applied only to `call.mp4`: the three recorded tracks are never rewritten.
+
+Wear headphones. On speakers, your microphone records the call as well, so
+`call.mp4` carries the far end twice — once cleanly and once through the room a
+few milliseconds later, which sounds hollow and phasey. It reaches the transcript
+twice too, and since attribution is nothing but which track a line came from, the
+other person's words end up under your name. slack-rec detects this, leaves the
+microphone gain alone rather than amplifying the echo, and says so in the summary
+and at the top of the transcript. It cannot undo it: your reply and the echo of
+theirs land in one segment, so dropping the suspect lines would take yours with
+them. Only headphones actually prevent it.
+
 `screen.mov` deliberately carries no audio track. On its own it plays silent —
 that is the design, not a fault.
 
@@ -98,6 +114,7 @@ ok   ffmpeg at /opt/homebrew/bin/ffmpeg
 ok   apple speech, 10 languages, on-device
 ok   whisper at /opt/homebrew/bin/whisper-cli
 ok   whisper model ggml-large-v3-turbo-q5_0.bin
+ok   OpenAI key found — --engine openai uploads the audio
 ok   Slack, Zoom
 ```
 
@@ -109,7 +126,6 @@ falls back to `record` automatically.
 
 ```
 slack-rec record                      # first call app found, both audio sides, until Ctrl-C
-slack-rec record --for 1h30m          # stop on a deadline instead
 slack-rec record --bundle-id us.zoom.xos
 slack-rec record --no-microphone      # capture only what the call plays back
 slack-rec record --display 0          # a whole display rather than an app
@@ -119,8 +135,31 @@ slack-rec record --no-mux             # keep the tracks separate, skip call.mp4
 ```
 
 Without `--bundle-id`, `--window` or `--display`, it picks the call app that is
-running — a dedicated client ahead of a browser. `slack-rec apps` shows what it
-can see and marks the ones it recognises.
+running — a dedicated client ahead of a browser. `slack-rec sources` lists
+everything you can point it at instead, each beside the flag that selects it.
+
+```
+Apps and their windows                              --bundle-id · --window
+* Slack                         com.tinyspeck.slackmacgap
+      24619   1512×982    Huddle with Costi
+      24601   1728×1117   QLAN Smart Homes - Slack
+* Google Chrome                 com.google.Chrome
+      814     1920×1065   Meet — Casa Costi
+
+Displays                                            --display
+  0       3456×2234
+
+Microphones                                         --mic
+* MacBook Pro Microphone
+      BuiltInMicrophoneDevice
+```
+
+Windows sit under the app that owns them because the two ids do different things:
+`--bundle-id` records everything that app has open, `--window` follows one window
+and nothing else. For a browser with a dozen tabs open in separate windows, that
+is the difference between a usable recording and a mosaic.
+
+Call apps only, by default; `--all` widens it to everything with a window.
 
 ffmpeg is what merges the tracks. Without it you still get all three, but no
 `call.mp4` — `slack-rec doctor` and the recording banner both say so.
@@ -136,25 +175,20 @@ truncated `.mov`.
 |---|---|
 | `tui` | The interactive screen. The default, so plain `slack-rec` opens it. |
 | `record` | Capture from flags alone, no interaction. |
-| `apps` | Applications with capturable windows, call apps first and marked `*`. |
-| `windows` | Call apps' capturable windows and their ids. `--all` for every app. |
-| `displays` | Capturable displays and their indices. |
 | `transcribe` | Transcribe a recording. Defaults to the newest one. |
-| `mics` | Input devices and the ids `--mic` accepts. |
+| `sources` | Everything capturable — apps, windows, displays, microphones — with the ids the flags take. |
 | `doctor` | Permissions, ffmpeg, transcription engines, running call apps. |
 
 | Flag | Default | |
 |---|---|---|
 | `--output` | `~/Desktop/CallRec Recordings` | Directory the timestamped folder is created in. |
 | `--bundle-id` | auto | The app to capture, e.g. `com.tinyspeck.slackmacgap`. |
-| `--for` | — | `90s`, `45m`, `1h30m`. Without it, runs until Ctrl-C. |
 | `--fps` | `30` | 1–60. |
 | `--codec` | `h264` | `hevc` gives smaller files and costs more CPU. |
 | `--[no-]mux` | on | Merge into `call.mp4` with ffmpeg afterwards. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
-| `--transcribe` | off | `auto`, `apple` or `whisper`, run after the recording. |
 
 ## Transcripts
 
@@ -165,8 +199,11 @@ knows who spoke without any diarisation guesswork:
 slack-rec transcribe                  # the newest recording
 slack-rec transcribe ~/Desktop/CallRec\ Recordings/slack-call-2026-07-25-131411
 slack-rec transcribe --engine whisper --language ro
-slack-rec record --for 45m --transcribe auto
+slack-rec transcribe --engine openai   # OpenAI's API, with your own key
 ```
+
+The interactive screen can run it for you the moment a recording stops — the
+`Transcript` row. `record` always leaves that to a separate `transcribe` call.
 
 ```markdown
 # slack-call-2026-07-25-131411
@@ -183,16 +220,18 @@ Zigbee sensors or move everything to KNX.
 You get `transcript-<engine>.md` and a matching `.srt` you can drop onto
 `call.mp4`.
 
-Two engines, both running entirely on your machine:
+Three engines:
 
 | | | |
 |---|---|---|
-| `apple` | macOS 26 `SpeechAnalyzer` | ~12× realtime, no setup, 10 languages — no Romanian |
-| `whisper` | whisper.cpp | ~5× realtime, needs a model, 99 languages including Romanian |
+| `apple` | macOS 26 `SpeechAnalyzer` | on your machine · ~12× realtime, no setup, 10 languages — no Romanian |
+| `whisper` | whisper.cpp | on your machine · ~5× realtime, needs a model, 99 languages including Romanian |
+| `openai` | OpenAI's API | uploads the audio · your own key, no install, 99 languages |
 
-`auto` detects the spoken language first and picks accordingly: Apple when it has
-a model for that language, whisper otherwise. Detection needs whisper installed;
-without it, `auto` assumes English.
+`auto` detects the spoken language first and picks between the two local ones:
+Apple when it has a model for that language, whisper otherwise. Detection needs
+whisper installed; without it, `auto` assumes English. It never picks `openai` —
+nothing leaves your machine unless you name the engine that does.
 
 For whisper, install the binary and put a model where slack-rec looks for it:
 
@@ -208,6 +247,32 @@ suggests: each track is silent while the other person talks, and without VAD
 whisper stretches its first segment across that silence — which puts the turns
 in the wrong order. It also skips the silence instead of transcribing it.
 
+### Bring your own OpenAI key
+
+If you would rather not keep a model on disk, `--engine openai` uses OpenAI's
+API with your key and nothing of ours:
+
+```
+export OPENAI_API_KEY=sk-…
+slack-rec transcribe --engine openai
+```
+
+Or, to keep it out of every process your shell launches:
+
+```
+printf %s sk-… > ~/Library/Application\ Support/slack-rec/openai-key
+```
+
+This one uploads both audio tracks. Everyone on a call has agreed to being
+recorded; whether they have agreed to the recording being sent to OpenAI is a
+separate question, and worth asking before you use it on someone else's voice.
+`slack-rec doctor` tells you whether a key is set.
+
+It runs `whisper-1`, which is the only model the API returns timestamps for —
+and without timestamps the two tracks cannot be put back into conversation
+order. Tracks longer than an hour are re-encoded and split to fit the API's
+25 MB limit, then stitched back onto one clock.
+
 ### Summaries
 
 `--summarize` hands the finished transcript to `claude -p`, which cleans up
@@ -217,9 +282,10 @@ mishearings and pulls out decisions and action items in the language of the call
 slack-rec transcribe --summarize
 ```
 
-This is the one part of the tool that leaves your machine — the transcript text
-is sent to Anthropic. Claude has no audio input, so it never sees the recording
-itself. Everything else, transcription included, is local.
+Like `--engine openai`, this leaves your machine — the transcript text is sent
+to Anthropic. Claude has no audio input, so it never sees the recording itself.
+Everything else is local, and nothing is sent anywhere unless you ask for it by
+name.
 
 ## Consent
 

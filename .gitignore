@@ -11,3 +11,6 @@ Package.resolved
 *.m4a
 *.caf
 Recordings/
+
+# Never commit: holds .security-key
+logs/
