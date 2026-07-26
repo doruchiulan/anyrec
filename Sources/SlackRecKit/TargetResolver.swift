@@ -67,6 +67,10 @@ public enum TargetResolver {
         guard let window = content.windows.first(where: { $0.windowID == id }) else {
             throw TargetError.windowNotFound(id)
         }
+        /// `desktopIndependentWindow:` asks SkyLight which displays the window's rect
+        /// touches, and SkyLight aborts the process (CGS_REQUIRE_INIT) if nothing has
+        /// opened a window-server connection yet. A CLI never does; this opens one.
+        _ = CGMainDisplayID()
         let filter = SCContentFilter(desktopIndependentWindow: window)
         return describe(filter, as: window.title ?? "window \(id)")
     }

@@ -34,9 +34,9 @@ public enum TargetError: Error, CustomStringConvertible {
         case .noDisplays:
             "ScreenCaptureKit reported no capturable displays."
         case .displayOutOfRange(let index, let count):
-            "Display \(index) does not exist (\(count) available). Run `slack-rec displays`."
+            "Display \(index) does not exist (\(count) available). Run `slack-rec sources`."
         case .windowNotFound(let id):
-            "No capturable window with id \(id). Run `slack-rec windows`."
+            "No capturable window with id \(id). Run `slack-rec sources`."
         }
     }
 }

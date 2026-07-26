@@ -19,10 +19,7 @@ struct SlackRec: AsyncParsableCommand {
         you start.
         """,
         version: "0.2.0",
-        subcommands: [
-            Tui.self, Record.self, Transcribe.self, Apps.self, Windows.self, Displays.self,
-            Mics.self, Doctor.self,
-        ],
+        subcommands: [Tui.self, Record.self, Transcribe.self, Sources.self, Doctor.self],
         defaultSubcommand: Tui.self
     )
 }
