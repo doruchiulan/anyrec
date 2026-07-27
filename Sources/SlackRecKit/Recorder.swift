@@ -24,6 +24,8 @@ public struct RecordingSummary: Sendable {
     public let droppedSamples: Int
     public let systemAudioPeak: Float
     public let microphonePeak: Float
+    /// Why capture ended by itself, when it did. Nil for an ordinary stop.
+    public let endedEarly: String?
 
     public func peak(for track: AudioTrack) -> Float {
         switch track {
@@ -101,7 +103,8 @@ public final class Recorder: NSObject {
         let (tracks, error) = queue.sync { (writers, failure) }
         for track in tracks.values { await track.finish() }
 
-        if let error { throw RecorderError.streamStopped(error) }
+        let ended = error.flatMap(Self.endOfRecording)
+        if let error, ended == nil { throw RecorderError.streamStopped(error) }
         return RecordingSummary(
             plan: plan,
             screenFrames: tracks[.screen]?.samplesWritten ?? 0,
@@ -109,8 +112,27 @@ public final class Recorder: NSObject {
             microphoneSamples: tracks[.microphone]?.samplesWritten ?? 0,
             droppedSamples: tracks.values.reduce(0) { $0 + $1.samplesDropped },
             systemAudioPeak: levels.sessionPeak(for: .systemAudio),
-            microphonePeak: levels.sessionPeak(for: .microphone)
+            microphonePeak: levels.sessionPeak(for: .microphone),
+            endedEarly: ended
         )
+    }
+
+    /// A call ends by its window going away — Slack closes it — and the stream stops
+    /// with nothing left to capture. Everything up to that point is already written
+    /// and finalised, so this is reported rather than thrown. Thrown, it turned a
+    /// finished 78-minute recording into an error message and skipped the summary,
+    /// the merge and the offer to transcribe.
+    static func endOfRecording(_ error: Error) -> String? {
+        let error = error as NSError
+        guard error.domain == SCStreamError.errorDomain else { return nil }
+        switch error.code {
+        case SCStreamError.Code.noCaptureSource.rawValue:
+            return "The window being recorded closed, so capture stopped there."
+        case SCStreamError.Code.userStopped.rawValue:
+            return "Screen sharing was stopped, so capture stopped there."
+        default:
+            return nil
+        }
     }
 
     public func progress() -> RecordingProgress {
@@ -126,6 +148,9 @@ public final class Recorder: NSObject {
         let config = SCStreamConfiguration()
         config.width = target.width
         config.height = target.height
+        // Off, the output only scales down: shrink the window mid-call and the frame
+        // keeps its size with the picture in one corner and black around the rest.
+        config.scalesToFit = true
         config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
         config.queueDepth = 6
         config.showsCursor = options.showsCursor

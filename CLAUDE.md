@@ -82,6 +82,17 @@ Invariants worth preserving:
   A/V sync.
 - Non-`.complete` screen frames are discarded. Writing idle frames pads the
   video and drifts it against the audio.
+- `scalesToFit` is on. Left off, ScreenCaptureKit only ever scales a window's
+  output *down*: resize the window mid-call and the frame keeps its configured
+  size with the picture in one corner and black around it. Measured on a resize to
+  half: 26% of the frame with it off, 95% with it on, the remainder being the
+  letterbox `preservesAspectRatio` leaves. A 78-minute call was recorded at a
+  quarter frame before this was set.
+- A stream that stops because its window is gone has *ended* the recording, not
+  failed it. `noCaptureSource` and `userStopped` are reported in the summary and
+  everything finalises as usual; every other stop still throws. Throwing these hid
+  a complete 78-minute recording behind an error message and skipped the summary,
+  the merge and the offer to transcribe.
 - A capture target is a window or a display, never an application. Application
   filters record the whole display with everything else masked out, which is a
   display recording wearing a disguise. The cost is that a huddle and its

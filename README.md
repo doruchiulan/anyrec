@@ -158,6 +158,10 @@ are two entries: record the share, or record the display and get both.
 
 Call apps only, by default; `--all` widens it to every window.
 
+A window recording ends when its window does. Resize or move it as much as you
+like — the frame follows — but close it and capture stops there, with everything
+up to that point written, merged and ready to transcribe.
+
 ffmpeg is what merges the tracks. Without it you still get all three, but no
 `call.mp4` — `slack-rec doctor` and the recording banner both say so.
 

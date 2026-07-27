@@ -19,7 +19,8 @@ enum Report {
     }
 
     private static func notes(_ summary: RecordingSummary) -> [String] {
-        var notes = AudioTrack.allCases.compactMap { track -> String? in
+        var notes = summary.endedEarly.map { [$0] } ?? []
+        notes += AudioTrack.allCases.compactMap { track -> String? in
             guard summary.samples(for: track) > 0 else { return nil }
             return MeterScale.verdict(peak: summary.peak(for: track), for: track)
                 .map { "\(track.rawValue): \($0)" }
