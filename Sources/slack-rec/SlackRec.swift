@@ -18,7 +18,7 @@ struct SlackRec: AsyncParsableCommand {
         a courtesy, it is the law: say it out loud or post it in the channel before \
         you start.
         """,
-        version: "0.2.2",
+        version: "0.3.0",
         subcommands: [Tui.self, Record.self, Transcribe.self, Sources.self, Doctor.self],
         defaultSubcommand: Tui.self
     )
