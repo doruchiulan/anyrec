@@ -74,17 +74,33 @@ public enum ContentInventory {
             guard let id = window.owningApplication?.bundleIdentifier else { return }
             tally[id, default: 0] += 1
         }
+        return summarise(
+            apps: shareable.applications.map { ($0.bundleIdentifier, $0.applicationName) },
+            windowCounts: counts
+        )
+    }
+
+    /// What `applications()` does once ScreenCaptureKit has answered. Separated
+    /// because the answer itself cannot be faked in a test.
+    static func summarise(
+        apps: [(bundleID: String, name: String)], windowCounts: [String: Int]
+    ) -> [ApplicationInfo] {
+        /// ScreenCaptureKit lists one entry per *process*, and a browser's helpers
+        /// each carry the app's bundle id — the same id the windows are counted by,
+        /// so without this every helper reprints the app's whole window list.
+        var seen: Set<String> = []
         return
-            shareable.applications
+            apps
+            .filter { seen.insert($0.bundleID).inserted }
             .compactMap { app -> ApplicationInfo? in
-                guard let count = counts[app.bundleIdentifier], count > 0,
-                    !app.applicationName.isEmpty, !app.bundleIdentifier.isEmpty
+                guard let count = windowCounts[app.bundleID], count > 0,
+                    !app.name.isEmpty, !app.bundleID.isEmpty
                 else { return nil }
                 return ApplicationInfo(
-                    bundleID: app.bundleIdentifier,
-                    name: app.applicationName,
+                    bundleID: app.bundleID,
+                    name: app.name,
                     windowCount: count,
-                    isKnownCallApp: CallApps.isKnown(app.bundleIdentifier)
+                    isKnownCallApp: CallApps.isKnown(app.bundleID)
                 )
             }
             .sorted {
