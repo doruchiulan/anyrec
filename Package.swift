@@ -29,5 +29,10 @@ let package = Package(
             dependencies: ["SlackRecKit"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .testTarget(
+            name: "SlackRecTests",
+            dependencies: ["slack-rec"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

@@ -85,34 +85,15 @@ enum Terminal {
         saved = nil
     }
 
-    /// Nil means the poll interval elapsed with no key pressed.
+    /// Nil means the poll interval elapsed with nothing to report.
     static func readKey() -> Key? {
         if signals?.isTriggered == true { return .interrupt }
-
-        var byte: UInt8 = 0
-        guard read(STDIN_FILENO, &byte, 1) == 1 else { return nil }
-        switch byte {
-        case 0x03: return .interrupt
-        case 0x0A, 0x0D: return .enter
-        case 0x1B: return readEscapeSequence()
-        case 0x7F, 0x08: return .backspace
-        default: return .character(Character(UnicodeScalar(byte)))
-        }
+        guard let byte = readByte() else { return nil }
+        return KeyDecoder.decode(first: byte, next: readByte)
     }
 
-    private static func readEscapeSequence() -> Key {
-        var bracket: UInt8 = 0
-        var code: UInt8 = 0
-        guard read(STDIN_FILENO, &bracket, 1) == 1, bracket == 0x5B,
-            read(STDIN_FILENO, &code, 1) == 1
-        else { return .escape }
-
-        switch code {
-        case 0x41: return .up
-        case 0x42: return .down
-        case 0x43: return .right
-        case 0x44: return .left
-        default: return .escape
-        }
+    private static func readByte() -> UInt8? {
+        var byte: UInt8 = 0
+        return read(STDIN_FILENO, &byte, 1) == 1 ? byte : nil
     }
 }
