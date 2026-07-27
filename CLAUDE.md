@@ -57,15 +57,19 @@ executable is argument parsing, the TUI, and output formatting only.
 | `Permissions.swift` | TCC preflight and status. |
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. |
 | `LoudnessMatch.swift` | Measures both audio tracks and balances them for the merge. |
+| `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and stops the merge amplifying it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
 | `OutputPlan.swift` | The recording folder and the three track paths. |
 | `Transcription/Transcript.swift` | `Utterance`, turn folding, Markdown and SRT rendering. The tested part. |
-| `Transcription/TranscriptionService.swift` | Language detection, engine choice, per-track runs, merge. |
+| `Transcription/TranscriptionService.swift` | Builds the mix, finds the speech, picks the engine, labels the result. |
+| `Transcription/AudioMix.swift` | Sums the two tracks into the single file the engines transcribe. |
+| `Transcription/SpeechRegions.swift` | Where the talking is, so no engine is handed room tone to invent over. |
+| `Transcription/SpeakerAttribution.swift` | Who said each line, from which track was louder while it was said. |
 | `Transcription/AppleTranscriber.swift` | macOS 26 `SpeechAnalyzer`, `@available`-gated. |
 | `Transcription/WhisperTranscriber.swift` | `whisper-cli`, model discovery, JSON parsing. |
-| `Transcription/OpenAITranscriber.swift` | The hosted API, behind the user's own key. Multipart upload, `verbose_json` parsing. |
-| `Transcription/AudioChunks.swift` | Re-encodes and splits a track to fit the API's 25 MB limit, keeping each part's offset. |
+| `Transcription/OpenAITranscriber.swift` | The hosted API, behind the user's own key. Multipart upload, `diarized_json`/`verbose_json` parsing. |
+| `Transcription/AudioChunks.swift` | Cuts the speech regions out to mp3, under the API's 25 MB limit, keeping each part's offset. |
 | `Transcription/Summarizer.swift` | The `claude -p` pass over the finished text. |
 | `slack-rec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `SetupScreen`, `RecordingScreen`, `TUISession`. |
 
@@ -119,22 +123,34 @@ Invariants worth preserving:
 - Transcription is a separate, optional pass over files that are already closed.
   It must never be able to fail a recording: `TranscriptRun` swallows its errors
   and points at `slack-rec transcribe` instead.
-- Speakers come from which file a line was in, never from diarisation. Keeping
-  the tracks separate is what makes attribution free — and is exactly why speaker
-  bleed misattributes: the echoed far end is *in* the microphone file.
-- Bleed is therefore checked by the transcription pass too, before the engines
-  run, and the note goes into the Markdown above the lines it casts doubt on. Do
-  not try to strip the echoed lines: an engine fuses a real reply and an echoed
-  one into a single segment, so dropping them deletes the user's own words.
-- whisper needs the silero VAD model, or its first segment spans the leading
-  silence and starts at 0 — which interleaves the two tracks in the wrong order.
+- One engine run, over the mix of both tracks — never one run per track. Two
+  independent runs produce two timelines that only appear comparable: an engine
+  handed a quiet track invents sentences to fill it and stamps them with
+  plausible times, and interleaving those against real ones scrambles the call.
+  Ordering has to come from audio the engine heard whole.
+- The tracks are still what says *who*. `SpeakerAttribution` compares the two
+  envelopes over each line's span, so attribution stays exact without the engine
+  knowing anything about the participants. It is also why bleed no longer
+  misattributes: an echo is quieter than what caused it, so an echoed line still
+  scores for the caller.
+- Only the far end can be diarised, and only by an engine that does it. Slack
+  pre-mixes every remote participant into system audio, so energy can answer
+  "me or the call" and nothing finer. `--diarize` (openai only) is what turns
+  "Call" into "Speaker A", "Speaker B"; energy then reclaims whichever of those
+  voices is holding the microphone.
+- Every engine is handed the speech regions, and none of them may be handed the
+  gaps. whisper is the one that needs it most — without VAD its first segment
+  spans the leading silence and starts at 0 — but the hosted models hallucinate
+  over room tone too. Engines running their own detection ignore the argument.
 - Nothing leaves the machine unless it was asked for by name. `--engine openai`
   and `--summarize` are the only two that do, and both say so wherever they are
   offered. `auto` must stay local-only: falling back to an upload because a model
   was missing would ship a call off the machine by accident.
-- `openai` uses `whisper-1` and that is not configurable. It is the only model the
-  API returns timestamps for, and without timestamps the two tracks cannot be
-  interleaved — `gpt-4o-transcribe` answers in prose, which is useless here.
+- `openai` may only use a model that returns timestamps: `gpt-4o-transcribe-diarize`
+  or `whisper-1`. Everything else answers in prose, which cannot be placed on a
+  timeline or attributed. The diarising model goes up in one request — its speaker
+  letters are consistent within a request and meaningless across two — and needs
+  `chunking_strategy` for anything over 30s. It takes no `language`.
 - The OpenAI key is read from `OPENAI_API_KEY` or the key file, never stored, and
   never put in an error: only the response body reaches `engineFailed`.
 - Language detection is skipped for remote engines. Running whisper locally to

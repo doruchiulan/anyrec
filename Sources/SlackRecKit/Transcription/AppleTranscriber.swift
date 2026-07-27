@@ -33,7 +33,10 @@ public struct AppleTranscriber: Transcriber {
         self.locale = locale
     }
 
-    public func speech(of url: URL, language: String?) async throws -> Speech {
+    /// `regions` are ignored: `SpeechAnalyzer` does its own voice detection.
+    public func speech(
+        of url: URL, in regions: [Range<TimeInterval>], language: String?
+    ) async throws -> Speech {
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
         try await install(transcriber)
 

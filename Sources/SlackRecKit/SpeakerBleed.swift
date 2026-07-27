@@ -9,34 +9,27 @@ import Foundation
 public enum SpeakerBleed {
     public static let warning =
         "The microphone is picking up the speakers, so the call arrives twice in "
-        + "call.mp4 and hollows out — and lands in the transcript twice too. The "
-        + "separate tracks are unaffected. Headphones are the only fix."
-
-    /// Attribution is the worse casualty: a line under the wrong name reads as fact,
-    /// where hollow audio at least sounds wrong.
-    public static let transcriptWarning =
-        "The microphone picked up the speakers, so the far end was recorded twice and "
-        + "appears under Me as well as under Call. Which of the Me lines are really "
-        + "yours cannot be recovered from the audio — Call is the side to trust. "
-        + "Headphones prevent it."
+        + "call.mp4 and hollows out. The separate tracks are unaffected, and the "
+        + "transcript is too — an echo is quieter than what caused it, so it still "
+        + "lands under the caller. Headphones are the only fix for the audio."
 
     /// Measured at +8.2 dB and +5.8 dB on two speakerphone recordings; headphones put
     /// it well below zero. Three leaves room for people talking over each other.
     static let threshold = 3.0
-    /// 20 ms envelope frames, at which resolution the acoustic delay is invisible —
-    /// the echo lands inside the same frame as the sound that caused it.
-    static let frame = 160
-    static let sampleRate = 8000
     /// The call counts as speaking above this share of its own loudest frame.
     static let speechShare = 0.15
     /// Fewer frames than this on either side and there is nothing to compare.
     static let minimumFrames = 25
 
     public static func detected(systemAudio: URL, microphone: URL, using ffmpeg: String) -> Bool {
-        guard let system = envelope(of: systemAudio, using: ffmpeg),
-            let mic = envelope(of: microphone, using: ffmpeg)
+        guard let system = AudioEnvelope.of(systemAudio, using: ffmpeg),
+            let mic = AudioEnvelope.of(microphone, using: ffmpeg)
         else { return false }
-        return excess(system, mic) >= threshold
+        return detected(systemAudio: system, microphone: mic)
+    }
+
+    public static func detected(systemAudio: AudioEnvelope, microphone: AudioEnvelope) -> Bool {
+        excess(systemAudio.frames, microphone.frames) >= threshold
     }
 
     /// How much louder the microphone runs while the call is speaking than while it is
@@ -61,30 +54,5 @@ public enum SpeakerBleed {
         let (hot, cold) = (mean(speaking), mean(silent))
         guard hot > 0, cold > 0 else { return 0 }
         return 20 * log10(hot / cold)
-    }
-
-    /// Loudness over time, which is what an echo shares with its source. Waveforms do
-    /// not survive a room; the shape of who-is-talking-when does.
-    private static func envelope(of url: URL, using ffmpeg: String) -> [Double]? {
-        guard let samples = decode(url, using: ffmpeg) else { return nil }
-        return stride(from: 0, to: samples.count - frame, by: frame).map { start in
-            let window = samples[start..<(start + frame)]
-            return (window.map { Double($0) * Double($0) }.reduce(0, +) / Double(frame)).squareRoot()
-        }
-    }
-
-    private static func decode(_ url: URL, using ffmpeg: String) -> [Int16]? {
-        let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("slack-rec-bleed-\(UUID().uuidString).raw")
-        defer { try? FileManager.default.removeItem(at: scratch) }
-
-        let arguments = [
-            "-nostdin", "-v", "error", "-i", url.path,
-            "-ac", "1", "-ar", "\(sampleRate)", "-f", "s16le", scratch.path,
-        ]
-        guard let result = try? Shell.run(ffmpeg, arguments), result.succeeded,
-            let data = try? Data(contentsOf: scratch)
-        else { return nil }
-        return data.withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
     }
 }

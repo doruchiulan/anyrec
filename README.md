@@ -67,13 +67,11 @@ it is applied only to `call.mp4`: the three recorded tracks are never rewritten.
 
 Wear headphones. On speakers, your microphone records the call as well, so
 `call.mp4` carries the far end twice — once cleanly and once through the room a
-few milliseconds later, which sounds hollow and phasey. It reaches the transcript
-twice too, and since attribution is nothing but which track a line came from, the
-other person's words end up under your name. slack-rec detects this, leaves the
-microphone gain alone rather than amplifying the echo, and says so in the summary
-and at the top of the transcript. It cannot undo it: your reply and the echo of
-theirs land in one segment, so dropping the suspect lines would take yours with
-them. Only headphones actually prevent it.
+few milliseconds later, which sounds hollow and phasey. slack-rec detects this
+and leaves the microphone gain alone rather than amplifying the echo, but it
+cannot undo it. The transcript is unaffected: an echo is always quieter than
+what caused it, so an echoed line still scores for the caller. Only headphones
+fix the audio.
 
 `screen.mov` deliberately carries no audio track. On its own it plays silent —
 that is the design, not a fault.
@@ -192,8 +190,10 @@ truncated `.mov`.
 
 ## Transcripts
 
-Because your microphone and the call are already separate files, the transcript
-knows who spoke without any diarisation guesswork:
+The engine transcribes both tracks mixed together, so the turns come back in the
+order they were actually spoken. Who said each one is then settled by the tracks
+themselves — whichever was louder while a line was said is whose line it is. No
+guesswork, and no engine that has to be told there are two people:
 
 ```
 slack-rec transcribe                  # the newest recording
@@ -243,9 +243,8 @@ curl -LO https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5
 ```
 
 The second one is voice-activity detection, and it matters more than its size
-suggests: each track is silent while the other person talks, and without VAD
-whisper stretches its first segment across that silence — which puts the turns
-in the wrong order. It also skips the silence instead of transcribing it.
+suggests: without it whisper stretches its first segment across the silence
+before anyone speaks, which drags every timestamp after it out of place.
 
 ### Bring your own OpenAI key
 
@@ -263,15 +262,21 @@ Or, to keep it out of every process your shell launches:
 printf %s sk-… > ~/Library/Application\ Support/slack-rec/openai-key
 ```
 
-This one uploads both audio tracks. Everyone on a call has agreed to being
+This one uploads the audio. Everyone on a call has agreed to being
 recorded; whether they have agreed to the recording being sent to OpenAI is a
 separate question, and worth asking before you use it on someone else's voice.
 `slack-rec doctor` tells you whether a key is set.
 
-It runs `whisper-1`, which is the only model the API returns timestamps for —
-and without timestamps the two tracks cannot be put back into conversation
-order. Tracks longer than an hour are re-encoded and split to fit the API's
-25 MB limit, then stitched back onto one clock.
+It runs `gpt-4o-transcribe-diarize`, which separates the far end into `Speaker A`,
+`Speaker B` and so on — worth having, because a call can hold more than two
+people and slack-rec only ever sees two tracks. Slack mixes every remote
+participant into system audio, so without diarisation they all arrive as one
+`Call`. Your own lines are still identified from the microphone track, whichever
+letter the model gave them.
+
+`--no-diarize` falls back to `whisper-1` and the plain `Me`/`Call` split. Either
+way the audio is trimmed to where the talking is, and anything still over the
+API's 25 MB limit is split and stitched back onto one clock.
 
 ### Summaries
 

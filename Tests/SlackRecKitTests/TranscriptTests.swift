@@ -66,11 +66,27 @@ struct TranscriptTests {
     func note() {
         let text = Transcript(
             utterances: [line(0, 2, "a", .me)], language: "en", engine: "test",
-            notes: [SpeakerBleed.transcriptWarning]
+            notes: ["Something the reader needs first."]
         ).markdown(title: "call")
 
-        #expect(text.contains("\n> The microphone picked up the speakers"))
-        #expect(text.range(of: "> The")!.lowerBound < text.range(of: "**[00:00]")!.lowerBound)
+        #expect(text.contains("\n> Something the reader needs first."))
+        #expect(text.range(of: "> Something")!.lowerBound < text.range(of: "**[00:00]")!.lowerBound)
+    }
+
+    @Test("names a diarised voice rather than lumping it in with the call")
+    func voices() {
+        let text = transcript([
+            line(0, 2, "a", .me), line(2, 4, "b", .voice("A")), line(4, 6, "c", .voice("B")),
+        ]).plainText
+
+        #expect(text == "[00:00] Me: a\n\n[00:02] Speaker A: b\n\n[00:04] Speaker B: c")
+    }
+
+    @Test("says so rather than claiming English when nothing detected a language")
+    func undetectedLanguage() {
+        #expect(
+            Transcript(utterances: [line(0, 2, "a", .me)], language: nil, engine: "test")
+                .languageName == "language undetected")
     }
 
     @Test("srt numbers cues from one and stamps them to the millisecond")

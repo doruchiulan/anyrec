@@ -66,7 +66,10 @@ public struct WhisperTranscriber: Transcriber {
         return tag
     }
 
-    public func speech(of url: URL, language: String?) async throws -> Speech {
+    /// `regions` are ignored: whisper.cpp runs silero over the audio itself.
+    public func speech(
+        of url: URL, in regions: [Range<TimeInterval>], language: String?
+    ) async throws -> Speech {
         let audio = try Self.wav(from: url)
         let scratch = audio.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: scratch) }

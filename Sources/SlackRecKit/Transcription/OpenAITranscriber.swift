@@ -6,12 +6,25 @@ import Foundation
 public struct OpenAITranscriber: Transcriber {
     public let name = "openai"
     private let key: String
+    private let model: Model
 
-    /// `whisper-1` is the only model the API returns timestamps for, and without
-    /// timestamps the two tracks cannot be interleaved into a conversation. The
-    /// newer `gpt-4o-transcribe` models answer with plain text, so they are no use
-    /// here however good they are — that is why this is not configurable.
-    static let model = "whisper-1"
+    /// Slack mixes every remote participant into one stream, so telling them apart
+    /// is the one thing the separate tracks cannot do. `diarize` is what recovers
+    /// them; `whisper` is the older model, kept for when diarisation disappoints.
+    public enum Model: String, Sendable, CaseIterable {
+        case diarize = "gpt-4o-transcribe-diarize"
+        case whisper = "whisper-1"
+
+        /// The diarising model answers in its own format and takes no language hint;
+        /// whisper-1 is the only other model here that returns timestamps at all,
+        /// and without timestamps there is no conversation to reconstruct.
+        var format: String { self == .diarize ? "diarized_json" : "verbose_json" }
+        var takesLanguage: Bool { self == .whisper }
+        /// It runs its own voice detection server-side, so it wants the call whole:
+        /// speaker letters are only consistent within a single request.
+        var wantsOneUpload: Bool { self == .diarize }
+    }
+
     static let endpoint = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
     /// A slow upload on a long call. Well past the point where retrying is better.
     static let timeout: TimeInterval = 600
@@ -32,14 +45,17 @@ public struct OpenAITranscriber: Transcriber {
         .first { !$0.isEmpty }
     }
 
-    public init(key: String? = nil) throws {
+    public init(key: String? = nil, model: Model = .diarize) throws {
         guard let found = key ?? Self.key() else {
             throw TranscriptionError.openAIKeyMissing(Self.keyFile)
         }
         self.key = found
+        self.model = model
     }
 
-    public func speech(of url: URL, language: String?) async throws -> Speech {
+    public func speech(
+        of url: URL, in regions: [Range<TimeInterval>], language: String?
+    ) async throws -> Speech {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("slack-rec-openai-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
@@ -47,21 +63,37 @@ public struct OpenAITranscriber: Transcriber {
 
         var utterances: [Utterance] = []
         var heard: String?
-        for chunk in try AudioChunks.split(url, into: scratch) {
+        for chunk in try AudioChunks.split(url, speech: spans(regions), into: scratch) {
             let answer = try await send(chunk.url, language: language)
             heard = heard ?? answer.language
-            utterances += (answer.segments ?? []).map {
+            utterances += (answer.segments ?? []).map { segment in
                 Utterance(
-                    start: $0.start + chunk.start, end: $0.end + chunk.start, text: $0.text
+                    start: segment.start + chunk.start, end: segment.end + chunk.start,
+                    text: segment.text,
+                    speaker: segment.speaker.map(Speaker.voice) ?? .others
                 )
             }
         }
         return Speech(utterances: utterances, language: heard.map(Self.tag))
     }
 
+    /// Leading and trailing silence still goes, because an engine handed room tone
+    /// invents sentences to fill it — but the gaps in the middle stay when the model
+    /// needs the call in one piece.
+    private func spans(_ regions: [Range<TimeInterval>]) -> [Range<TimeInterval>] {
+        guard model.wantsOneUpload, let first = regions.first, let last = regions.last
+        else { return regions }
+        return [first.lowerBound..<last.upperBound]
+    }
+
     private func send(_ audio: URL, language: String?) async throws -> Response {
-        var fields = ["model": Self.model, "response_format": "verbose_json"]
-        fields["language"] = language.flatMap { Locale.Language(identifier: $0).languageCode?.identifier }
+        var fields = ["model": model.rawValue, "response_format": model.format]
+        if model.wantsOneUpload { fields["chunking_strategy"] = "auto" }
+        if model.takesLanguage {
+            fields["language"] = language.flatMap {
+                Locale.Language(identifier: $0).languageCode?.identifier
+            }
+        }
 
         let boundary = "slack-rec-\(UUID().uuidString)"
         var request = URLRequest(url: Self.endpoint, timeoutInterval: Self.timeout)
@@ -118,6 +150,8 @@ private struct Response: Decodable {
         let start: TimeInterval
         let end: TimeInterval
         let text: String
+        /// Only the diarising model fills this in, as "A", "B", and so on.
+        let speaker: String?
     }
     let language: String?
     let segments: [Segment]?

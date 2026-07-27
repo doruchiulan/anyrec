@@ -1,15 +1,21 @@
 import Foundation
 
-/// Which track a line came from. The microphone and the call are recorded as
-/// separate files, so attribution costs nothing: no diarisation is involved.
-public enum Speaker: String, Sendable, CaseIterable {
+/// Who said a line.
+///
+/// `me` is measured, never guessed: the microphone is its own file, so whichever
+/// track runs louder while a line is being said is the one that said it. Slack
+/// mixes everyone else into a single stream, so the far end is one voice — `others`
+/// — unless the engine diarised it into several, which is all `voice` carries.
+public enum Speaker: Sendable, Equatable, Hashable {
     case me
     case others
+    case voice(String)
 
     public var label: String {
         switch self {
         case .me: "Me"
         case .others: "Call"
+        case .voice(let name): "Speaker \(name)"
         }
     }
 }
@@ -39,13 +45,14 @@ public struct Transcript: Sendable, Equatable {
     }
 
     public let utterances: [Utterance]
-    public let language: String
+    /// Nil when nothing detected it — the diarising model does not report one.
+    public let language: String?
     public let engine: String
     /// What the reader has to know before believing the speaker labels.
     public let notes: [String]
 
     public init(
-        utterances: [Utterance], language: String, engine: String, notes: [String] = []
+        utterances: [Utterance], language: String?, engine: String, notes: [String] = []
     ) {
         self.utterances =
             utterances
@@ -107,7 +114,9 @@ public struct Transcript: Sendable, Equatable {
     }
 
     public var languageName: String {
-        Locale(identifier: "en_US_POSIX").localizedString(forLanguageCode: language) ?? language
+        guard let language else { return "language undetected" }
+        return Locale(identifier: "en_US_POSIX").localizedString(forLanguageCode: language)
+            ?? language
     }
 
     static func clock(_ seconds: TimeInterval) -> String {

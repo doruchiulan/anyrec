@@ -1,6 +1,6 @@
 import Foundation
 
-/// Picks an engine, runs it over each audio track, and interleaves the results.
+/// Picks an engine, runs it over the call, and works out who said each line.
 public enum TranscriptionService {
     public struct Track: Sendable {
         public let url: URL
@@ -17,16 +17,29 @@ public enum TranscriptionService {
         public var engine: TranscriptionEngine
         public var language: String?
         public var model: URL?
+        public var diarize: Bool
 
         public init(
             tracks: [Track], engine: TranscriptionEngine = .auto, language: String? = nil,
-            model: URL? = nil
+            model: URL? = nil, diarize: Bool = true
         ) {
             self.tracks = tracks
             self.engine = engine
             self.language = language
             self.model = model
+            self.diarize = diarize
         }
+    }
+
+    /// What the engine is pointed at, plus what is needed afterwards to tell the two
+    /// sides of the call apart.
+    private struct Source {
+        let url: URL
+        let regions: [Range<TimeInterval>]
+        let microphone: AudioEnvelope?
+        let systemAudio: AudioEnvelope?
+        /// Set only when there is a single track, where who spoke is not in question.
+        let only: Speaker?
     }
 
     /// Audio tracks of a recording, microphone first. Empty files are skipped —
@@ -40,45 +53,76 @@ public enum TranscriptionService {
         _ job: Job, progress: @Sendable (String) -> Void = { _ in }
     ) async throws -> Transcript {
         guard !job.tracks.isEmpty else { throw TranscriptionError.noAudio }
+        guard let ffmpeg = Muxer.ffmpegPath() else { throw TranscriptionError.ffmpegNotFound }
 
-        /// Checked before the engines run, which take minutes: whoever is watching
-        /// should know the labels are unreliable before they wait for them.
-        let notes = bleedNote(job.tracks).map { [$0] } ?? []
-        notes.forEach(progress)
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("slack-rec-transcribe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
 
-        let language = try language(for: job, progress: progress)
+        let source = try prepare(job, in: scratch, using: ffmpeg, progress: progress)
+        let language = try language(for: job, of: source.url, progress: progress)
         let transcriber = try await transcriber(for: job, language: language ?? "en")
-        progress("Transcribing with \(transcriber.name) (\(language ?? "language auto-detected"))…")
 
-        var utterances: [Utterance] = []
-        var heard = language
-        for track in job.tracks {
-            progress("  \(track.url.lastPathComponent)…")
-            let spoken = try await transcriber.speech(of: track.url, language: language)
-            heard = heard ?? spoken.language
-            utterances += spoken.utterances.map {
-                var tagged = $0
-                tagged.speaker = track.speaker
-                return tagged
-            }
-        }
+        progress("Transcribing with \(transcriber.name) (\(language ?? "language auto-detected"))…")
+        let spoken = try await transcriber.speech(
+            of: source.url, in: source.regions, language: language)
+
         return Transcript(
-            utterances: utterances, language: heard ?? "en", engine: transcriber.name, notes: notes
+            utterances: attribute(spoken.utterances, in: source),
+            language: language ?? spoken.language,
+            engine: transcriber.name
         )
     }
 
-    /// The far end coming back through the speakers is recorded on the microphone
-    /// track, and attribution is nothing but which track a line came from — so every
-    /// echoed sentence is filed under the wrong name. The two cannot be separated
-    /// afterwards: whisper fuses a real reply and an echoed one into a single
-    /// segment, so dropping the suspect lines would delete the user's own words.
-    private static func bleedNote(_ tracks: [Track]) -> String? {
-        guard let ffmpeg = Muxer.ffmpegPath(),
-            let microphone = tracks.first(where: { $0.speaker == .me })?.url,
-            let call = tracks.first(where: { $0.speaker == .others })?.url,
-            SpeakerBleed.detected(systemAudio: call, microphone: microphone, using: ffmpeg)
-        else { return nil }
-        return SpeakerBleed.transcriptWarning
+    /// One mixed file is what gets transcribed. Two tracks handed to an engine
+    /// separately come back as two timelines, and an engine's timestamps are only
+    /// honest about the audio it was given — merging them shuffles the conversation,
+    /// which is the whole reason attribution moved out of the file names.
+    private static func prepare(
+        _ job: Job, in scratch: URL, using ffmpeg: String, progress: @Sendable (String) -> Void
+    ) throws -> Source {
+        let track = { (speaker: Speaker) in job.tracks.first { $0.speaker == speaker }?.url }
+        let microphone = track(.me)
+        let systemAudio = track(.others)
+
+        progress("Preparing the audio…")
+        guard
+            let mix = try AudioMix.build(
+                microphone: microphone, systemAudio: systemAudio, into: scratch, using: ffmpeg)
+        else {
+            let single = job.tracks[0]
+            return Source(
+                url: single.url, regions: speech(in: single.url, using: ffmpeg),
+                microphone: nil, systemAudio: nil, only: single.speaker
+            )
+        }
+
+        return Source(
+            url: mix, regions: speech(in: mix, using: ffmpeg),
+            microphone: microphone.flatMap { AudioEnvelope.of($0, using: ffmpeg) },
+            systemAudio: systemAudio.flatMap { AudioEnvelope.of($0, using: ffmpeg) },
+            only: nil
+        )
+    }
+
+    private static func speech(in url: URL, using ffmpeg: String) -> [Range<TimeInterval>] {
+        AudioEnvelope.of(url, using: ffmpeg).map(SpeechRegions.detect) ?? []
+    }
+
+    private static func attribute(_ utterances: [Utterance], in source: Source) -> [Utterance] {
+        if let only = source.only {
+            return utterances.map {
+                var line = $0
+                line.speaker = only
+                return line
+            }
+        }
+        guard let microphone = source.microphone, let systemAudio = source.systemAudio else {
+            return utterances
+        }
+        return SpeakerAttribution.label(
+            utterances, microphone: microphone, systemAudio: systemAudio)
     }
 
     /// The written files, in the order they were produced.
@@ -94,22 +138,17 @@ public enum TranscriptionService {
         return [markdown, subtitles]
     }
 
-    /// Detection reads the opening of the fullest track: AAC compresses silence to
-    /// almost nothing, so the largest file is the one with the most speech in it.
-    ///
     /// Nil means nobody has decided yet — the remote engines detect as they go, and
     /// running whisper locally first would defeat the point of not having it installed.
     private static func language(
-        for job: Job, progress: @Sendable (String) -> Void
+        for job: Job, of mix: URL, progress: @Sendable (String) -> Void
     ) throws -> String? {
         if let language = job.language { return language }
         if job.engine.isRemote { return nil }
         guard let whisper = try? WhisperTranscriber(model: job.model) else { return "en" }
 
         progress("Detecting the language…")
-        for track in job.tracks.sorted(by: { size(of: $0.url) > size(of: $1.url) }) {
-            if let detected = try whisper.detectLanguage(of: track.url) { return detected }
-        }
+        if let detected = try whisper.detectLanguage(of: mix) { return detected }
         progress("  Could not tell — assuming English. Pass --language to override.")
         return "en"
     }
@@ -121,7 +160,7 @@ public enum TranscriptionService {
         case .apple:
             return try await appleTranscriber(language: language)
         case .openai:
-            return try OpenAITranscriber()
+            return try OpenAITranscriber(model: job.diarize ? .diarize : .whisper)
         case .auto:
             /// Deliberately local-only: `auto` must never start uploading a call
             /// because a model happened to be missing.

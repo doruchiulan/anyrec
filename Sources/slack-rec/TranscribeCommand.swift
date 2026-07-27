@@ -7,15 +7,20 @@ struct Transcribe: AsyncParsableCommand {
         commandName: "transcribe",
         abstract: "Turn a recording into a speaker-labelled transcript.",
         discussion: """
-        The microphone and the call are separate tracks, so every line is already \
-        attributed: no diarisation, no guessing who spoke.
+        The tracks are mixed before transcription, so the engine orders the \
+        conversation itself. Your lines are then found by measurement, not by \
+        guessing: whichever track was louder while a line was said is the one that \
+        said it.
 
         `apple` is the macOS 26 speech model — fast, thirty locales, no Romanian. \
         `whisper` is whisper.cpp, slower but it handles Romanian. `auto` detects the \
-        language and picks between the two. All three run on this machine.
+        language and picks between the two. All three run on this machine, and all \
+        three report the far end as one voice.
 
-        `openai` is the exception: it uploads both audio tracks to OpenAI and needs \
-        your own API key in OPENAI_API_KEY. `auto` never picks it.
+        `openai` is the exception: it uploads the mixed audio and needs your own API \
+        key in OPENAI_API_KEY. `auto` never picks it. It is also the only engine that \
+        separates the other participants from each other — Slack sends them down one \
+        stream, so nothing local can tell them apart.
         """
     )
 
@@ -40,13 +45,20 @@ struct Transcribe: AsyncParsableCommand {
     )
     var summarize = false
 
+    @Flag(
+        inversion: .prefixedNo,
+        help: "Label each remote participant separately. --engine openai only."
+    )
+    var diarize = true
+
     func run() async throws {
         let source = try resolveSource()
         let job = TranscriptionService.Job(
             tracks: try tracks(of: source),
             engine: engine,
             language: language,
-            model: model.map { URL(filePath: $0.expandingTilde) }
+            model: model.map { URL(filePath: $0.expandingTilde) },
+            diarize: diarize
         )
 
         let started = Date()

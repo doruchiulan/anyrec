@@ -59,33 +59,21 @@ struct OpenAITranscriberTests {
 
 @Suite("AudioChunks")
 struct AudioChunksTests {
-    private let directory = URL(fileURLWithPath: "/tmp/parts")
-
-    @Test("reads each part's own start time out of ffmpeg's manifest")
-    func manifest() {
-        let csv = """
-            /tmp/parts/part-000.mp3,0.000000,3600.048000
-            /tmp/parts/part-001.mp3,3600.048000,4210.123000
-
-            """
-
-        #expect(
-            AudioChunks.parse(csv, in: directory) == [
-                AudioChunks.Chunk(url: directory.appendingPathComponent("part-000.mp3"), start: 0),
-                AudioChunks.Chunk(
-                    url: directory.appendingPathComponent("part-001.mp3"), start: 3_600.048),
-            ])
+    @Test("uploads a stretch of speech as it stands")
+    func keepsRegions() {
+        #expect(AudioChunks.capped([12..<40, 95..<130]) == [12..<40, 95..<130])
     }
 
-    @Test("resolves parts against the scratch directory, not the recorded path")
-    func relocatable() {
-        let chunks = AudioChunks.parse("elsewhere/part-000.mp3,0.000000,12.5", in: directory)
+    @Test("splits a region that would outrun the upload limit on its own")
+    func capsLongRegions() {
+        let parts = AudioChunks.capped([0..<9_000])
 
-        #expect(chunks.first?.url == directory.appendingPathComponent("part-000.mp3"))
+        #expect(parts == [0..<3_600, 3_600..<7_200, 7_200..<9_000])
     }
 
-    @Test("ignores rows that are not a part")
-    func rubbish() {
-        #expect(AudioChunks.parse("\n,\nnot a row\n", in: directory).isEmpty)
+    @Test("names parts in the order they will be sent")
+    func names() {
+        #expect(AudioChunks.name(0) == "part-000.mp3")
+        #expect(AudioChunks.name(12) == "part-012.mp3")
     }
 }

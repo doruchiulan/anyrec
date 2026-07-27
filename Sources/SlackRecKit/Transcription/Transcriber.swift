@@ -24,8 +24,11 @@ public struct Speech: Sendable {
 
 public protocol Transcriber: Sendable {
     var name: String { get }
-    /// `language` is a BCP-47 tag; nil means let the engine decide.
-    func speech(of url: URL, language: String?) async throws -> Speech
+    /// `regions` are where the speech is, for engines that would otherwise be handed
+    /// room tone and invent sentences to fill it; ones that run their own voice
+    /// detection ignore them. `language` is a BCP-47 tag; nil means let the engine decide.
+    func speech(of url: URL, in regions: [Range<TimeInterval>], language: String?) async throws
+        -> Speech
 }
 
 public enum TranscriptionError: Error, CustomStringConvertible {
