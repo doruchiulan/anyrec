@@ -93,6 +93,10 @@ Invariants worth preserving:
   at 2.5 s, which is why it happens before raw mode.
 - Child processes must not inherit the terminal's stdin while raw mode is on —
   ffmpeg is run with `-nostdin` and `/dev/null` for exactly this reason.
+- The TUI is keyboard-only. Alternate scroll is turned off on entry (`?1007l`)
+  because terminals otherwise translate the wheel into arrow-key bytes that are
+  identical to a real arrow key, and cursor keys are forced to normal mode
+  (`?1l`) so arrows always arrive as CSI.
 - Escape sequences the TUI does not use are swallowed whole, never reported as
   `.escape`. `.escape` quits the setup screen and stops a recording, and a mouse
   wheel emits sequences constantly.

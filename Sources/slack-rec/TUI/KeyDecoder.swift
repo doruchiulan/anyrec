@@ -16,13 +16,8 @@ enum KeyDecoder {
 
     private static func escapeSequence(_ next: () -> UInt8?) -> Key? {
         guard let second = next() else { return .escape }
-        switch second {
-        case 0x5B: return controlSequence(next)
-        /// SS3 — what a wheel scroll arrives as once the terminal is in
-        /// application cursor mode, and what used to read as an escape.
-        case 0x4F: return arrow(next())
-        default: return nil
-        }
+        guard second == 0x5B else { return nil }
+        return controlSequence(next)
     }
 
     /// A CSI sequence runs to a final byte in 0x40–0x7E; everything before it is

@@ -21,10 +21,10 @@ struct KeyDecoderTests {
         #expect(decode([0x1B, 0x5B, 0x44]) == .left)
     }
 
-    @Test("reads the arrows a scroll wheel sends in application cursor mode")
+    @Test("ignores SS3, which only a wheel should be sending")
     func applicationCursorArrows() {
-        #expect(decode([0x1B, 0x4F, 0x41]) == .up)
-        #expect(decode([0x1B, 0x4F, 0x42]) == .down)
+        #expect(decode([0x1B, 0x4F, 0x41]) == nil)
+        #expect(decode([0x1B, 0x4F, 0x42]) == nil)
     }
 
     @Test("ignores a mouse report instead of quitting on it")

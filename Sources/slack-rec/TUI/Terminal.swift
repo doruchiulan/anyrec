@@ -27,6 +27,14 @@ func styled(_ text: String, _ styles: Style...) -> String {
 enum Terminal {
     static let alternateScreenOn = "\u{1B}[?1049h"
     static let alternateScreenOff = "\u{1B}[?1049l"
+    /// Terminals translate the wheel into arrow keys on the alternate screen, which
+    /// arrive as the same bytes a real arrow key does. Turning that off is the only
+    /// place the two can still be told apart.
+    static let alternateScrollOff = "\u{1B}[?1007l"
+    static let alternateScrollOn = "\u{1B}[?1007h"
+    /// Whatever the shell left behind: in application cursor mode arrows arrive as
+    /// SS3, which this reads as nothing at all.
+    static let normalCursorKeys = "\u{1B}[?1l"
     static let hideCursor = "\u{1B}[?25l"
     static let showCursor = "\u{1B}[?25h"
     static let home = "\u{1B}[H"
@@ -74,11 +82,13 @@ enum Terminal {
             }
         }
         tcsetattr(STDIN_FILENO, TCSANOW, &term)
-        write(alternateScreenOn + hideCursor + clearScreen)
+        write(
+            alternateScreenOn + alternateScrollOff + normalCursorKeys + hideCursor + clearScreen
+        )
     }
 
     static func restore() {
-        write(showCursor + alternateScreenOff)
+        write(alternateScrollOn + showCursor + alternateScreenOff)
         signals = nil
         guard var term = saved else { return }
         tcsetattr(STDIN_FILENO, TCSANOW, &term)
