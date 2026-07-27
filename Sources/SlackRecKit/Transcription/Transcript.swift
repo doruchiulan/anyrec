@@ -87,13 +87,10 @@ public struct Transcript: Sendable, Equatable {
     }
 
     public func markdown(title: String) -> String {
-        let header =
-            [
-                "# \(title)",
-                "",
-                "\(Self.clock(duration)) · \(languageName) · transcribed by \(engine)",
-                "",
-            ] + notes.flatMap { ["> \($0)", ""] }
+        let summary = [Self.clock(duration), languageName, "transcribed by \(engine)"]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        let header = ["# \(title)", "", summary, ""] + notes.flatMap { ["> \($0)", ""] }
         let body = turns.map {
             "**[\(Self.clock($0.start))] \($0.speaker.label):** \($0.text)"
         }
@@ -113,8 +110,10 @@ public struct Transcript: Sendable, Equatable {
             .joined(separator: "\n")
     }
 
-    public var languageName: String {
-        guard let language else { return "language undetected" }
+    /// Nil when nothing reported one — the diarising model never does — because a
+    /// header segment reading "language undetected" is worse than one segment fewer.
+    public var languageName: String? {
+        guard let language else { return nil }
         return Locale(identifier: "en_US_POSIX").localizedString(forLanguageCode: language)
             ?? language
     }

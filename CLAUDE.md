@@ -146,8 +146,21 @@ Invariants worth preserving:
 - Only the far end can be diarised, and only by an engine that does it. Slack
   pre-mixes every remote participant into system audio, so energy can answer
   "me or the call" and nothing finer. `--diarize` (openai only) is what turns
-  "Call" into "Speaker A", "Speaker B"; energy then reclaims whichever of those
-  voices is holding the microphone.
+  "Call" into "Speaker A", "Speaker B"; energy then reclaims your own lines from
+  whatever letters they arrived under.
+- Attribution is per line, never per voice. A diarising model fuses two people
+  into one letter when they take turns quickly, and a voice weighed as a whole
+  then averages out below the margin — so nothing is claimed and nobody is "Me",
+  which is exactly how a three-way call came back with one speaker holding both
+  sides of it. Each line is measured on its own. The letters left over are
+  renumbered from the top afterwards, so a transcript never opens on "Speaker B".
+- A segment holding two people is cut at its sentence ends. One letter covers a
+  whole span when a reply lands inside it — "Uite, stau pe aici, aştept. Sunt
+  bine." was two speakers in one cue — and no diarising engine returns word times
+  to place the seam. Sharing the span out by sentence length put the cut 33 ms
+  from the real handover on that recording, which is close enough that each part
+  lands on its own side of it. The cut is kept only when the parts disagree about
+  who was talking, so ordinary punctuation never fragments a line.
 - Every engine is handed the speech regions, and none of them may be handed the
   gaps. whisper is the one that needs it most — without VAD its first segment
   spans the leading silence and starts at 0 — but the hosted models hallucinate
@@ -165,7 +178,9 @@ Invariants worth preserving:
   never put in an error: only the response body reaches `engineFailed`.
 - Language detection is skipped for remote engines. Running whisper locally to
   label an upload defeats the point of not having whisper installed, so the
-  engine reports what it heard and `Transcript` takes the answer from there.
+  engine reports what it heard and `Transcript` takes the answer from there — and
+  drops the header segment entirely when it gets none, which is what the diarising
+  model always does.
 
 ## Permissions
 

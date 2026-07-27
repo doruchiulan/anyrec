@@ -18,9 +18,10 @@ public enum Summarizer {
         Below is a transcript of a call, produced by speech recognition, so expect \
         misheard words. "Me" is the person who recorded it; "Call" is everyone else.
 
-        Write a summary in \(transcript.languageName), as Markdown, headings included, \
-        with these sections: summary (3-5 sentences), decisions, action items (owner \
-        marked "Me" or "Call"), open questions. Leave out any section with nothing in it.
+        Write a summary in \(transcript.languageName ?? "the language the call was in"), \
+        as Markdown, headings included, with these sections: summary (3-5 sentences), \
+        decisions, action items (owner marked "Me" or "Call"), open questions. Leave out \
+        any section with nothing in it.
 
         Correct obvious mishearings when the context makes the intent clear. Use nothing \
         but the transcript: do not name the speakers, do not read any file, and do not \

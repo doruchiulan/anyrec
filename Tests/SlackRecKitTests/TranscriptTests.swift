@@ -82,11 +82,13 @@ struct TranscriptTests {
         #expect(text == "[00:00] Me: a\n\n[00:02] Speaker A: b\n\n[00:04] Speaker B: c")
     }
 
-    @Test("says so rather than claiming English when nothing detected a language")
+    @Test("leaves the language out of the header rather than claiming one it never got")
     func undetectedLanguage() {
-        #expect(
-            Transcript(utterances: [line(0, 2, "a", .me)], language: nil, engine: "test")
-                .languageName == "language undetected")
+        let transcript = Transcript(
+            utterances: [line(0, 2, "a", .me)], language: nil, engine: "test")
+
+        #expect(transcript.languageName == nil)
+        #expect(transcript.markdown(title: "call").contains("00:02 · transcribed by test"))
     }
 
     @Test("srt numbers cues from one and stamps them to the millisecond")

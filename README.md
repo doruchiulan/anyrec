@@ -272,7 +272,8 @@ It runs `gpt-4o-transcribe-diarize`, which separates the far end into `Speaker A
 people and slack-rec only ever sees two tracks. Slack mixes every remote
 participant into system audio, so without diarisation they all arrive as one
 `Call`. Your own lines are still identified from the microphone track, whichever
-letter the model gave them.
+letter the model gave them — including when the model puts your sentence and
+someone's reply in the same cue, which it does when the reply comes quickly.
 
 `--no-diarize` falls back to `whisper-1` and the plain `Me`/`Call` split. Either
 way the audio is trimmed to where the talking is, and anything still over the

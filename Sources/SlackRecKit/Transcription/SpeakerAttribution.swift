@@ -13,19 +13,70 @@ public enum SpeakerAttribution {
     /// putting the far end's words in your mouth is the worse mistake.
     static let margin = 1.5
 
+    /// Diarisation says how many voices there were, not which of them is holding the
+    /// microphone — and it fuses two people into one letter when they take turns
+    /// quickly. So every line is weighed on its own: yours are the ones the microphone
+    /// heard louder, whatever letter they arrived under.
     public static func label(
         _ utterances: [Utterance], microphone: AudioEnvelope, systemAudio: AudioEnvelope
     ) -> [Utterance] {
         guard !microphone.isEmpty, !systemAudio.isEmpty else { return utterances }
-        let voices = Set(utterances.map(\.speaker)).filter { $0 != .me && $0 != .others }
-        guard voices.isEmpty else {
-            return relabel(utterances, mine: mine(utterances, microphone, systemAudio))
-        }
-        return utterances.map {
-            var line = $0
-            line.speaker = spoke(from: $0, microphone, systemAudio) ? .me : .others
+        return renumber(utterances.flatMap { claim($0, microphone, systemAudio) })
+    }
+
+    /// One segment can still hold two people, because the model gives a whole span a
+    /// single letter when a reply lands inside it. The seam is a sentence end, so the
+    /// line is cut there and each part measured alone — and stays cut only if the
+    /// parts disagree about who was talking.
+    private static func claim(
+        _ utterance: Utterance, _ microphone: AudioEnvelope, _ systemAudio: AudioEnvelope
+    ) -> [Utterance] {
+        let parts = sentences(of: utterance).map { part -> Utterance in
+            guard spoke(from: part, microphone, systemAudio) else { return part }
+            var line = part
+            line.speaker = .me
             return line
         }
+        guard Set(parts.map(\.speaker)).count > 1 else {
+            var line = utterance
+            line.speaker = parts[0].speaker
+            return [line]
+        }
+        return parts
+    }
+
+    /// Time is shared out by length. A word-level clock would place the cut better,
+    /// but no engine that diarises returns one, and the parts only have to be right
+    /// enough that each lands on its own side of the seam.
+    private static func sentences(of utterance: Utterance) -> [Utterance] {
+        let parts = sentences(in: utterance.text)
+        guard parts.count > 1 else { return [utterance] }
+        let letters = Double(parts.reduce(0) { $0 + $1.count })
+        var start = utterance.start
+        return parts.map { text in
+            let span = (utterance.end - utterance.start) * Double(text.count) / letters
+            defer { start += span }
+            return Utterance(
+                start: start, end: start + span, text: text, speaker: utterance.speaker)
+        }
+    }
+
+    /// A terminator only ends a sentence when a space follows it, which is what keeps
+    /// "3.5" and an ellipsis in one piece.
+    private static func sentences(in text: String) -> [String] {
+        let characters = Array(text)
+        var parts: [String] = []
+        var current = ""
+        for (index, character) in characters.enumerated() {
+            current.append(character)
+            guard ".!?".contains(character),
+                index + 1 == characters.count || characters[index + 1] == " "
+            else { continue }
+            parts.append(current)
+            current = ""
+        }
+        parts.append(current)
+        return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     private static func spoke(
@@ -36,37 +87,26 @@ public enum SpeakerAttribution {
         return ratio(mine, theirs) >= margin
     }
 
-    /// Diarisation says how many voices there were, not which one is holding the
-    /// microphone. Every line a voice spoke is weighed at once, so one leaked word
-    /// cannot claim a whole speaker — and only the strongest claim is honoured,
-    /// because there is exactly one of you.
-    static func mine(
-        _ utterances: [Utterance], _ microphone: AudioEnvelope, _ systemAudio: AudioEnvelope
-    ) -> Speaker? {
-        let scored = Dictionary(grouping: utterances, by: \.speaker).map { speaker, lines in
-            (speaker, dominance(lines, microphone, systemAudio))
+    /// Taking your lines out of a diarised set leaves a gap in its letters, or opens
+    /// the call on "Speaker B". What is left is lettered again, in the order it is
+    /// first heard.
+    private static func renumber(_ utterances: [Utterance]) -> [Utterance] {
+        var letters: [String: String] = [:]
+        for line in utterances.sorted(by: { $0.start < $1.start }) {
+            guard case .voice(let heard) = line.speaker, letters[heard] == nil else { continue }
+            letters[heard] = letter(letters.count)
         }
-        return scored.filter { $0.1 >= margin }.max { $0.1 < $1.1 }?.0
-    }
-
-    private static func dominance(
-        _ lines: [Utterance], _ microphone: AudioEnvelope, _ systemAudio: AudioEnvelope
-    ) -> Double {
-        let level = { (envelope: AudioEnvelope) in
-            lines.map { envelope.level(from: $0.start, to: $0.end) * ($0.end - $0.start) }
-                .reduce(0, +)
-        }
-        return ratio(level(microphone), level(systemAudio))
-    }
-
-    private static func relabel(_ utterances: [Utterance], mine: Speaker?) -> [Utterance] {
-        guard let mine else { return utterances }
         return utterances.map {
-            guard $0.speaker == mine else { return $0 }
+            guard case .voice(let heard) = $0.speaker, let renamed = letters[heard]
+            else { return $0 }
             var line = $0
-            line.speaker = .me
+            line.speaker = .voice(renamed)
             return line
         }
+    }
+
+    static func letter(_ index: Int) -> String {
+        index < 26 ? String(UnicodeScalar(UInt8(65 + index))) : "\(index + 1)"
     }
 
     private static func ratio(_ mine: Double, _ theirs: Double) -> Double {

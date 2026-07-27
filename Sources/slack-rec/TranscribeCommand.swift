@@ -127,10 +127,13 @@ struct Transcribe: AsyncParsableCommand {
     private func report(_ transcript: Transcript, started: Date, written: [URL]) -> String {
         let elapsed = Date().timeIntervalSince(started)
         let speed = transcript.duration > 0 ? transcript.duration / elapsed : 0
+        let summary = [
+            transcript.engine, transcript.languageName,
+            "\(transcript.turns.count) turns over \(Int(transcript.duration))s of audio",
+        ].compactMap { $0 }.joined(separator: " · ")
         return """
 
-            \(transcript.engine) · \(transcript.languageName) · \
-            \(transcript.turns.count) turns over \(Int(transcript.duration))s of audio
+            \(summary)
             Took \(String(format: "%.1fs", elapsed))\
             \(speed > 0 ? String(format: " (%.1f× realtime)", speed) : "")
             \(written.map { "Wrote \($0.path)" }.joined(separator: "\n"))
