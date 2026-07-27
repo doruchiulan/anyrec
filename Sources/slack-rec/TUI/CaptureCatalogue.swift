@@ -7,24 +7,19 @@ struct CaptureCatalogue {
     let choices: [Int: CaptureChoice]
 
     static func load() async throws -> CaptureCatalogue {
-        async let applications = ContentInventory.applications()
         async let displays = ContentInventory.displays()
         async let windows = ContentInventory.windows()
 
         var builder = Builder()
-        builder.add(.auto, detail: "recommended")
-
-        let apps = try await applications
-        builder.section("Whole app", entries: apps.filter(\.isKnownCallApp).map(entry))
+        builder.section("Windows", entries: try await sortedWindows(windows).map(entry))
         builder.section("Displays", entries: try await displays.map(entry))
-        builder.section("Other apps", entries: apps.filter { !$0.isKnownCallApp }.map(entry))
-        builder.section("Single window", entries: try await sortedWindows(windows).map(entry))
 
         return CaptureCatalogue(items: builder.items, choices: builder.choices)
     }
 
-    func index(of choice: CaptureChoice) -> Int? {
-        choices.first { $0.value.target == choice.target }?.key
+    func index(of choice: CaptureChoice?) -> Int? {
+        guard let choice else { return nil }
+        return choices.first { $0.value.target == choice.target }?.key
     }
 
     private static func sortedWindows(_ windows: [WindowInfo]) -> [WindowInfo] {
@@ -32,15 +27,6 @@ struct CaptureCatalogue {
             let (a, b) = (CallApps.isKnown($0.bundleID), CallApps.isKnown($1.bundleID))
             return a == b ? $0.application < $1.application : a && !b
         }
-    }
-
-    private static func entry(_ app: ApplicationInfo) -> Entry {
-        Entry(
-            choice: CaptureChoice(
-                target: .application(bundleID: app.bundleID), label: app.name
-            ),
-            detail: "\(app.windowCount) window\(app.windowCount == 1 ? "" : "s")"
-        )
     }
 
     private static func entry(_ display: DisplayInfo) -> Entry {

@@ -3,18 +3,14 @@ import Foundation
 public struct CallApp: Sendable, Equatable {
     public let bundleID: String
     public let name: String
-    /// Browsers host Meet, Whereby and the rest, but they also host everything else,
-    /// so they are offered after the dedicated clients rather than auto-selected.
-    public let isBrowser: Bool
 
-    public init(bundleID: String, name: String, isBrowser: Bool = false) {
+    public init(bundleID: String, name: String) {
         self.bundleID = bundleID
         self.name = name
-        self.isBrowser = isBrowser
     }
 }
 
-/// The apps worth looking for when nobody said what to capture.
+/// The apps whose windows are worth offering first.
 public enum CallApps {
     public static let known: [CallApp] = [
         CallApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack"),
@@ -31,18 +27,14 @@ public enum CallApps {
         CallApp(bundleID: "ru.keepcoder.Telegram", name: "Telegram"),
         CallApp(bundleID: "com.tdesktop.Telegram", name: "Telegram Desktop"),
         CallApp(bundleID: "com.apple.FaceTime", name: "FaceTime"),
-        CallApp(bundleID: "com.google.Chrome", name: "Chrome", isBrowser: true),
-        CallApp(bundleID: "com.microsoft.edgemac", name: "Edge", isBrowser: true),
-        CallApp(bundleID: "com.apple.Safari", name: "Safari", isBrowser: true),
-        CallApp(bundleID: "company.thebrowser.Browser", name: "Arc", isBrowser: true),
-        CallApp(bundleID: "org.mozilla.firefox", name: "Firefox", isBrowser: true),
+        CallApp(bundleID: "com.google.Chrome", name: "Chrome"),
+        CallApp(bundleID: "com.microsoft.edgemac", name: "Edge"),
+        CallApp(bundleID: "com.apple.Safari", name: "Safari"),
+        CallApp(bundleID: "company.thebrowser.Browser", name: "Arc"),
+        CallApp(bundleID: "org.mozilla.firefox", name: "Firefox"),
     ]
 
     public static let bundleIDs = Set(known.map(\.bundleID))
-
-    public static func app(for bundleID: String) -> CallApp? {
-        known.first { $0.bundleID == bundleID }
-    }
 
     public static func isKnown(_ bundleID: String) -> Bool {
         bundleIDs.contains(bundleID)

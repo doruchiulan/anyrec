@@ -38,7 +38,7 @@ struct SetupScreen {
             case .left: adjust(-1)
             case .right: adjust(1)
             case .enter: if await activate() { return settings }
-            case .character("r"): return settings
+            case .character("r"): if ready() { return settings }
             case .character("q"), .escape, .interrupt: return nil
             default: break
             }
@@ -68,8 +68,14 @@ struct SetupScreen {
         case .capture: await editCapture()
         case .microphone: editMicrophone()
         case .systemAudio, .mux, .stopAfter, .transcribe: adjust(1)
-        case .start: return true
+        case .start: return ready()
         }
+        return false
+    }
+
+    private mutating func ready() -> Bool {
+        guard settings.capture == nil else { return true }
+        notice = "Pick a window or a display to record first."
         return false
     }
 
@@ -83,6 +89,7 @@ struct SetupScreen {
                 selected: catalogue.index(of: settings.capture)
             ) {
                 settings.capture = catalogue.choices[picked] ?? settings.capture
+                notice = nil
             }
         } catch {
             notice = "\(error)"
@@ -128,7 +135,7 @@ struct SetupScreen {
 
     private func value(_ row: Row) -> String {
         switch row {
-        case .capture: settings.capture.label
+        case .capture: settings.captureLabel
         case .microphone: settings.microphoneLabel
         case .systemAudio: settings.systemAudio ? "On" : "Off"
         case .stopAfter: settings.stopLabel

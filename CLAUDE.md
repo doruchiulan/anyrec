@@ -2,11 +2,10 @@
 
 ## Overview
 
-macOS CLI that records a call as three separate tracks: the app's windows
-(including screen-shared content), system audio output, and microphone input.
-Built on ScreenCaptureKit, so no virtual audio driver is required. Slack, Teams,
-Zoom, Meet, Discord and browsers are recognised automatically; any window or
-display can be targeted explicitly.
+macOS CLI that records a call as three separate tracks: one window or display,
+system audio output, and microphone input. Built on ScreenCaptureKit, so no
+virtual audio driver is required. Windows belonging to Slack, Teams, Zoom, Meet,
+Discord and browsers are listed first; everything else follows.
 
 Running it with no arguments opens a TUI (setup screen, interactive capture and
 microphone pickers, live meters). `record` is the same thing driven by flags,
@@ -50,9 +49,9 @@ executable is argument parsing, the TUI, and output formatting only.
 |---|---|
 | `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
-| `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions; auto-detects the running call app. |
-| `CallApps.swift` | The bundle-id registry behind auto-detection and the `*` marks in `sources`. |
-| `ContentInventory.swift` | Read-only listing of applications, windows and displays. |
+| `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
+| `CallApps.swift` | The bundle-id registry that orders windows and puts the `*` marks in `sources`. |
+| `ContentInventory.swift` | Read-only listing of windows and displays, filtered to what apps actually draw. |
 | `AudioLevel.swift`, `LevelMonitor.swift` | Peak/RMS off the raw buffers; lock-guarded hand-off to the UI. |
 | `MeterScale.swift` | Pure dBFS → bar/zone/verdict math. The tested part of the meters. |
 | `Permissions.swift` | TCC preflight and status. |
@@ -79,8 +78,13 @@ Invariants worth preserving:
   A/V sync.
 - Non-`.complete` screen frames are discarded. Writing idle frames pads the
   video and drifts it against the audio.
-- An app is captured by application filter, never by a single window id: a
-  huddle's screen-share is frequently a separate window.
+- A capture target is a window or a display, never an application. Application
+  filters record the whole display with everything else masked out, which is a
+  display recording wearing a disguise. The cost is that a huddle and its
+  screen-share are separate windows: record the display to get both.
+- Only windows in layer 0 and at least 120px on a side are offered. macOS shares
+  wallpaper backstops, the menu bar, the Dock, every Control Center status item
+  and the recording indicator, and none of them is a recording target.
 - The meters read the buffers already on their way to disk. Never add a second
   audio tap to feed the UI.
 - Nothing slow may run between `enterRawMode` and the first frame: the alternate
@@ -89,6 +93,9 @@ Invariants worth preserving:
   at 2.5 s, which is why it happens before raw mode.
 - Child processes must not inherit the terminal's stdin while raw mode is on —
   ffmpeg is run with `-nostdin` and `/dev/null` for exactly this reason.
+- Escape sequences the TUI does not use are swallowed whole, never reported as
+  `.escape`. `.escape` quits the setup screen and stops a recording, and a mouse
+  wheel emits sequences constantly.
 - Raw mode owns SIGINT/SIGTERM/SIGHUP: `Terminal.readKey` reports them as
   `.interrupt` so every loop exits through the same path and the writers
   finalise. A loop that reads stdin directly would lose the recording — the

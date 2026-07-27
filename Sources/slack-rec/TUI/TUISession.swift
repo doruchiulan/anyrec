@@ -3,9 +3,15 @@ import SlackRecKit
 
 enum TUIError: Error, CustomStringConvertible {
     case notATerminal
+    case nothingPicked
 
     public var description: String {
-        "slack-rec needs an interactive terminal for this. Use `slack-rec record` instead."
+        switch self {
+        case .notATerminal:
+            "slack-rec needs an interactive terminal for this. Use `slack-rec record` instead."
+        case .nothingPicked:
+            "Nothing was picked to record."
+        }
     }
 }
 
@@ -39,7 +45,8 @@ struct TUISession {
     }
 
     private func record(_ settings: Settings, notice: String?) async throws {
-        let target = try await TargetResolver.resolve(settings.capture.target)
+        guard let capture = settings.capture else { throw TUIError.nothingPicked }
+        let target = try await TargetResolver.resolve(capture.target)
         let plan = try OutputPlan.create(in: URL(filePath: settings.outputRoot.expandingTilde))
         let recorder = Recorder(options: settings.options, target: target, plan: plan)
         try await recorder.start()

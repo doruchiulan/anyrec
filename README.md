@@ -1,12 +1,11 @@
 # slack-rec
 
-Records a call on macOS as three separate tracks: the app's windows (including
-whatever is being screen-shared), the audio the call plays back, and your
-microphone.
+Records a call on macOS as three separate tracks: a window or a display, the
+audio the call plays back, and your microphone.
 
-Slack, Teams, Zoom, Meet, Webex, Discord, WhatsApp, Telegram, FaceTime and calls
-running in a browser are all recognised — or point it at any window or display
-yourself.
+Windows belonging to Slack, Teams, Zoom, Meet, Webex, Discord, WhatsApp,
+Telegram, FaceTime and browsers are offered first; anything else with a window
+is one keystroke further down.
 
 Everything runs through ScreenCaptureKit. There is no virtual audio driver to
 install, no BlackHole, no Aggregate Device to wire up in Audio MIDI Setup.
@@ -18,7 +17,7 @@ slack-rec
 ```
   slack-rec
 
-› Capture     Auto — first call app running
+› Capture     Slack — Huddle with Costi
   Microphone  MacBook Pro Microphone (system default)
   Call audio  On
   Stop        when I press q
@@ -38,8 +37,8 @@ is over rather than after:
 ```
   ● REC  00:04:12
 
-  Slack (2 windows)
-  4112×2658 · 30 fps · 7554 frames
+  Huddle with Costi
+  3024×1964 · 30 fps · 7554 frames
 
   call audio  ████████████████·|······················   -14.2  max  -8.1
   microphone  ██████████·············|················   -22.6  max -11.4
@@ -125,25 +124,23 @@ does is also a flag, for scripts and for terminals that are not a tty — where 
 falls back to `record` automatically.
 
 ```
-slack-rec record                      # first call app found, both audio sides, until Ctrl-C
-slack-rec record --bundle-id us.zoom.xos
+slack-rec record --window 24619       # one window, both audio sides, until Ctrl-C
+slack-rec record --display 0          # a whole display instead
 slack-rec record --no-microphone      # capture only what the call plays back
-slack-rec record --display 0          # a whole display rather than an app
-slack-rec record --window 24619       # one specific window
 slack-rec record --mic BuiltInMicrophoneDevice
 slack-rec record --no-mux             # keep the tracks separate, skip call.mp4
 ```
 
-Without `--bundle-id`, `--window` or `--display`, it picks the call app that is
-running — a dedicated client ahead of a browser. `slack-rec sources` lists
-everything you can point it at instead, each beside the flag that selects it.
+`record` needs `--window` or `--display`; there is no default, because recording
+the wrong thing is worse than recording nothing. `slack-rec sources` lists what
+you can point it at, each beside the flag that selects it.
 
 ```
-Apps and their windows                              --bundle-id · --window
-* Slack                         com.tinyspeck.slackmacgap
+Windows                                             --window
+* Slack
       24619   1512×982    Huddle with Costi
       24601   1728×1117   QLAN Smart Homes - Slack
-* Google Chrome                 com.google.Chrome
+* Google Chrome
       814     1920×1065   Meet — Casa Costi
 
 Displays                                            --display
@@ -154,12 +151,14 @@ Microphones                                         --mic
       BuiltInMicrophoneDevice
 ```
 
-Windows sit under the app that owns them because the two ids do different things:
-`--bundle-id` records everything that app has open, `--window` follows one window
-and nothing else. For a browser with a dozen tabs open in separate windows, that
-is the difference between a usable recording and a mosaic.
+Windows sit under the app that owns them, call apps first. Only windows apps
+actually draw are listed — not the menu bar, the Dock, Control Center's status
+items or the recording indicator, all of which macOS shares just as willingly.
 
-Call apps only, by default; `--all` widens it to everything with a window.
+A screen-share arrives as its own window, so a huddle and the screen being shared
+are two entries: record the share, or record the display and get both.
+
+Call apps only, by default; `--all` widens it to every window.
 
 ffmpeg is what merges the tracks. Without it you still get all three, but no
 `call.mp4` — `slack-rec doctor` and the recording banner both say so.
@@ -176,13 +175,14 @@ truncated `.mov`.
 | `tui` | The interactive screen. The default, so plain `slack-rec` opens it. |
 | `record` | Capture from flags alone, no interaction. |
 | `transcribe` | Transcribe a recording. Defaults to the newest one. |
-| `sources` | Everything capturable — apps, windows, displays, microphones — with the ids the flags take. |
-| `doctor` | Permissions, ffmpeg, transcription engines, running call apps. |
+| `sources` | Everything capturable — windows, displays, microphones — with the ids the flags take. |
+| `doctor` | Permissions, ffmpeg, transcription engines, call apps with a window open. |
 
 | Flag | Default | |
 |---|---|---|
 | `--output` | `~/Desktop/CallRec Recordings` | Directory the timestamped folder is created in. |
-| `--bundle-id` | auto | The app to capture, e.g. `com.tinyspeck.slackmacgap`. |
+| `--window` | — | The window id to capture. Required unless `--display` is given. |
+| `--display` | — | The display to capture instead. |
 | `--fps` | `30` | 1–60. |
 | `--codec` | `h264` | `hevc` gives smaller files and costs more CPU. |
 | `--[no-]mux` | on | Merge into `call.mp4` with ffmpeg afterwards. |

@@ -23,11 +23,12 @@ struct Doctor: AsyncParsableCommand {
         for line in await transcriptionReport() { print(line) }
 
         guard Permissions.screenRecordingGranted() else { return }
-        let apps = try await ContentInventory.runningCallApps()
-        if apps.isEmpty {
-            print("\(mark(false)) no call app running — open one, or use --display/--window")
+        let open = try await ContentInventory.windows(bundleIDs: CallApps.bundleIDs)
+        let names = Set(open.map(\.application)).sorted()
+        if names.isEmpty {
+            print("\(mark(false)) no call app window open — `slack-rec sources --all` lists the rest")
         } else {
-            print("\(mark(true)) \(apps.map(\.name).joined(separator: ", "))")
+            print("\(mark(true)) \(names.joined(separator: ", "))")
         }
     }
 

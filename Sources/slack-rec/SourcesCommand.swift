@@ -11,7 +11,7 @@ struct Sources: AsyncParsableCommand {
         abstract: "List what can be captured, and the flag that selects each one."
     )
 
-    @Flag(name: .long, help: "Every application and window, not just call apps'.")
+    @Flag(name: .long, help: "Every window, not just call apps'.")
     var all = false
 
     func run() async throws {
@@ -24,28 +24,34 @@ struct Sources: AsyncParsableCommand {
     private func capturable() async throws -> [String] {
         guard Permissions.screenRecordingGranted() else {
             return [
-                section("Apps, windows and displays"),
+                section("Windows and displays"),
                 "  Screen Recording is not granted, so there is nothing to list.",
                 "  " + Permission.screenRecording.settingsURL.absoluteString,
             ]
         }
-        return try await applications() + displays()
+        return try await windows() + displays()
     }
 
-    /// Windows nest under the app that owns them: `--bundle-id` composites all of an
-    /// app's windows, `--window` follows one, and the choice only makes sense side by side.
-    private func applications() async throws -> [String] {
-        let head = section("Apps and their windows", "--bundle-id · --window")
-        let apps = try await ContentInventory.applications().filter { all || $0.isKnownCallApp }
-        guard !apps.isEmpty else {
+    /// Grouped by the app that owns them, because a window id alone says nothing.
+    private func windows() async throws -> [String] {
+        let head = section("Windows", "--window")
+        let found = try await ContentInventory.windows(
+            bundleIDs: all ? nil : CallApps.bundleIDs
+        )
+        guard !found.isEmpty else {
             return [head, all ? "  Nothing with a capturable window." : noCallApps]
         }
-        let windows = Dictionary(grouping: try await ContentInventory.windows(), by: \.bundleID)
         return [head]
-            + apps.flatMap { app in
-                ["\(app.isKnownCallApp ? "*" : " ") \(pad(app.name, 30))\(app.bundleID)"]
-                    + (windows[app.bundleID] ?? []).map(window)
+            + Dictionary(grouping: found, by: \.bundleID)
+            .sorted { rank($0.value[0]) < rank($1.value[0]) }
+            .flatMap { _, owned in
+                ["\(CallApps.isKnown(owned[0].bundleID) ? "*" : " ") \(owned[0].application)"]
+                    + owned.map(window)
             }
+    }
+
+    private func rank(_ window: WindowInfo) -> (Int, String) {
+        (CallApps.isKnown(window.bundleID) ? 0 : 1, window.application.lowercased())
     }
 
     private func window(_ window: WindowInfo) -> String {
@@ -69,7 +75,7 @@ struct Sources: AsyncParsableCommand {
             + devices.flatMap { ["\($0.isDefault ? "*" : " ") \($0.name)", "      \($0.id)"] }
     }
 
-    private var noCallApps: String { "  No call app running. Open one, or pass --all." }
+    private var noCallApps: String { "  No call app window open. Open one, or pass --all." }
 
     private func section(_ title: String, _ flag: String = "") -> String {
         flag.isEmpty ? "\n" + title : "\n" + pad(title, 52) + flag

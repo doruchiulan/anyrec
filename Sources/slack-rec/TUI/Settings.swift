@@ -8,15 +8,13 @@ enum Defaults {
 struct CaptureChoice: Equatable {
     let target: CaptureTarget
     let label: String
-
-    static let auto = CaptureChoice(
-        target: .autoDetect, label: "Auto — first call app running"
-    )
 }
 
 /// Everything the setup screen edits, and the shapes the recorder wants it in.
 struct Settings {
-    var capture = CaptureChoice.auto
+    /// Nil until a window or display is picked: recording the wrong thing is worse
+    /// than recording nothing, so there is no default.
+    var capture: CaptureChoice?
     /// Nil means the microphone is not recorded. The device is always explicit, so
     /// another app switching the system default mid-call cannot redirect the capture.
     var microphone: AudioInputDevice?
@@ -42,6 +40,8 @@ struct Settings {
             showsCursor: true
         )
     }
+
+    var captureLabel: String { capture?.label ?? "Nothing picked yet" }
 
     var microphoneLabel: String {
         microphone.map { "\($0.name)\($0.isDefault ? " (system default)" : "")" } ?? "Off"

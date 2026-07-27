@@ -10,9 +10,9 @@ struct SlackRec: AsyncParsableCommand {
         commandName: "slack-rec",
         abstract: "Record a call — window video, system audio and microphone — as separate tracks.",
         discussion: """
-        Run `slack-rec` on its own for the interactive picker. Slack, Teams, Zoom, Meet \
-        and the rest are detected automatically; anything else can be captured by \
-        window, display or bundle id.
+        Run `slack-rec` on its own for the interactive picker. It lists windows — call \
+        apps' first — and displays; `slack-rec record` takes the same choice as \
+        --window or --display.
 
         Everyone on the call must know they are being recorded. In the EU that is not \
         a courtesy, it is the law: say it out loud or post it in the channel before \

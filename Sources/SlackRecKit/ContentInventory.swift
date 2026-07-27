@@ -18,13 +18,6 @@ public struct DisplayInfo: Sendable, Equatable {
     public let height: Int
 }
 
-public struct ApplicationInfo: Sendable, Equatable {
-    public let bundleID: String
-    public let name: String
-    public let windowCount: Int
-    public let isKnownCallApp: Bool
-}
-
 /// Read-only view of what ScreenCaptureKit is willing to capture.
 public enum ContentInventory {
     private static func content() async throws -> SCShareableContent {
@@ -76,54 +69,4 @@ public enum ContentInventory {
         }
     }
 
-    public static func isRunning(bundleID: String) async throws -> Bool {
-        try await content().applications.contains { $0.bundleIdentifier == bundleID }
-    }
-
-    /// Every app with at least one capturable window, known call apps first.
-    public static func applications() async throws -> [ApplicationInfo] {
-        let shareable = try await content()
-        let counts = shareable.windows.reduce(into: [String: Int]()) { tally, window in
-            guard isUserFacing(window), let id = window.owningApplication?.bundleIdentifier
-            else { return }
-            tally[id, default: 0] += 1
-        }
-        return summarise(
-            apps: shareable.applications.map { ($0.bundleIdentifier, $0.applicationName) },
-            windowCounts: counts
-        )
-    }
-
-    /// What `applications()` does once ScreenCaptureKit has answered. Separated
-    /// because the answer itself cannot be faked in a test.
-    static func summarise(
-        apps: [(bundleID: String, name: String)], windowCounts: [String: Int]
-    ) -> [ApplicationInfo] {
-        /// ScreenCaptureKit lists one entry per *process*, and a browser's helpers
-        /// each carry the app's bundle id — the same id the windows are counted by,
-        /// so without this every helper reprints the app's whole window list.
-        var seen: Set<String> = []
-        return
-            apps
-            .filter { seen.insert($0.bundleID).inserted }
-            .compactMap { app -> ApplicationInfo? in
-                guard let count = windowCounts[app.bundleID], count > 0,
-                    !app.name.isEmpty, !app.bundleID.isEmpty
-                else { return nil }
-                return ApplicationInfo(
-                    bundleID: app.bundleID,
-                    name: app.name,
-                    windowCount: count,
-                    isKnownCallApp: CallApps.isKnown(app.bundleID)
-                )
-            }
-            .sorted {
-                ($0.isKnownCallApp ? 0 : 1, $0.name.lowercased())
-                    < ($1.isKnownCallApp ? 0 : 1, $1.name.lowercased())
-            }
-    }
-
-    public static func runningCallApps() async throws -> [ApplicationInfo] {
-        try await applications().filter(\.isKnownCallApp)
-    }
 }

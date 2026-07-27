@@ -11,14 +11,11 @@ struct Record: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Directory the recording folder is created in.")
     var output = Defaults.outputRoot
 
-    @Option(name: .long, help: "Capture a whole display instead of one app's windows.")
+    @Option(name: .long, help: "Capture a whole display (see `slack-rec sources`).")
     var display: Int?
 
     @Option(name: .long, help: "Capture one window id (see `slack-rec sources`).")
     var window: UInt32?
-
-    @Option(name: .long, help: "Bundle id of the app to capture (see `slack-rec sources`).")
-    var bundleId: String?
 
     @Option(name: .long, help: "Frames per second (1–60).")
     var fps = 30
@@ -41,6 +38,18 @@ struct Record: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
     var mux = true
 
+    func validate() throws {
+        switch (window, display) {
+        case (nil, nil):
+            throw ValidationError(
+                "Nothing to record. Pass --window or --display; `slack-rec sources` lists both."
+            )
+        case (.some, .some):
+            throw ValidationError("Pass either --window or --display, not both.")
+        default: break
+        }
+    }
+
     func run() async throws {
         try await Permissions.preflight(needsMicrophone: microphone)
 
@@ -60,11 +69,10 @@ struct Record: AsyncParsableCommand {
         if mux { try muxTracks(plan) }
     }
 
+    /// `validate()` has already ruled out the other combinations.
     private var target: CaptureTarget {
         if let window { return .window(id: window) }
-        if let display { return .display(index: display) }
-        if let bundleId { return .application(bundleID: bundleId) }
-        return .autoDetect
+        return .display(index: display ?? 0)
     }
 
     private var options: CaptureOptions {
