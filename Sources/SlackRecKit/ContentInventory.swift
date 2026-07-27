@@ -31,8 +31,21 @@ public enum ContentInventory {
         try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     }
 
+    /// Apps draw into layer 0 — wallpaper, menu bar, Dock and status items do not —
+    /// and what survives that but stays thumbnail-sized is a popup, not a target.
+    static func isUserFacing(layer: Int, width: CGFloat, height: CGFloat) -> Bool {
+        layer == 0 && min(width, height) >= 120
+    }
+
+    private static func isUserFacing(_ window: SCWindow) -> Bool {
+        isUserFacing(
+            layer: window.windowLayer, width: window.frame.width, height: window.frame.height
+        )
+    }
+
     public static func windows(bundleIDs: Set<String>? = nil) async throws -> [WindowInfo] {
         let windows = try await content().windows.filter { window in
+            guard isUserFacing(window) else { return false }
             guard let bundleIDs else { return true }
             guard let id = window.owningApplication?.bundleIdentifier else { return false }
             return bundleIDs.contains(id)
@@ -71,7 +84,8 @@ public enum ContentInventory {
     public static func applications() async throws -> [ApplicationInfo] {
         let shareable = try await content()
         let counts = shareable.windows.reduce(into: [String: Int]()) { tally, window in
-            guard let id = window.owningApplication?.bundleIdentifier else { return }
+            guard isUserFacing(window), let id = window.owningApplication?.bundleIdentifier
+            else { return }
             tally[id, default: 0] += 1
         }
         return summarise(
