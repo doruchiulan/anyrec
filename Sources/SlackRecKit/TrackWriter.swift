@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-enum WriterError: Error, CustomStringConvertible {
+enum WriterError: Error, LocalizedError, CustomStringConvertible {
     case cannotAddInput(URL)
     case cannotStartWriting(URL, Error?)
 
@@ -13,6 +13,10 @@ enum WriterError: Error, CustomStringConvertible {
             "Could not start writing \(url.lastPathComponent): \(error?.localizedDescription ?? "unknown error")."
         }
     }
+
+    /// Without this, anything that reports the error through `localizedDescription`
+    /// prints "the operation couldn't be completed" and a case number instead.
+    var errorDescription: String? { description }
 }
 
 /// One AVAssetWriter and its single input. Audio inputs are built from the first
@@ -38,11 +42,27 @@ final class TrackWriter {
         input = Self.makeInput(kind: kind, formatHint: formatHint)
         input.expectsMediaDataInRealTime = true
 
-        guard writer.canAdd(input) else { throw WriterError.cannotAddInput(url) }
-        writer.add(input)
-        guard writer.startWriting() else {
-            throw WriterError.cannotStartWriting(url, writer.error)
+        do {
+            guard writer.canAdd(input) else { throw WriterError.cannotAddInput(url) }
+            writer.add(input)
+            guard writer.startWriting() else {
+                throw WriterError.cannotStartWriting(url, writer.error)
+            }
+        } catch {
+            /// AVAssetWriter creates the file before it will encode anything, so a
+            /// failure here leaves an empty track behind that looks like a real one.
+            try? FileManager.default.removeItem(at: url)
+            throw error
         }
+    }
+
+    /// AAC here refuses to encode below 44.1 kHz outright rather than resampling —
+    /// `startWriting` fails when a source format hint is set, `append` when it is not.
+    /// Bluetooth is what hits this: as an input, a pair of AirPods runs at 16 kHz.
+    static let lowestEncodableRate = 44_100.0
+
+    static func encodableRate(_ rate: Double) -> Double {
+        rate >= lowestEncodableRate ? rate : 48_000
     }
 
     private static func makeInput(
@@ -64,7 +84,7 @@ final class TrackWriter {
             let channels = min(Int(asbd?.mChannelsPerFrame ?? 2), 2)
             let settings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: asbd?.mSampleRate ?? 48_000,
+                AVSampleRateKey: encodableRate(asbd?.mSampleRate ?? 48_000),
                 AVNumberOfChannelsKey: max(channels, 1),
                 AVEncoderBitRateKey: 128_000,
             ]

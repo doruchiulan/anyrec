@@ -89,6 +89,16 @@ Invariants worth preserving:
 - Only windows in layer 0 and at least 120px on a side are offered. macOS shares
   wallpaper backstops, the menu bar, the Dock, every Control Center status item
   and the recording indicator, and none of them is a recording target.
+- Audio tracks are never encoded below 44.1 kHz. AAC here refuses the job rather
+  than resampling, and fails in whichever place is least helpful: `startWriting`
+  when a source format hint is set, `append` when it is not. Bluetooth is what
+  hits it — as an input, AirPods run HFP at 16 kHz — and the whole recording used
+  to die on it. Anything lower is lifted to 48 kHz.
+- Errors that carry a message conform to `LocalizedError`, not just
+  `CustomStringConvertible`. Anything reported through `localizedDescription`
+  otherwise prints "the operation couldn't be completed" and a case number, which
+  is how a microphone that could not be encoded reached the user as
+  `WriterError error 1`.
 - The meters read the buffers already on their way to disk. Never add a second
   audio tap to feed the UI.
 - Nothing slow may run between `enterRawMode` and the first frame: the alternate

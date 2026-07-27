@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import ScreenCaptureKit
 
-public enum RecorderError: Error, CustomStringConvertible {
+public enum RecorderError: Error, LocalizedError, CustomStringConvertible {
     case unsupportedOutputType
     case streamStopped(Error)
 
@@ -12,6 +12,8 @@ public enum RecorderError: Error, CustomStringConvertible {
         case .streamStopped(let error): "Capture stopped early: \(error.localizedDescription)"
         }
     }
+
+    public var errorDescription: String? { description }
 }
 
 public struct RecordingSummary: Sendable {
