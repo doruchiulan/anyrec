@@ -1,4 +1,4 @@
-# slack-rec
+# anyrec
 
 Records a call on macOS as three separate tracks: a window or a display, the
 audio the call plays back, and your microphone.
@@ -11,11 +11,11 @@ Everything runs through ScreenCaptureKit. There is no virtual audio driver to
 install, no BlackHole, no Aggregate Device to wire up in Audio MIDI Setup.
 
 ```
-slack-rec
+anyrec
 ```
 
 ```
-  slack-rec
+  anyrec
 
 › Capture     Slack — Huddle with Costi
   Microphone  MacBook Pro Microphone (system default)
@@ -26,7 +26,7 @@ slack-rec
 
     Start recording
 
-  Folder  ~/Desktop/CallRec Recordings
+  Folder  ~/Desktop/AnyRec Recordings
 
   ↑↓ move   ←→ change   ⏎ open   r record   q quit
 ```
@@ -45,7 +45,7 @@ is over rather than after:
 ```
 
 ```
-~/Desktop/CallRec Recordings/slack-call-2026-07-25-131411
+~/Desktop/AnyRec Recordings/rec-2026-07-25-131411
   screen.mov          81043 frames, 1.4 GB     video only, no audio
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
@@ -67,7 +67,7 @@ it is applied only to `call.mp4`: the three recorded tracks are never rewritten.
 
 Wear headphones. On speakers, your microphone records the call as well, so
 `call.mp4` carries the far end twice — once cleanly and once through the room a
-few milliseconds later, which sounds hollow and phasey. slack-rec detects this
+few milliseconds later, which sounds hollow and phasey. anyrec detects this
 and leaves the microphone gain alone rather than amplifying the echo, but it
 cannot undo it. The transcript is unaffected: an echo is always quieter than
 what caused it, so an echoed line still scores for the caller. Only headphones
@@ -79,15 +79,15 @@ that is the design, not a fault.
 ## Install
 
 ```
-brew install doruchiulan/tap/slack-rec
+brew install doruchiulan/tap/anyrec
 ```
 
 Or from source, which needs the Xcode Command Line Tools:
 
 ```
-git clone git@github.com:doruchiulan/slack-recorder.git
-cd slack-recorder && swift build -c release
-cp .build/release/slack-rec /usr/local/bin/
+git clone git@github.com:doruchiulan/anyrec.git
+cd anyrec && swift build -c release
+cp .build/release/anyrec /usr/local/bin/
 ```
 
 Requires macOS 15 or later. Microphone capture arrived in ScreenCaptureKit with
@@ -96,19 +96,20 @@ Sequoia; there is no fallback on older systems.
 ## Permissions
 
 macOS grants Screen Recording and Microphone access to the *terminal
-application* you run `slack-rec` from, not to the binary. Enable both under
+application* you run `anyrec` from, not to the binary. Enable both under
 System Settings → Privacy & Security, then quit and reopen your terminal — the
 grant only applies to newly launched processes.
 
 ```
-slack-rec doctor
+anyrec doctor
 ```
 
 ```
 ok   Screen Recording
 ok   Microphone
 ok   ffmpeg at /opt/homebrew/bin/ffmpeg
-ok   apple speech, 10 languages, on-device
+ok   apple speech, on-device, and only these languages
+    Cantonese, Chinese, English, French, German, Italian, Japanese, Korean, Portuguese, Spanish
 ok   whisper at /opt/homebrew/bin/whisper-cli
 ok   whisper model ggml-large-v3-turbo-q5_0.bin
 ok   OpenAI key found — --engine openai uploads the audio
@@ -117,20 +118,20 @@ ok   Slack, Zoom
 
 ## Usage
 
-`slack-rec` with no arguments opens the interactive screen above. Everything it
+`anyrec` with no arguments opens the interactive screen above. Everything it
 does is also a flag, for scripts and for terminals that are not a tty — where it
 falls back to `record` automatically.
 
 ```
-slack-rec record --window 24619       # one window, both audio sides, until Ctrl-C
-slack-rec record --display 0          # a whole display instead
-slack-rec record --no-microphone      # capture only what the call plays back
-slack-rec record --mic BuiltInMicrophoneDevice
-slack-rec record --no-mux             # keep the tracks separate, skip call.mp4
+anyrec record --window 24619       # one window, both audio sides, until Ctrl-C
+anyrec record --display 0          # a whole display instead
+anyrec record --no-microphone      # capture only what the call plays back
+anyrec record --mic BuiltInMicrophoneDevice
+anyrec record --no-mux             # keep the tracks separate, skip call.mp4
 ```
 
 `record` needs `--window` or `--display`; there is no default, because recording
-the wrong thing is worse than recording nothing. `slack-rec sources` lists what
+the wrong thing is worse than recording nothing. `anyrec sources` lists what
 you can point it at, each beside the flag that selects it.
 
 ```
@@ -163,7 +164,7 @@ like — the frame follows — but close it and capture stops there, with everyt
 up to that point written, merged and ready to transcribe.
 
 ffmpeg is what merges the tracks. Without it you still get all three, but no
-`call.mp4` — `slack-rec doctor` and the recording banner both say so.
+`call.mp4` — `anyrec doctor` and the recording banner both say so.
 
 ```
 brew install ffmpeg
@@ -174,7 +175,7 @@ truncated `.mov`.
 
 | Command | |
 |---|---|
-| `tui` | The interactive screen. The default, so plain `slack-rec` opens it. |
+| `tui` | The interactive screen. The default, so plain `anyrec` opens it. |
 | `record` | Capture from flags alone, no interaction. |
 | `transcribe` | Transcribe a recording. Defaults to the newest one. |
 | `sources` | Everything capturable — windows, displays, microphones — with the ids the flags take. |
@@ -182,7 +183,7 @@ truncated `.mov`.
 
 | Flag | Default | |
 |---|---|---|
-| `--output` | `~/Desktop/CallRec Recordings` | Directory the timestamped folder is created in. |
+| `--output` | `~/Desktop/AnyRec Recordings` | Directory the timestamped folder is created in. |
 | `--window` | — | The window id to capture. Required unless `--display` is given. |
 | `--display` | — | The display to capture instead. |
 | `--fps` | `30` | 1–60. |
@@ -200,17 +201,17 @@ themselves — whichever was louder while a line was said is whose line it is. N
 guesswork, and no engine that has to be told there are two people:
 
 ```
-slack-rec transcribe                  # the newest recording
-slack-rec transcribe ~/Desktop/CallRec\ Recordings/slack-call-2026-07-25-131411
-slack-rec transcribe --engine whisper --language ro
-slack-rec transcribe --engine openai   # OpenAI's API, with your own key
+anyrec transcribe                  # the newest recording
+anyrec transcribe ~/Desktop/AnyRec\ Recordings/rec-2026-07-25-131411
+anyrec transcribe --engine whisper --language ro
+anyrec transcribe --engine openai   # OpenAI's API, with your own key
 ```
 
 The interactive screen can run it for you the moment a recording stops — the
 `Transcript` row. `record` always leaves that to a separate `transcribe` call.
 
 ```markdown
-# slack-call-2026-07-25-131411
+# rec-2026-07-25-131411
 
 00:19 · English · transcribed by apple
 
@@ -237,11 +238,21 @@ Apple when it has a model for that language, whisper otherwise. Detection needs
 whisper installed; without it, `auto` assumes English. It never picks `openai` —
 nothing leaves your machine unless you name the engine that does.
 
-For whisper, install the binary and put a model where slack-rec looks for it:
+Apple is the engine that can be ready and still have nothing to say: pick it for
+a call in a language it has no model for and the transcript fails rather than
+degrades. Put the Transcript row on `apple` and press ⏎ to see which languages
+this Mac has, or run `anyrec doctor`.
+
+whisper needs a binary and a model. Run `anyrec` with no arguments, put the
+Transcript row on `whisper`, and press ⏎: it lists what is missing and how large
+the download is, and fetches it once you say go. Nothing is installed or
+downloaded until you do.
+
+To do it by hand instead:
 
 ```
 brew install whisper-cpp
-cd ~/Library/Application\ Support/slack-rec/models
+cd ~/Library/Application\ Support/anyrec/models
 curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 curl -LO https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
 ```
@@ -253,27 +264,33 @@ before anyone speaks, which drags every timestamp after it out of place.
 ### Bring your own OpenAI key
 
 If you would rather not keep a model on disk, `--engine openai` uses OpenAI's
-API with your key and nothing of ours:
+API with your key and nothing of ours. Run `anyrec` with no arguments, put
+the Transcript row on `openai`, and press ⏎ to paste one. It is checked with
+OpenAI before it is saved, so a bad paste is caught now rather than after the
+call it was meant to transcribe, and it is never drawn back to the screen — this
+is a tool for recording screens, so it assumes its own is being recorded too.
+
+By hand, either way round:
 
 ```
 export OPENAI_API_KEY=sk-…
-slack-rec transcribe --engine openai
+anyrec transcribe --engine openai
 ```
 
 Or, to keep it out of every process your shell launches:
 
 ```
-printf %s sk-… > ~/Library/Application\ Support/slack-rec/openai-key
+printf %s sk-… > ~/Library/Application\ Support/anyrec/openai-key
 ```
 
 This one uploads the audio. Everyone on a call has agreed to being
 recorded; whether they have agreed to the recording being sent to OpenAI is a
 separate question, and worth asking before you use it on someone else's voice.
-`slack-rec doctor` tells you whether a key is set.
+`anyrec doctor` tells you whether a key is set.
 
 It runs `gpt-4o-transcribe-diarize`, which separates the far end into `Speaker A`,
 `Speaker B` and so on — worth having, because a call can hold more than two
-people and slack-rec only ever sees two tracks. Slack mixes every remote
+people and anyrec only ever sees two tracks. Slack mixes every remote
 participant into system audio, so without diarisation they all arrive as one
 `Call`. Your own lines are still identified from the microphone track, whichever
 letter the model gave them — including when the model puts your sentence and
@@ -289,7 +306,7 @@ API's 25 MB limit is split and stitched back onto one clock.
 mishearings and pulls out decisions and action items in the language of the call:
 
 ```
-slack-rec transcribe --summarize
+anyrec transcribe --summarize
 ```
 
 Like `--engine openai`, this leaves your machine — the transcript text is sent

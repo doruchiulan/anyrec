@@ -2,36 +2,36 @@
 import PackageDescription
 
 let package = Package(
-    name: "slack-rec",
+    name: "anyrec",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "slack-rec", targets: ["slack-rec"]),
-        .library(name: "SlackRecKit", targets: ["SlackRecKit"]),
+        .executable(name: "anyrec", targets: ["anyrec"]),
+        .library(name: "AnyRecKit", targets: ["AnyRecKit"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0")
     ],
     targets: [
         .target(
-            name: "SlackRecKit",
+            name: "AnyRecKit",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .executableTarget(
-            name: "slack-rec",
+            name: "anyrec",
             dependencies: [
-                "SlackRecKit",
+                "AnyRecKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "SlackRecKitTests",
-            dependencies: ["SlackRecKit"],
+            name: "AnyRecKitTests",
+            dependencies: ["AnyRecKit"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "SlackRecTests",
-            dependencies: ["slack-rec"],
+            name: "AnyRecTests",
+            dependencies: ["anyrec"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

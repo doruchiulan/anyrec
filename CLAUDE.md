@@ -1,4 +1,4 @@
-# slack-rec
+# anyrec
 
 ## Overview
 
@@ -25,7 +25,7 @@ would rather bring a key than a model — with OpenAI's API.
   to a warning plus the separate tracks when absent
 - Speech (macOS 26) — `SpeechAnalyzer`/`SpeechTranscriber`, optional
 - whisper.cpp (runtime, optional) — `whisper-cli` plus a ggml model in
-  `~/Library/Application Support/slack-rec/models`
+  `~/Library/Application Support/anyrec/models`
 
 Requires macOS 15+. `SCStreamConfiguration.captureMicrophone` and
 `SCStreamOutputType.microphone` are Sequoia APIs with no fallback.
@@ -37,12 +37,12 @@ swift build                 # debug
 swift test                  # swift-testing suites
 swift build -c release
 scripts/release.sh <ver>    # universal + ad-hoc signed + tarball + sha256
-./.build/debug/slack-rec doctor
+./.build/debug/anyrec doctor
 ```
 
 ## Architecture
 
-`SlackRecKit` holds everything testable and framework-facing; the `slack-rec`
+`AnyRecKit` holds everything testable and framework-facing; the `anyrec`
 executable is argument parsing, the TUI, and output formatting only.
 
 | File | |
@@ -66,12 +66,15 @@ executable is argument parsing, the TUI, and output formatting only.
 | `Transcription/AudioMix.swift` | Sums the two tracks into the single file the engines transcribe. |
 | `Transcription/SpeechRegions.swift` | Where the talking is, so no engine is handed room tone to invent over. |
 | `Transcription/SpeakerAttribution.swift` | Who said each line, from which track was louder while it was said. |
-| `Transcription/AppleTranscriber.swift` | macOS 26 `SpeechAnalyzer`, `@available`-gated. |
+| `Transcription/AppleTranscriber.swift` | macOS 26 `SpeechAnalyzer`, `@available`-gated, plus `AppleSpeech` for callers that cannot be. |
 | `Transcription/WhisperTranscriber.swift` | `whisper-cli`, model discovery, JSON parsing. |
 | `Transcription/OpenAITranscriber.swift` | The hosted API, behind the user's own key. Multipart upload, `diarized_json`/`verbose_json` parsing. |
 | `Transcription/AudioChunks.swift` | Cuts the speech regions out to mp3, under the API's 25 MB limit, keeping each part's offset. |
 | `Transcription/Summarizer.swift` | The `claude -p` pass over the finished text. |
-| `slack-rec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `SetupScreen`, `RecordingScreen`, `TUISession`. |
+| `Transcription/WhisperSetup.swift` | What is missing before whisper can run, and how to fetch it. |
+| `Transcription/AssetDownload.swift` | Downloading a model, with progress and a checksum. |
+| `Transcription/OpenAIKey.swift` | Where the user's key is read from and written to. |
+| `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`. |
 
 Invariants worth preserving:
 
@@ -143,7 +146,7 @@ Invariants worth preserving:
   input devices needs no grant, so it must not be gated behind one.
 - Transcription is a separate, optional pass over files that are already closed.
   It must never be able to fail a recording: `TranscriptRun` swallows its errors
-  and points at `slack-rec transcribe` instead.
+  and points at `anyrec transcribe` instead.
 - One engine run, over the mix of both tracks — never one run per track. Two
   independent runs produce two timelines that only appear comparable: an engine
   handed a quiet track invents sentences to fill it and stamps them with
@@ -186,7 +189,24 @@ Invariants worth preserving:
   letters are consistent within a request and meaningless across two — and needs
   `chunking_strategy` for anything over 30s. It takes no `language`.
 - The OpenAI key is read from `OPENAI_API_KEY` or the key file, never stored, and
-  never put in an error: only the response body reaches `engineFailed`.
+  never put in an error: only the response body reaches `engineFailed`. The setup
+  screen takes one by paste and never draws it back — a tool that records screens
+  must assume its own screen is being recorded. The key is checked against the API
+  before it is written, so a bad paste is caught now rather than after the call it
+  was meant to transcribe; a key OpenAI rejects is never saved, but one that could
+  not be checked at all is, because being offline is not a reason to ask again.
+- Nothing is installed or downloaded unless it was asked for: the setup CTA is
+  behind ⏎ on the Transcript row and a page saying what it will fetch and how big
+  it is. `pending()` includes ffmpeg because whisper is fed through it — a model
+  downloaded onto a machine without ffmpeg is dead weight.
+- A downloaded model only appears at its final path once its sha256 matches. A
+  half-written model is worse than none, because `defaultModel()` picks the largest
+  `.bin` it finds and would pick the wreckage.
+- What `apple` covers is said before the recording, not after. It is the one engine
+  that can be present, selected, and still have no model for the call — and it fails
+  rather than degrades — so the row carries the count, the warning line says whisper
+  covers the rest, and ⏎ lists the languages. The list is fetched before raw mode,
+  alongside the microphones, for the same reason they are.
 - Language detection is skipped for remote engines. Running whisper locally to
   label an upload defeats the point of not having whisper installed, so the
   engine reports what it heard and `Transcript` takes the answer from there — and
@@ -197,10 +217,10 @@ Invariants worth preserving:
 
 Screen Recording and Microphone are granted by macOS to the *parent terminal
 application*, not to this binary. After granting, the terminal must be
-relaunched. `slack-rec doctor` reports the current state.
+relaunched. `anyrec doctor` reports the current state.
 
 ## Conventions
 
 - No secrets in the repo and no `.env`. The one key the tool reads is the user's
-  own, from `OPENAI_API_KEY` or `~/Library/Application Support/slack-rec/openai-key`.
+  own, from `OPENAI_API_KEY` or `~/Library/Application Support/anyrec/openai-key`.
 - Never commit captures; `*.mov`, `*.mp4`, `*.m4a` are gitignored.

@@ -53,7 +53,7 @@ page object or loop.
 Posting events also needs the Accessibility grant, which is a third permission
 on top of Screen Recording and Microphone.
 
-### What slack-rec actually shares
+### What anyrec actually shares
 
 Less than the auto-edit version would have. Window-targeted capture, the release
 script and the tap carry over; a metadata sidecar on the session clock becomes
