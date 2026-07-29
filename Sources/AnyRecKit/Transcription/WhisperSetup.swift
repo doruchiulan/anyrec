@@ -43,6 +43,12 @@ public enum WhisperSetup {
             case .fetch(let asset): AssetDownload.describe(asset.bytes)
             }
         }
+
+        /// Zero for the steps that install rather than download.
+        public var bytes: Int64 {
+            if case .fetch(let asset) = self { return asset.bytes }
+            return 0
+        }
     }
 
     public enum Failure: Error, LocalizedError, CustomStringConvertible {
@@ -77,6 +83,20 @@ public enum WhisperSetup {
     }
 
     public static func brewPath() -> String? { Shell.path(of: "brew") }
+
+    /// Homebrew does the installing, so its absence has to be said before the setup is
+    /// offered rather than partway through it.
+    public static var needsHomebrew: Bool {
+        guard brewPath() == nil else { return false }
+        return pending().contains {
+            if case .install = $0 { return true }
+            return false
+        }
+    }
+
+    public static func downloadSize(of steps: [Step]) -> Int64 {
+        steps.reduce(0) { $0 + $1.bytes }
+    }
 
     /// `progress` is called with a line worth showing, often.
     public static func perform(

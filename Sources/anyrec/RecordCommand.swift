@@ -38,6 +38,9 @@ struct Record: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
     var mux = true
 
+    @Option(name: .long, help: "Transcribe afterwards: auto, apple, whisper or openai.")
+    var transcribe: TranscriptionEngine?
+
     func validate() throws {
         switch (window, display) {
         case (nil, nil):
@@ -51,22 +54,37 @@ struct Record: AsyncParsableCommand {
     }
 
     func run() async throws {
-        try await Permissions.preflight(needsMicrophone: microphone)
+        try await Permissions.preflight(needsMicrophone: microphone, host: .terminal)
 
-        let resolved = try await TargetResolver.resolve(target)
-        let plan = try OutputPlan.create(in: URL(filePath: output.expandingTilde))
-        let recorder = Recorder(options: options, target: resolved, plan: plan)
-
-        try await recorder.start()
-        print(startBanner(resolved, plan: plan))
+        let session = try await RecordingSession.start(try recording())
+        print(startBanner(session))
         if let warning = ffmpegWarning() { print(warning) }
 
         await Interrupt.wait()
-        print("\nFinishing…")
-        let summary = try await recorder.stop()
-        print(Report.render(summary))
+        let outcome = try await session.stop { print("\n" + SummaryReport.status($0)) }
+        print(SummaryReport.render(outcome))
+        await TranscriptReport.follow(session)
+    }
 
-        if mux { try muxTracks(plan) }
+    private func recording() throws -> RecordingConfiguration {
+        var recording = RecordingConfiguration(outputRoot: output)
+        recording.capture = CaptureChoice(target: target)
+        recording.systemAudio = systemAudio
+        recording.mux = mux
+        recording.transcribe = transcribe
+        recording.fps = fps
+        recording.codec = codec
+        recording.showsCursor = !hideCursor
+
+        guard microphone else { return recording }
+        if let mic {
+            guard recording.selectMicrophone(id: mic) else {
+                throw ValidationError("No input device with id \(mic). `anyrec sources` lists them.")
+            }
+        } else {
+            recording.pinDefaultMicrophone()
+        }
+        return recording
     }
 
     /// `validate()` has already ruled out the other combinations.
@@ -75,28 +93,19 @@ struct Record: AsyncParsableCommand {
         return .display(index: display ?? 0)
     }
 
-    private var options: CaptureOptions {
-        CaptureOptions(
-            fps: fps,
-            codec: codec,
-            captureSystemAudio: systemAudio,
-            captureMicrophone: microphone,
-            microphoneDeviceID: mic,
-            showsCursor: !hideCursor
-        )
-    }
-
-    private func startBanner(_ target: ResolvedTarget, plan: OutputPlan) -> String {
+    private func startBanner(_ session: RecordingSession) -> String {
+        let recording = session.configuration
+        let target = session.target
         let tracks = [
             "video",
-            systemAudio ? "system audio" : nil,
-            microphone ? "microphone" : nil,
+            recording.systemAudio ? "system audio" : nil,
+            recording.microphone.map { "microphone (\($0.name))" },
         ].compactMap { $0 }.joined(separator: " + ")
 
         return """
         Recording \(target.describing) at \(target.width)×\(target.height), \(fps) fps
         Tracks:    \(tracks)
-        Folder:    \(plan.directory.path)
+        Folder:    \(session.plan.directory.path)
         Stops:     on Ctrl-C
         Then:      \(mux ? "merges into call.mp4 (--no-mux to skip)" : "leaves the tracks separate")
 
@@ -105,7 +114,7 @@ struct Record: AsyncParsableCommand {
     }
 
     private func ffmpegWarning() -> String? {
-        guard mux, Muxer.ffmpegPath() == nil else { return nil }
+        guard mux, !Readiness.ffmpegInstalled else { return nil }
         return """
 
         Warning: ffmpeg is not on PATH, so there will be no combined call.mp4 —
@@ -113,27 +122,4 @@ struct Record: AsyncParsableCommand {
         run `brew install ffmpeg` if you want one playable file.
         """
     }
-
-    private func muxTracks(_ plan: OutputPlan) throws {
-        guard Muxer.ffmpegPath() != nil else {
-            print(
-                """
-                No call.mp4: ffmpeg is not on PATH. The separate tracks are intact —
-                install ffmpeg (brew install ffmpeg) and merge them with:
-                  ffmpeg -i screen.mov -i system-audio.m4a -i microphone.m4a \\
-                    -filter_complex "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
-                    -map 0:v -map "[a]" -c:v copy -c:a aac call.mp4
-                """
-            )
-            return
-        }
-        print("Muxing with ffmpeg…")
-        let merged = try Muxer.mux(plan)
-        print("Wrote \(merged.output.path)")
-        for note in merged.notes { print("\n" + note) }
-    }
-}
-
-extension String {
-    var expandingTilde: String { (self as NSString).expandingTildeInPath }
 }

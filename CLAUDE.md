@@ -42,11 +42,19 @@ scripts/release.sh <ver>    # universal + ad-hoc signed + tarball + sha256
 
 ## Architecture
 
-`AnyRecKit` holds everything testable and framework-facing; the `anyrec`
-executable is argument parsing, the TUI, and output formatting only.
+`AnyRecKit` is the whole application: what a recording is, what it does, and what
+this machine can do. The `anyrec` executable is argument parsing, the TUI, and
+output formatting only — a second interface (a menu bar app, say) is another
+renderer over the same Kit, not another copy of the flow. `AnyRecKit` is the only
+shared library; don't add a second one for "UI-common" code.
 
 | File | |
 |---|---|
+| `Session/RecordingConfiguration.swift` | What a recording is before it starts. Every interface edits one of these. |
+| `Session/RecordingSession.swift` | One recording, start to finish: stream, folder, merge, transcript. |
+| `Session/TranscriptPass.swift` | The optional pass over closed files. Returns an outcome; never throws. |
+| `Readiness/Readiness.swift` | What is installed and available here, and the single `Advisory` worth showing for a configuration. |
+| `Capture/CaptureCatalogue.swift` | Every recordable window and display, in the order worth offering them. |
 | `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
 | `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
@@ -74,10 +82,23 @@ executable is argument parsing, the TUI, and output formatting only.
 | `Transcription/WhisperSetup.swift` | What is missing before whisper can run, and how to fetch it. |
 | `Transcription/AssetDownload.swift` | Downloading a model, with progress and a checksum. |
 | `Transcription/OpenAIKey.swift` | Where the user's key is read from and written to. |
-| `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`. |
+| `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
+| `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
 
 Invariants worth preserving:
 
+- There is one recording flow, and it is `RecordingSession`. Both `record` and the
+  TUI drive it; neither may grow its own start/stop/merge/transcribe. When they
+  each had one they silently diverged three ways — `record` never transcribed at
+  all, the two handled a missing ffmpeg differently, and only the TUI pinned the
+  default microphone as an explicit device.
+- Nothing in `AnyRecKit` prints, reads a key, or words a way out of anything. It
+  answers in facts — `Advisory`, `EngineReadiness`, `TranscriptionError.Remedy`,
+  `PermissionHost` — and each interface words them. "⏎ on Transcript" and
+  "run `anyrec` with no arguments" are true of a terminal and of nothing else.
+- `Readiness` caches the Apple language list and nothing else. Everything else it
+  reports is a live check, because whisper and ffmpeg can be installed from the
+  setup screen mid-session and a cached "missing" would outlive the fix.
 - All stream outputs use one serial queue, which is why `Recorder`'s writer
   table and session clock need no locking. Don't add a second queue.
 - All three writers start their session at the *same* timestamp — the first
@@ -145,8 +166,11 @@ Invariants worth preserving:
 - `sources` lists microphones even when Screen Recording is denied. Enumerating
   input devices needs no grant, so it must not be gated behind one.
 - Transcription is a separate, optional pass over files that are already closed.
-  It must never be able to fail a recording: `TranscriptRun` swallows its errors
-  and points at `anyrec transcribe` instead.
+  It must never be able to fail a recording: `TranscriptPass` returns a
+  `TranscriptOutcome` rather than throwing, and the interface points at
+  `anyrec transcribe`. It is also why `RecordingSession.stop` and
+  `.transcript()` are two calls and not one — the TUI hands raw mode back in
+  between, so the engines report into a normal terminal.
 - One engine run, over the mix of both tracks — never one run per track. Two
   independent runs produce two timelines that only appear comparable: an engine
   handed a quiet track invents sentences to fill it and stamps them with

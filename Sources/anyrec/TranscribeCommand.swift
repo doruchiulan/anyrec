@@ -62,7 +62,7 @@ struct Transcribe: AsyncParsableCommand {
         )
 
         let started = Date()
-        let transcript = try await TranscriptionService.run(job) { print($0) }
+        let transcript = try await withRemedy { try await TranscriptionService.run(job) { print($0) } }
         guard !transcript.isEmpty else {
             print("Nothing was said, or nothing was heard — no transcript written.")
             return

@@ -5,24 +5,21 @@ import AnyRecKit
 /// key, or — for the engine with nothing to install — say what it can transcribe.
 /// Returns a line for the setup screen to show, or nil when nothing needs saying.
 enum EngineSetup {
-    static func opens(_ engine: TranscriptionEngine) -> Bool {
+    static func opens(_ engine: TranscriptionEngine, _ readiness: Readiness) -> Bool {
         switch engine {
-        case .whisper: !WhisperSetup.pending().isEmpty
-        case .openai: OpenAIKey.current() == nil
         /// Apple is the one engine that can be ready and still have no model for the
         /// call, so what it covers is worth reading before the call rather than after.
         case .apple: true
         case .auto: false
+        case .whisper, .openai: !readiness.of(engine).isReady
         }
     }
 
-    static func run(
-        for engine: TranscriptionEngine, appleLanguages: [String] = []
-    ) async -> String? {
+    static func run(for engine: TranscriptionEngine, readiness: Readiness) async -> String? {
         switch engine {
-        case .whisper: await installWhisper()
+        case .whisper: await installWhisper(readiness)
         case .openai: await saveKey()
-        case .apple: showLanguages(appleLanguages)
+        case .apple: showLanguages(readiness.appleLanguages)
         case .auto: nil
         }
     }
@@ -56,11 +53,10 @@ enum EngineSetup {
         }
     }
 
-    private static func installWhisper() async -> String? {
-        let steps = WhisperSetup.pending()
-        guard !steps.isEmpty else { return "whisper is ready." }
+    private static func installWhisper(_ readiness: Readiness) async -> String? {
+        guard case .needsSetup(let steps) = readiness.of(.whisper) else { return "whisper is ready." }
 
-        if steps.contains(where: \.needsHomebrew), WhisperSetup.brewPath() == nil {
+        if WhisperSetup.needsHomebrew {
             Page.notice(
                 title: "Homebrew is needed first",
                 lines: [
@@ -91,7 +87,7 @@ enum EngineSetup {
     }
 
     private static func download(_ steps: [WhisperSetup.Step]) -> String {
-        let bytes = steps.reduce(Int64(0)) { $0 + $1.bytes }
+        let bytes = WhisperSetup.downloadSize(of: steps)
         guard bytes > 0 else { return "Nothing large to download." }
         return "About \(AssetDownload.describe(bytes)) to download. It can be left running."
     }
@@ -111,31 +107,19 @@ enum EngineSetup {
         return await store(key)
     }
 
-    /// A key OpenAI rejects is never saved. One that could not be checked is, because
-    /// an aeroplane is not a reason to make somebody paste it again later.
     private static func store(_ key: String) async -> String {
         Page.working(title: "Checking the key with OpenAI…")
-        var unchecked: String?
-        do {
-            try await OpenAITranscriber.check(key)
-        } catch let failure as OpenAIKey.Failure {
-            Page.notice(title: "That key was not saved", lines: ["\(failure)"])
-            return "The OpenAI key was not saved."
-        } catch {
-            unchecked = "could not reach OpenAI to check it"
-        }
-
-        do {
-            try OpenAIKey.store(key)
-        } catch {
-            Page.notice(title: "That key was not saved", lines: ["\(error)"])
-            return "The OpenAI key was not saved."
-        }
-
-        if OpenAIKey.isFromEnvironment {
+        switch await OpenAIKey.validateAndStore(key) {
+        case .saved:
+            return "OpenAI key saved."
+        case .savedUnverified(let reason):
+            return "OpenAI key saved — \(reason)."
+        case .savedButShadowed:
             return "Key saved, but OPENAI_API_KEY in this shell is what will be used."
+        case .rejected(let complaint), .notSaved(let complaint):
+            Page.notice(title: "That key was not saved", lines: ["\(complaint)"])
+            return "The OpenAI key was not saved."
         }
-        return unchecked.map { "OpenAI key saved — \($0)." } ?? "OpenAI key saved."
     }
 }
 
@@ -178,17 +162,5 @@ private final class Progress: @unchecked Sendable {
         }
         lock.unlock()
         Page.working(title: "Setting whisper up…", lines: lines + ["", "This can take a while."])
-    }
-}
-
-extension WhisperSetup.Step {
-    fileprivate var needsHomebrew: Bool {
-        if case .install = self { return true }
-        return false
-    }
-
-    fileprivate var bytes: Int64 {
-        if case .fetch(let asset) = self { return asset.bytes }
-        return 0
     }
 }

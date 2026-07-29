@@ -18,6 +18,6 @@ struct Tui: AsyncParsableCommand {
             try await fallback.run()
             return
         }
-        try await TUISession(settings: Settings(outputRoot: output)).run()
+        try await TUISession(configuration: RecordingConfiguration(outputRoot: output)).run()
     }
 }

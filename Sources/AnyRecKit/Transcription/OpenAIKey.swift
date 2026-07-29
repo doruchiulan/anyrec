@@ -40,6 +40,41 @@ public enum OpenAIKey {
         ProcessInfo.processInfo.environment["OPENAI_API_KEY"]
     }
 
+    /// What storing a key did, and what is worth saying about it.
+    public enum StoreOutcome: Sendable, Equatable {
+        case saved
+        /// Saved without being checked, with the reason it could not be.
+        case savedUnverified(reason: String)
+        /// Saved, but `OPENAI_API_KEY` in the environment is what will actually be used.
+        case savedButShadowed
+        case rejected(String)
+        case notSaved(String)
+    }
+
+    /// Checks the key against the API before writing it, so a bad paste is caught now
+    /// rather than after the call it was meant to transcribe. A key OpenAI rejects is
+    /// never saved; one that could not be checked at all is, because being offline is
+    /// not a reason to ask for it again later.
+    public static func validateAndStore(_ key: String) async -> StoreOutcome {
+        var unverified: String?
+        do {
+            try await OpenAITranscriber.check(key)
+        } catch let failure as Failure {
+            return .rejected("\(failure)")
+        } catch {
+            unverified = "could not reach OpenAI to check it"
+        }
+
+        do {
+            try store(key)
+        } catch {
+            return .notSaved("\(error)")
+        }
+
+        if isFromEnvironment { return .savedButShadowed }
+        return unverified.map(StoreOutcome.savedUnverified) ?? .saved
+    }
+
     /// Written readable by nobody else, and replaced rather than overwritten so the
     /// permissions apply to the key that is actually there.
     public static func store(_ key: String) throws {

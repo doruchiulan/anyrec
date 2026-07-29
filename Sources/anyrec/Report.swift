@@ -1,6 +1,41 @@
 import Foundation
 import AnyRecKit
 
+/// The recording summary and what became of the merge, as one block of text.
+enum SummaryReport {
+    static func render(_ outcome: RecordingOutcome) -> String {
+        Report.render(outcome.summary) + "\n\n" + merge(outcome.merge)
+    }
+
+    static func status(_ stage: RecordingSession.Stage) -> String {
+        switch stage {
+        case .finishing: "Finishing…"
+        case .merging: "Merging with ffmpeg…"
+        }
+    }
+
+    private static func merge(_ outcome: MergeOutcome) -> String {
+        switch outcome {
+        case .merged(let mux):
+            (["  Play this one:  \(mux.output.path)"] + mux.notes.map { "  " + $0 })
+                .joined(separator: "\n\n")
+        case .notRequested:
+            "  The tracks were left separate, as asked."
+        case .ffmpegMissing:
+            """
+              No call.mp4: ffmpeg is not on PATH, so screen.mov carries no audio. The
+              separate tracks are intact — install ffmpeg (brew install ffmpeg) and
+              merge them with:
+                ffmpeg -i screen.mov -i system-audio.m4a -i microphone.m4a \\
+                  -filter_complex "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
+                  -map 0:v -map "[a]" -c:v copy -c:a aac call.mp4
+            """
+        case .failed(let reason):
+            "  The three tracks are intact, but the merge failed: \(reason)"
+        }
+    }
+}
+
 enum Report {
     static func render(_ summary: RecordingSummary) -> String {
         var lines = ["", summary.plan.directory.path]

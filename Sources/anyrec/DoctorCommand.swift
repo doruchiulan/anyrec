@@ -34,19 +34,21 @@ struct Doctor: AsyncParsableCommand {
 
     /// Transcription is optional throughout: every line here is informational.
     private func transcriptionReport() async -> [String] {
+        let readiness = await Readiness.probe()
         var lines: [String] = []
 
-        let apple = await AppleSpeech.languages()
-        if apple.isEmpty {
-            lines.append("\(mark(false)) apple speech needs macOS 26 — whisper covers everything")
-        } else {
+        if readiness.of(.apple).isReady {
             lines.append("\(mark(true)) apple speech, on-device, and only these languages")
-            lines.append("    \(AppleSpeech.describe(apple))")
+            lines.append("    \(AppleSpeech.describe(readiness.appleLanguages))")
+        } else {
+            lines.append("\(mark(false)) apple speech needs macOS 26 — whisper covers everything")
         }
 
-        return lines + whisperReport() + openAIReport()
+        return lines + whisperReport() + openAIReport(readiness)
     }
 
+    /// More detailed than `Readiness` is: this is the command whose whole job is
+    /// saying which piece is missing.
     private func whisperReport() -> [String] {
         var lines: [String] = []
 
@@ -70,8 +72,8 @@ struct Doctor: AsyncParsableCommand {
     }
 
     /// Informational either way: no key simply means `--engine openai` is unavailable.
-    private func openAIReport() -> [String] {
-        guard OpenAIKey.current() == nil else {
+    private func openAIReport(_ readiness: Readiness) -> [String] {
+        guard !readiness.of(.openai).isReady else {
             return ["\(mark(true)) OpenAI key found — --engine openai uploads the audio"]
         }
         return [

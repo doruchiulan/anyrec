@@ -3,18 +3,12 @@ import AnyRecKit
 
 /// The live screen: elapsed time, frame count, and a meter per audio track.
 struct RecordingScreen {
-    let recorder: Recorder
-    let settings: Settings
-    let target: ResolvedTarget
-    let plan: OutputPlan
+    let session: RecordingSession
 
     private var started = Date()
 
-    init(recorder: Recorder, settings: Settings, target: ResolvedTarget, plan: OutputPlan) {
-        self.recorder = recorder
-        self.settings = settings
-        self.target = target
-        self.plan = plan
+    init(session: RecordingSession) {
+        self.session = session
     }
 
     enum Ending {
@@ -26,7 +20,7 @@ struct RecordingScreen {
         started = Date()
         while true {
             let elapsed = Date().timeIntervalSince(started)
-            if let limit = settings.stopAfter, elapsed >= limit { return .deadline }
+            if let limit = session.configuration.stopAfter, elapsed >= limit { return .deadline }
 
             Terminal.write(render(elapsed: elapsed))
             switch Terminal.readKey() {
@@ -39,19 +33,28 @@ struct RecordingScreen {
 
     private func render(elapsed: TimeInterval) -> String {
         let width = max(20, min(40, Terminal.size().columns - 40))
-        let progress = recorder.progress()
+        let progress = session.progress()
+        let target = session.target
 
         var lines = [
             "",
             "  " + styled("● REC", .bold, .red) + "  " + clock(elapsed) + remaining(elapsed),
             "",
             "  " + styled(clip(target.describing, to: 60), .bold),
-            "  " + styled("\(target.width)×\(target.height) · \(settings.fps) fps · \(progress.screenFrames) frames", .dim),
+            "  "
+                + styled(
+                    "\(target.width)×\(target.height) · \(session.configuration.fps) fps · \(progress.screenFrames) frames",
+                    .dim),
             "",
         ]
 
         lines += tracks.map { "  " + meter($0, width: width) }
-        lines += ["", "  " + styled(clip(plan.directory.path, to: Terminal.size().columns - 4), .dim)]
+        lines += [
+            "",
+            "  "
+                + styled(
+                    clip(session.plan.directory.path, to: Terminal.size().columns - 4), .dim),
+        ]
 
         if DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames) {
             lines.append(
@@ -65,16 +68,17 @@ struct RecordingScreen {
     }
 
     private var tracks: [AudioTrack] {
-        AudioTrack.allCases.filter {
-            $0 == .systemAudio ? settings.systemAudio : settings.microphone != nil
+        let configuration = session.configuration
+        return AudioTrack.allCases.filter {
+            $0 == .systemAudio ? configuration.systemAudio : configuration.microphone != nil
         }
     }
 
     private func meter(_ track: AudioTrack, width: Int) -> String {
         Meter.render(
             track.rawValue,
-            level: recorder.levels.level(for: track),
-            sessionPeak: recorder.levels.sessionPeak(for: track),
+            level: session.levels.level(for: track),
+            sessionPeak: session.levels.sessionPeak(for: track),
             width: width
         )
     }
@@ -85,7 +89,7 @@ struct RecordingScreen {
     }
 
     private func remaining(_ elapsed: TimeInterval) -> String {
-        guard let limit = settings.stopAfter else { return "" }
+        guard let limit = session.configuration.stopAfter else { return "" }
         let left = Int(max(0, limit - elapsed))
         return styled("   \(left / 60)m \(left % 60)s left", .dim)
     }

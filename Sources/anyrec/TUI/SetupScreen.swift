@@ -1,7 +1,7 @@
 import Foundation
 import AnyRecKit
 
-/// The settings screen. Returns the chosen settings, or nil if the user backed out.
+/// The settings screen. Returns the chosen configuration, or nil if the user backed out.
 struct SetupScreen {
     enum Row: Int, CaseIterable {
         case capture, microphone, systemAudio, stopAfter, mux, transcribe, start
@@ -19,15 +19,17 @@ struct SetupScreen {
         }
     }
 
-    var settings: Settings
+    var configuration: RecordingConfiguration
+    let readiness: Readiness
     private var cursor = Row.capture
     private var notice: String?
 
-    init(settings: Settings) {
-        self.settings = settings
+    init(configuration: RecordingConfiguration, readiness: Readiness) {
+        self.configuration = configuration
+        self.readiness = readiness
     }
 
-    mutating func run() async -> Settings? {
+    mutating func run() async -> RecordingConfiguration? {
         while true {
             Terminal.write(render())
             switch Terminal.readKey() {
@@ -37,8 +39,8 @@ struct SetupScreen {
             case .character("j"): move(1)
             case .left: adjust(-1)
             case .right: adjust(1)
-            case .enter: if await activate() { return settings }
-            case .character("r"): if ready() { return settings }
+            case .enter: if await activate() { return configuration }
+            case .character("r"): if ready() { return configuration }
             case .character("q"), .escape, .interrupt: return nil
             default: break
             }
@@ -54,10 +56,10 @@ struct SetupScreen {
     /// Left and right edit in place; only the list-backed rows need a picker.
     private mutating func adjust(_ delta: Int) {
         switch cursor {
-        case .systemAudio: settings.systemAudio.toggle()
-        case .mux: settings.mux.toggle()
-        case .stopAfter: settings.cycleStop(by: delta)
-        case .transcribe: settings.cycleTranscribe(by: delta)
+        case .systemAudio: configuration.systemAudio.toggle()
+        case .mux: configuration.mux.toggle()
+        case .stopAfter: configuration.cycleStop(by: delta)
+        case .transcribe: configuration.cycleTranscribe(by: delta)
         default: break
         }
     }
@@ -78,14 +80,14 @@ struct SetupScreen {
     /// The one row where ⏎ does something other than cycle: an engine that is not
     /// installed yet has a way to fix that, and cycling past it would only hide it.
     private mutating func editTranscribe() async {
-        guard let engine = settings.transcribe, EngineSetup.opens(engine) else {
+        guard let engine = configuration.transcribe, EngineSetup.opens(engine, readiness) else {
             return adjust(1)
         }
-        notice = await EngineSetup.run(for: engine, appleLanguages: settings.appleLanguages)
+        notice = await EngineSetup.run(for: engine, readiness: readiness)
     }
 
     private mutating func ready() -> Bool {
-        guard settings.capture == nil else { return true }
+        guard configuration.capture == nil else { return true }
         notice = "Pick a window or a display to record first."
         return false
     }
@@ -93,13 +95,13 @@ struct SetupScreen {
     private mutating func editCapture() async {
         Terminal.write(Terminal.home + "\r\n  " + styled("Looking…", .dim) + Terminal.clearToEnd)
         do {
-            let catalogue = try await CaptureCatalogue.load()
+            let picker = CapturePicker(try await CaptureCatalogue.load())
             if let picked = Picker.run(
                 title: "What should be recorded?",
-                items: catalogue.items,
-                selected: catalogue.index(of: settings.capture)
+                items: picker.items,
+                selected: picker.index(of: configuration.capture)
             ) {
-                settings.capture = catalogue.choices[picked] ?? settings.capture
+                configuration.capture = picker.choice(at: picked) ?? configuration.capture
                 notice = nil
             }
         } catch {
@@ -114,10 +116,10 @@ struct SetupScreen {
                 PickerItem(label: $0.name, detail: $0.isDefault ? "system default" : nil)
             } + [PickerItem(label: "Off — do not record my microphone")]
 
-        let current = devices.firstIndex { $0.id == settings.microphone?.id } ?? devices.count
+        let current = devices.firstIndex { $0.id == configuration.microphone?.id } ?? devices.count
         guard let picked = Picker.run(title: "Microphone", items: items, selected: current)
         else { return }
-        settings.microphone = picked < devices.count ? devices[picked] : nil
+        configuration.microphone = picked < devices.count ? devices[picked] : nil
     }
 
     private func render() -> String {
@@ -129,7 +131,7 @@ struct SetupScreen {
 
         lines += ["", startLine(), ""]
         if let warning = warning() { lines += ["  " + styled(warning, .yellow), ""] }
-        lines.append("  " + styled("Folder  \(settings.outputRoot)", .dim))
+        lines.append("  " + styled("Folder  \(configuration.outputRoot)", .dim))
         lines += ["", "  " + styled("↑↓ move   ←→ change   ⏎ open   r record   q quit", .dim)]
 
         return Terminal.home + lines.map { $0 + Terminal.clearLine }.joined(separator: "\r\n")
@@ -146,12 +148,12 @@ struct SetupScreen {
 
     private func value(_ row: Row) -> String {
         switch row {
-        case .capture: settings.captureLabel
-        case .microphone: settings.microphoneLabel
-        case .systemAudio: settings.systemAudio ? "On" : "Off"
-        case .stopAfter: settings.stopLabel
-        case .mux: settings.muxLabel
-        case .transcribe: settings.transcribeLabel
+        case .capture: configuration.captureLabel
+        case .microphone: configuration.microphoneLabel
+        case .systemAudio: configuration.systemAudio ? "On" : "Off"
+        case .stopAfter: configuration.stopLabel
+        case .mux: configuration.muxLabel
+        case .transcribe: configuration.transcribeLabel(readiness)
         case .start: ""
         }
     }
@@ -164,31 +166,6 @@ struct SetupScreen {
     }
 
     private func warning() -> String? {
-        if let notice { return notice }
-        /// Ahead of the ffmpeg line below because this one can fix ffmpeg too.
-        if settings.transcribe == .whisper, !WhisperSetup.pending().isEmpty {
-            return "whisper is not set up yet — ⏎ on Transcript installs it for you."
-        }
-        if settings.transcribe == .openai, OpenAIKey.current() == nil {
-            return "No OpenAI key — ⏎ on Transcript lets you paste one."
-        }
-        if settings.transcribe == .apple, settings.appleLanguages.isEmpty {
-            return "Apple's engine needs macOS 26 — pick whisper or OpenAI instead."
-        }
-        if settings.mux, Muxer.ffmpegPath() == nil {
-            return "ffmpeg is missing, so there will be no call.mp4: brew install ffmpeg"
-        }
-        if settings.transcribe == .openai {
-            return "OpenAI transcribes off your machine — both audio tracks are uploaded."
-        }
-        /// The one engine that can be picked and then simply have no model for the call.
-        if settings.transcribe == .apple {
-            return "Apple has models for \(settings.appleLanguages.count) languages — "
-                + "⏎ lists them, whisper covers the rest."
-        }
-        if settings.microphone == nil, !settings.systemAudio {
-            return "Both audio tracks are off — this will be a silent video."
-        }
-        return nil
+        notice ?? readiness.advisory(for: configuration).map(phrase)
     }
 }

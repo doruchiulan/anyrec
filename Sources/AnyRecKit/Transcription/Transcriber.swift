@@ -41,35 +41,45 @@ public enum TranscriptionError: Error, CustomStringConvertible {
     case appleUnavailable
     case openAIKeyMissing(URL)
 
+    /// What would put the error right, when anything would. A fact rather than a
+    /// sentence: "run `anyrec` with no arguments" is advice only a terminal can give,
+    /// and the same missing model is a button somewhere else.
+    public enum Remedy: Sendable, Equatable {
+        case installWhisper
+        case downloadModel(into: URL)
+        case installFFmpeg
+        case provideOpenAIKey(file: URL)
+    }
+
+    public var remedy: Remedy? {
+        switch self {
+        case .whisperNotFound: .installWhisper
+        case .modelNotFound(let directory): .downloadModel(into: directory)
+        case .ffmpegNotFound: .installFFmpeg
+        case .openAIKeyMissing(let file): .provideOpenAIKey(file: file)
+        default: nil
+        }
+    }
+
+    /// The diagnosis only. What to do about it is `remedy`.
     public var description: String {
         switch self {
         case .noAudio:
             "No audio track was found to transcribe."
         case .whisperNotFound:
-            """
-            whisper-cli is not on PATH. Run `anyrec` with no arguments to install it,
-            or do it yourself with `brew install whisper-cpp`.
-            """
+            "whisper-cli is not on PATH."
         case .modelNotFound(let directory):
-            """
-            No whisper model found in \(directory.path).
-            Run `anyrec` with no arguments to download one.
-            """
+            "No whisper model found in \(directory.path)."
         case .ffmpegNotFound:
-            "ffmpeg is needed to feed whisper. Install it with `brew install ffmpeg`."
+            "ffmpeg is needed to feed whisper."
         case .engineFailed(let engine, let log):
             "\(engine) failed:\n\(log)"
         case .unsupportedLanguage(let engine, let language):
             "\(engine) has no model for \(language)."
         case .appleUnavailable:
             "Apple's on-device transcription needs macOS 26 or later."
-        case .openAIKeyMissing(let file):
-            """
-            No OpenAI API key. Run `anyrec` with no arguments to paste one, or bring
-            your own either way round:
-              export OPENAI_API_KEY=sk-…
-              printf %s sk-… > "\(file.path)"
-            """
+        case .openAIKeyMissing:
+            "No OpenAI API key."
         }
     }
 }

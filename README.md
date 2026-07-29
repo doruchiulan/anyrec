@@ -192,6 +192,8 @@ truncated `.mov`.
 | `--hide-cursor` | off | Leave the pointer out of the video. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
+| `--mic` | system default | The input device id, from `anyrec sources`. |
+| `--transcribe` | off | `auto`, `apple`, `whisper` or `openai`, run once the tracks are closed. |
 
 ## Transcripts
 

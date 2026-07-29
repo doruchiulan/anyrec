@@ -1,5 +1,11 @@
 import Foundation
 
+extension String {
+    public var expandingTilde: String {
+        hasPrefix("~") ? NSString(string: self).expandingTildeInPath : self
+    }
+}
+
 /// Where each of the three streams lands on disk.
 public struct OutputPlan: Sendable, Equatable {
     public let directory: URL
