@@ -47,7 +47,9 @@ public struct PermissionsError: Error, LocalizedError, CustomStringConvertible {
         """
     }
 
-    private var relaunch: String {
+    /// Said on its own for anything that has a button to open Settings with, and so no
+    /// use for the URLs `description` spells out.
+    public var relaunch: String {
         switch host {
         case .terminal:
             """

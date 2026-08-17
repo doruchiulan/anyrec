@@ -4,9 +4,6 @@ import AnyRecKit
 /// How a configuration reads on the setup screen, and how ←→ change it. Padded rows
 /// and arrow-key cycling are the terminal's business, not the recording's.
 extension RecordingConfiguration {
-    static let stopChoices: [TimeInterval?] = [nil, 900, 1_800, 2_700, 3_600, 7_200]
-    static let transcribeChoices: [TranscriptionEngine?] = [nil] + TranscriptionEngine.allCases
-
     var captureLabel: String { capture?.label ?? "Nothing picked yet" }
 
     var microphoneLabel: String {

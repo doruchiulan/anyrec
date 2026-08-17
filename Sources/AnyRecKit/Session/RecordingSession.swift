@@ -34,9 +34,27 @@ public final class RecordingSession {
     public let target: ResolvedTarget
     public let plan: OutputPlan
 
+    /// Stamped when the stream is running, not when the object is made, so the clock
+    /// counts recorded time rather than the wait for ScreenCaptureKit.
+    public private(set) var startedAt = Date()
+
     private let recorder: Recorder
 
     public var levels: LevelMonitor { recorder.levels }
+
+    public var elapsed: TimeInterval { Date().timeIntervalSince(startedAt) }
+
+    public var remaining: TimeInterval? {
+        configuration.stopAfter.map { max(0, $0 - elapsed) }
+    }
+
+    /// Whether a configured `stopAfter` has passed. Enforced by whoever is driving the
+    /// session, since only it knows when it next looks — but the arithmetic lives here,
+    /// so a second interface cannot round it differently.
+    public var reachedDeadline: Bool {
+        guard let limit = configuration.stopAfter else { return false }
+        return elapsed >= limit
+    }
 
     /// What is happening during `stop`, for anything drawing a status line.
     public enum Stage: Sendable {
@@ -66,6 +84,7 @@ public final class RecordingSession {
             recorder: Recorder(options: configuration.options, target: target, plan: plan)
         )
         try await session.recorder.start()
+        session.startedAt = Date()
         return session
     }
 

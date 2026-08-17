@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "anyrec", targets: ["anyrec"]),
+        .executable(name: "AnyRecBar", targets: ["AnyRecBar"]),
         .library(name: "AnyRecKit", targets: ["AnyRecKit"]),
     ],
     dependencies: [
@@ -24,6 +25,11 @@ let package = Package(
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .executableTarget(
+            name: "AnyRecBar",
+            dependencies: ["AnyRecKit"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "AnyRecKitTests",
             dependencies: ["AnyRecKit"],
@@ -32,6 +38,11 @@ let package = Package(
         .testTarget(
             name: "AnyRecTests",
             dependencies: ["anyrec"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "AnyRecBarTests",
+            dependencies: ["AnyRecBar", "AnyRecKit"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

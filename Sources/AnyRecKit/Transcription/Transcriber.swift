@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TranscriptionEngine: String, Sendable, CaseIterable {
+public enum TranscriptionEngine: String, Sendable, Hashable, CaseIterable {
     case auto
     case apple
     case whisper

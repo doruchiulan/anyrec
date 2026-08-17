@@ -5,7 +5,7 @@ public enum Defaults {
 }
 
 /// A window or a display, with the name to show for it.
-public struct CaptureChoice: Sendable, Equatable {
+public struct CaptureChoice: Sendable, Hashable {
     public let target: CaptureTarget
     public let label: String
 
@@ -41,6 +41,13 @@ public struct RecordingConfiguration: Sendable {
     public var codec: VideoCodec = .h264
     public var showsCursor = true
     public var outputRoot: String
+
+    /// What each interface offers for the two settings that are a choice from a list
+    /// rather than a free value. Held here so a menu and a cycling row cannot come to
+    /// offer different things.
+    public static let stopChoices: [TimeInterval?] = [nil, 900, 1_800, 2_700, 3_600, 7_200]
+    public static let transcribeChoices: [TranscriptionEngine?] =
+        [nil] + TranscriptionEngine.allCases
 
     public init(outputRoot: String = Defaults.outputRoot) {
         self.outputRoot = outputRoot

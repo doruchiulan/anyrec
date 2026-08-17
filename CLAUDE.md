@@ -2,14 +2,15 @@
 
 ## Overview
 
-macOS CLI that records a call as three separate tracks: one window or display,
+macOS tool that records a call as three separate tracks: one window or display,
 system audio output, and microphone input. Built on ScreenCaptureKit, so no
 virtual audio driver is required. Windows belonging to Slack, Teams, Zoom, Meet,
 Discord and browsers are listed first; everything else follows.
 
-Running it with no arguments opens a TUI (setup screen, interactive capture and
-microphone pickers, live meters). `record` is the same thing driven by flags,
-and is what a non-tty falls back to.
+It ships as two front ends over one library. `anyrec` with no arguments opens a
+TUI (setup screen, interactive capture and microphone pickers, live meters);
+`anyrec record` is the same thing driven by flags, and is what a non-tty falls
+back to. `AnyRec.app` is a menu bar app with the same settings as a panel.
 
 An optional pass turns the two audio tracks into a speaker-labelled transcript,
 with macOS 26's on-device `SpeechAnalyzer`, with whisper.cpp, or — for people who
@@ -20,6 +21,7 @@ would rather bring a key than a model — with OpenAI's API.
 - Swift 6 (language mode 5), SwiftPM
 - ScreenCaptureKit — capture; AVFoundation — encoding
 - swift-argument-parser — CLI
+- SwiftUI `MenuBarExtra` — the menu bar app
 - swift-testing — tests
 - ffmpeg (runtime) — merges the tracks into `call.mp4`; on by default, degrades
   to a warning plus the separate tracks when absent
@@ -37,16 +39,18 @@ swift build                 # debug
 swift test                  # swift-testing suites
 swift build -c release
 scripts/release.sh <ver>    # universal + ad-hoc signed + tarball + sha256
+scripts/bundle-app.sh       # dist/AnyRec.app — the menu bar app
 ./.build/debug/anyrec doctor
 ```
 
 ## Architecture
 
 `AnyRecKit` is the whole application: what a recording is, what it does, and what
-this machine can do. The `anyrec` executable is argument parsing, the TUI, and
-output formatting only — a second interface (a menu bar app, say) is another
-renderer over the same Kit, not another copy of the flow. `AnyRecKit` is the only
-shared library; don't add a second one for "UI-common" code.
+this machine can do. `anyrec` is argument parsing, the TUI and output formatting;
+`AnyRecBar` is a menu bar app. Each is a renderer over the same Kit, never another
+copy of the flow, and they do not depend on each other — anything two interfaces
+need belongs in the Kit. `AnyRecKit` is the only shared library; don't add a
+second one for "UI-common" code.
 
 | File | |
 |---|---|
@@ -84,18 +88,27 @@ shared library; don't add a second one for "UI-common" code.
 | `Transcription/OpenAIKey.swift` | Where the user's key is read from and written to. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
+| `AnyRecBar/RecordingController.swift` | The menu bar's whole state: settings, the live session, and what the last one left behind. |
+| `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
+| `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `LevelMeter`, `Notice` and `PermissionPanel`. |
+| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, ad-hoc signature. |
 
 Invariants worth preserving:
 
-- There is one recording flow, and it is `RecordingSession`. Both `record` and the
-  TUI drive it; neither may grow its own start/stop/merge/transcribe. When they
-  each had one they silently diverged three ways — `record` never transcribed at
-  all, the two handled a missing ffmpeg differently, and only the TUI pinned the
-  default microphone as an explicit device.
+- There is one recording flow, and it is `RecordingSession`. `record`, the TUI and
+  the menu bar all drive it; none may grow its own start/stop/merge/transcribe.
+  When two of them had one they silently diverged three ways — `record` never
+  transcribed at all, the two handled a missing ffmpeg differently, and only the
+  TUI pinned the default microphone as an explicit device.
 - Nothing in `AnyRecKit` prints, reads a key, or words a way out of anything. It
   answers in facts — `Advisory`, `EngineReadiness`, `TranscriptionError.Remedy`,
-  `PermissionHost` — and each interface words them. "⏎ on Transcript" and
-  "run `anyrec` with no arguments" are true of a terminal and of nothing else.
+  `PermissionHost` — and each interface words them. "⏎ on Transcript" is true of a
+  terminal and of nothing else; the panel says "run anyrec in a terminal" for the
+  same `Advisory`, because it has no ⏎ and no row to press it on.
+- Anything both front ends offer lives in the Kit, including the lists they offer
+  it from: `stopChoices` and `transcribeChoices` are on `RecordingConfiguration`
+  so a menu and a cycling row cannot drift apart. How they are *chosen* — arrow
+  keys against a popup button — stays with each interface.
 - `Readiness` caches the Apple language list and nothing else. Everything else it
   reports is a live check, because whisper and ffmpeg can be installed from the
   setup screen mid-session and a cached "missing" would outlive the fix.
@@ -153,6 +166,28 @@ Invariants worth preserving:
   `.interrupt` so every loop exits through the same path and the writers
   finalise. A loop that reads stdin directly would lose the recording — the
   files end up `ftyp`+`mdat` with no `moov`, which nothing can open.
+- The menu bar app owns Quit the same way: `applicationShouldTerminate` returns
+  `.terminateLater` while a recording is running and replies only once the
+  writers have finalised. Terminating outright is the same `ftyp`+`mdat` with no
+  `moov`, reached by ⌘Q instead of Ctrl-C.
+- `RecordingController` is owned by the app delegate, never by a view. A
+  `.window`-style `MenuBarExtra` tears its content down the moment you click away,
+  and a recording has to outlive that.
+- The menu bar extra shows a panel, not a menu, which the HIG allows only for
+  functionality a menu cannot carry — live meters and a window picker are that.
+- The window list is reloaded every time the panel opens, and a pick that is no
+  longer in it is cleared. Windows close while the panel is shut, and Start must
+  not mean "record something that is gone". It is matched on the target, not the
+  whole choice: a window keeps its id while its title changes all call.
+- The meters poll at 10 Hz; the menu bar clock is held as text and only assigned
+  when the second changes, so the status item redraws once a second rather than
+  ten times. Don't drive the label off the tick directly.
+- macOS grants TCC to the *bundle*, so the menu bar app is `AnyRec.app` with a
+  stable `CFBundleIdentifier` and its own grants — which is what
+  `PermissionHost.application` words. An ad-hoc signature changes every build, so
+  each rebuild asks again; that is the signature's doing, not a bug.
+- `NSMicrophoneUsageDescription` must be in the bundle's `Info.plist`. Without it
+  the mic prompt terminates the app rather than failing softly.
 - There is no output-device setting to add: ScreenCaptureKit taps app audio
   before any output device.
 - The loudness match applies only to `call.mp4`. The three tracks are the masters

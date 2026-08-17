@@ -49,8 +49,7 @@ struct TUISession {
     private func record(_ configuration: RecordingConfiguration, notice: String?) async throws {
         let session = try await RecordingSession.start(configuration)
 
-        var live = RecordingScreen(session: session)
-        _ = await live.run()
+        _ = await RecordingScreen(session: session).run()
 
         let outcome = try await session.stop { stage in
             Terminal.write(

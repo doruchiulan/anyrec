@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import ScreenCaptureKit
 
-public enum CaptureTarget: Sendable, Equatable {
+public enum CaptureTarget: Sendable, Hashable {
     case display(index: Int)
     case window(id: CGWindowID)
 }

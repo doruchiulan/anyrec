@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-public struct AudioInputDevice: Sendable, Equatable {
+public struct AudioInputDevice: Sendable, Hashable {
     public let id: String
     public let name: String
     public let isDefault: Bool

@@ -93,12 +93,35 @@ cp .build/release/anyrec /usr/local/bin/
 Requires macOS 15 or later. Microphone capture arrived in ScreenCaptureKit with
 Sequoia; there is no fallback on older systems.
 
+### The menu bar app
+
+The same recorder, without a terminal open. It is built from this repository
+rather than shipped by the tap:
+
+```
+scripts/bundle-app.sh
+cp -R dist/AnyRec.app /Applications
+open /Applications/AnyRec.app
+```
+
+It sits in the menu bar with no Dock icon and no window. Clicking it drops down
+the same settings the terminal screen has — capture, microphone, call audio,
+stop, merge, transcript — with the meters and the elapsed time in place once a
+recording is running. The time also shows beside the menu bar icon, so a
+recording is visible with the panel shut.
+
+Setting whisper up, or pasting an OpenAI key, is still a terminal job: the panel
+says which engine cannot run and sends you to `anyrec` for it.
+
 ## Permissions
 
-macOS grants Screen Recording and Microphone access to the *terminal
-application* you run `anyrec` from, not to the binary. Enable both under
-System Settings → Privacy & Security, then quit and reopen your terminal — the
-grant only applies to newly launched processes.
+macOS grants Screen Recording and Microphone access to the *application* that
+asks — the terminal you run `anyrec` from, or `AnyRec.app` itself. Enable both
+under System Settings → Privacy & Security, then quit and reopen it; the grant
+only applies to newly launched processes.
+
+`AnyRec.app` is ad-hoc signed, which gives each build a new identity, so macOS
+asks again after a rebuild.
 
 ```
 anyrec doctor
@@ -356,7 +379,13 @@ Two things worth knowing:
 swift build
 swift test
 scripts/release.sh 0.1.0    # universal binary, signed, tarball + sha256
+scripts/bundle-app.sh       # dist/AnyRec.app
 ```
+
+`AnyRecKit` is the whole application — what a recording is, what it does, and
+what this machine can do. `anyrec` and `AnyRecBar` are renderers over it and
+know nothing about each other, so a third interface is a third renderer rather
+than a third copy of the recording flow.
 
 `scripts/release.sh` ad-hoc signs by default. Swap the `-` identity for a
 Developer ID if you ever want to notarize and ship outside Homebrew.

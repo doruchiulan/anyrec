@@ -5,24 +5,16 @@ import AnyRecKit
 struct RecordingScreen {
     let session: RecordingSession
 
-    private var started = Date()
-
-    init(session: RecordingSession) {
-        self.session = session
-    }
-
     enum Ending {
         case stopped
         case deadline
     }
 
-    mutating func run() async -> Ending {
-        started = Date()
+    func run() async -> Ending {
         while true {
-            let elapsed = Date().timeIntervalSince(started)
-            if let limit = session.configuration.stopAfter, elapsed >= limit { return .deadline }
+            if session.reachedDeadline { return .deadline }
 
-            Terminal.write(render(elapsed: elapsed))
+            Terminal.write(render(elapsed: session.elapsed))
             switch Terminal.readKey() {
             case .character("q"), .escape, .interrupt, .enter: return .stopped
             default: break
@@ -89,8 +81,7 @@ struct RecordingScreen {
     }
 
     private func remaining(_ elapsed: TimeInterval) -> String {
-        guard let limit = session.configuration.stopAfter else { return "" }
-        let left = Int(max(0, limit - elapsed))
+        guard let left = session.remaining.map(Int.init) else { return "" }
         return styled("   \(left / 60)m \(left % 60)s left", .dim)
     }
 }
