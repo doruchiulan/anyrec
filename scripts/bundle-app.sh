@@ -6,8 +6,11 @@ set -euo pipefail
 CONFIG="${1:-debug}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/dist/AnyRec.app"
-VERSION="$(sed -n 's/.*version "\(.*\)"/\1/p' "$ROOT/Sources/anyrec/AnyRec.swift" | head -1)"
-VERSION="${VERSION:-0.1.0}"
+VERSION="$(sed -n 's/.*version: "\([^"]*\)".*/\1/p' "$ROOT/Sources/anyrec/AnyRec.swift" | head -1)"
+if [[ -z "$VERSION" ]]; then
+	echo "could not read the version out of Sources/anyrec/AnyRec.swift" >&2
+	exit 1
+fi
 
 cd "$ROOT"
 swift build -c "$CONFIG" --product AnyRecBar

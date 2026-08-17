@@ -32,14 +32,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// The menu bar itself: a symbol when idle, and the running time beside it once there
-/// is one, because the extra can be hidden and the panel is usually shut.
+/// is one, because the panel is usually shut. The state is carried by the filled
+/// symbol and the clock rather than by colour — a status item is drawn as a template,
+/// so a tint here would be stripped.
 struct MenuBarLabel: View {
     @Bindable var controller: RecordingController
 
     var body: some View {
         if controller.isRecording {
             Label(controller.clock, systemImage: "record.circle.fill")
-                .foregroundStyle(.red)
         } else {
             Image(systemName: "record.circle")
         }

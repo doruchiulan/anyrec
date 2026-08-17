@@ -60,10 +60,24 @@ final class RecordingController {
         readiness = await probe
     }
 
-    /// Windows open and close while the panel is shut, so the list is asked for again
-    /// every time it is shown. Without Screen Recording there is nothing to ask.
+    /// Windows and input devices both come and go while the panel is shut — this app
+    /// runs for days and the AirPods go in halfway through one — so both lists are
+    /// asked for again every time it is shown, and a pick that is no longer in either
+    /// is cleared rather than handed to ScreenCaptureKit.
+    ///
+    /// `pinDefaultMicrophone` is deliberately not run here: once someone has used the
+    /// picker, nil means Off, and re-pinning would quietly undo them.
     func refreshCatalogue() async {
         guard phase == .idle else { return }
+
+        /// Before the Screen Recording gate: listing inputs needs no grant, so a denied
+        /// screen must not hide the microphones too.
+        microphones = await Task.detached { AudioDevices.inputs() }.value
+        if let chosen = configuration.microphone,
+            !microphones.contains(where: { $0.id == chosen.id })
+        {
+            configuration.microphone = nil
+        }
 
         canSeeScreen = Permissions.screenRecordingGranted()
         guard canSeeScreen else {
