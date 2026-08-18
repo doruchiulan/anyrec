@@ -97,11 +97,16 @@ fallback on older systems.
 
 ### The menu bar app
 
-The same recorder, without a terminal open. It is built from this repository
-rather than shipped by the tap:
+The same recorder, without a terminal open:
 
 ```
-scripts/bundle-app.sh
+brew install --cask doruchiulan/tap/anyrec
+```
+
+Or build it from this repository:
+
+```
+scripts/bundle-app.sh release
 cp -R dist/AnyRec.app /Applications
 open /Applications/AnyRec.app
 ```

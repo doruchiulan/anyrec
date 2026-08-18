@@ -13,8 +13,17 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 cd "$ROOT"
-swift build -c "$CONFIG" --product AnyRecBar
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/AnyRecBar"
+
+# Only a release bundle is universal: anyone who downloads one may be on an Intel Mac.
+# Building both slices for a local run would just double the wait.
+if [[ "$CONFIG" == release ]]; then
+	build() { swift build -c release --arch arm64 --arch x86_64 "$@"; }
+else
+	build() { swift build -c "$CONFIG" "$@"; }
+fi
+
+build --product AnyRecBar
+BIN="$(build --show-bin-path)/AnyRecBar"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

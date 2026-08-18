@@ -41,7 +41,7 @@ through — is 15.2.
 swift build                 # debug
 swift test                  # swift-testing suites
 swift build -c release
-scripts/release.sh <ver>    # universal + ad-hoc signed + tarball + sha256
+scripts/release.sh <ver>    # universal, signed: CLI tarball + app zip + sha256s
 scripts/bundle-app.sh       # dist/AnyRec.app — the menu bar app
 ./.build/debug/anyrec doctor
 ```
@@ -96,8 +96,9 @@ second one for "UI-common" code.
 | `AnyRecBar/SystemPicker.swift` | macOS's on-screen content picker, and the configuration that holds it to windows and displays. |
 | `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `LevelMeter`, `Notice` and `PermissionPanel`. |
-| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, signature. |
+| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, signature. Universal for release, native for debug. |
 | `scripts/signing.sh` | The identity both build scripts sign with, and the ad-hoc fallback when it is absent. |
+| `Formula/anyrec.rb`, `Casks/anyrec.rb` | Reference copies of what the tap serves. The live ones are in `homebrew-tap`. |
 
 Invariants worth preserving:
 
@@ -213,6 +214,13 @@ Invariants worth preserving:
   both build scripts sign with a Developer ID from `scripts/signing.sh` rather than
   ad-hoc: an ad-hoc signature changes every build, so every rebuild asked again.
   Machines without that identity fall back to ad-hoc and get the old behaviour.
+- The app ships through a cask, not a download. Homebrew clears the quarantine
+  flag on install, so a signed-but-unnotarised bundle installs cleanly; the same
+  zip fetched from the releases page is refused by Gatekeeper. Notarising is what
+  would close that, and nothing here depends on it having been done.
+- The app zip is made with `ditto -c -k --keepParent`, never `zip`. `zip` drops the
+  symlinks and extended attributes a bundle's signature is checked against, and the
+  app arrives with a signature that no longer verifies.
 - `NSMicrophoneUsageDescription` must be in the bundle's `Info.plist`. Without it
   the mic prompt terminates the app rather than failing softly.
 - The app must *ask* for Screen Recording, not just preflight it.
