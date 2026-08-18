@@ -9,8 +9,8 @@
 # turn off — so the app this points at has to be notarised. Formulae are the ones
 # that install unquarantined, which is why anyrec's CLI never needed it.
 cask "anyrec-app" do
-  version "0.2.0"
-  sha256 "46fe5389858eda4f6716f54e9bab28fbbb35e0ac2ab742580fae3b2175225e57"
+  version "0.3.0"
+  sha256 "b49fd8d5fd6705c4eafe438f046ddeba6fa78513186686c8aaea2903c7476184"
 
   url "https://github.com/doruchiulan/anyrec/releases/download/v#{version}/AnyRec-#{version}.zip"
   name "AnyRec"
