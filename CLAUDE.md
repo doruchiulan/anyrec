@@ -98,7 +98,7 @@ second one for "UI-common" code.
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `LevelMeter`, `Notice` and `PermissionPanel`. |
 | `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, signature. Universal for release, native for debug. |
 | `scripts/signing.sh` | The identity both build scripts sign with, and the ad-hoc fallback when it is absent. |
-| `Formula/anyrec.rb`, `Casks/anyrec.rb` | Reference copies of what the tap serves. The live ones are in `homebrew-tap`. |
+| `Formula/anyrec.rb`, `Casks/anyrec-app.rb` | Reference copies of what the tap serves. The live ones are in `homebrew-tap`. |
 
 Invariants worth preserving:
 
@@ -214,6 +214,9 @@ Invariants worth preserving:
   both build scripts sign with a Developer ID from `scripts/signing.sh` rather than
   ad-hoc: an ad-hoc signature changes every build, so every rebuild asked again.
   Machines without that identity fall back to ad-hoc and get the old behaviour.
+- The cask's token is `anyrec-app`, not `anyrec`. A cask and a formula sharing one
+  token in a tap conflict: with the cask installed, a formula install completes but
+  links nothing, and `anyrec` quietly leaves `PATH`.
 - The app has to be notarised, and a cask does not get you out of it. Casks apply
   the quarantine flag — `--no-quarantine` is the opt-out — so an unnotarised
   bundle installs and then refuses to open: `spctl` says `rejected: Unnotarized

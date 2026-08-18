@@ -59,4 +59,4 @@ echo "sha256:  $(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
 echo "notarised: $NOTARISED"
 echo
 echo "Attach both to a GitHub release tagged v$VERSION, then copy each sha256 into"
-echo "Formula/anyrec.rb and Casks/anyrec.rb in your tap."
+echo "Formula/anyrec.rb and Casks/anyrec-app.rb in your tap."

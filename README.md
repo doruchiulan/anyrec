@@ -100,7 +100,7 @@ fallback on older systems.
 The same recorder, without a terminal open:
 
 ```
-brew install --cask doruchiulan/tap/anyrec
+brew install --cask doruchiulan/tap/anyrec-app
 ```
 
 Or build it from this repository:
