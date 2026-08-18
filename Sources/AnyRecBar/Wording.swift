@@ -41,18 +41,67 @@ enum Wording {
         }
     }
 
-    /// Setting an engine up is a terminal job for now, so the two advisories that would
-    /// have offered to do it here name the command that does.
+    /// The settings window lists the engines by name, with what stands between each one
+    /// and running. The panel's row says both at once because it is a menu; here there
+    /// are two columns to put them in.
+    static func engineName(_ engine: TranscriptionEngine) -> String {
+        switch engine {
+        case .auto: "Automatic"
+        case .apple: "Apple"
+        case .whisper: "Whisper"
+        case .openai: "OpenAI"
+        }
+    }
+
+    static func engineStatus(_ engine: TranscriptionEngine, _ readiness: Readiness) -> String {
+        guard !readiness.of(engine).isReady else {
+            return engine == .openai ? "Ready — uploads audio" : "Ready — on device"
+        }
+        switch engine {
+        case .auto: return "Nothing installed to run it"
+        case .apple: return "Needs macOS 26"
+        case .whisper: return "Not installed"
+        case .openai: return "No API key"
+        }
+    }
+
+    /// What pressing it will fetch, on the button rather than after it. Installs weigh
+    /// nothing to download, so a step list that is all installs says so instead.
+    static func install(_ steps: [WhisperSetup.Step]) -> String {
+        let bytes = WhisperSetup.downloadSize(of: steps)
+        return bytes > 0 ? "Install — downloads \(AssetDownload.describe(bytes))" : "Install"
+    }
+
+    static func keyOutcome(_ outcome: OpenAIKey.StoreOutcome) -> String {
+        switch outcome {
+        case .saved: "Saved. OpenAI accepted it."
+        case .savedUnverified(let reason): "Saved without checking it: \(reason)"
+        case .savedButShadowed: "Saved, but OPENAI_API_KEY in your environment wins over it."
+        case .rejected(let complaint): "Not saved — \(complaint)"
+        case .notSaved(let reason): "Not saved — \(reason)"
+        }
+    }
+
+    static func wasRefused(_ outcome: OpenAIKey.StoreOutcome) -> Bool {
+        switch outcome {
+        case .rejected, .notSaved: true
+        case .saved, .savedUnverified, .savedButShadowed: false
+        }
+    }
+
+    /// Both of the advisories that name a way out now have a window to name instead of
+    /// a command: the app is installable on its own, so "run anyrec in a terminal" was
+    /// advice a cask user could not take.
     static func advisory(_ advisory: Advisory) -> String {
         switch advisory {
         case .whisperNotSetUp:
-            "whisper is not set up yet. Run anyrec in a terminal to install it."
+            "whisper is not set up yet. Install it in Settings › Transcription."
         case .openAIKeyMissing:
-            "No OpenAI key. Set OPENAI_API_KEY, or run anyrec in a terminal to paste one."
+            "No OpenAI key. Set OPENAI_API_KEY, or paste one in Settings › Transcription."
         case .appleUnavailable:
             "Apple's engine needs macOS 26. Pick whisper or OpenAI instead."
         case .ffmpegMissing:
-            "ffmpeg is missing, so there will be no call.mp4. Install it with brew install ffmpeg."
+            "ffmpeg is missing, so there will be no call.mp4. Install it in Settings › Transcription."
         case .openAIUploadsAudio:
             "OpenAI transcribes off your machine — both audio tracks are uploaded."
         case .appleCoversSomeLanguages(let count):
@@ -85,12 +134,10 @@ enum Wording {
 
     static func remedy(_ remedy: TranscriptionError.Remedy) -> String {
         switch remedy {
-        case .installWhisper, .downloadModel:
-            "Run anyrec in a terminal to set it up."
-        case .installFFmpeg:
-            "Install it with brew install ffmpeg."
+        case .installWhisper, .downloadModel, .installFFmpeg:
+            "Set it up in Settings › Transcription."
         case .provideOpenAIKey:
-            "Set OPENAI_API_KEY, or run anyrec in a terminal to paste one."
+            "Set OPENAI_API_KEY, or paste a key in Settings › Transcription."
         }
     }
 }

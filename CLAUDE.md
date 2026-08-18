@@ -95,7 +95,8 @@ second one for "UI-common" code.
 | `AnyRecBar/RecordingController.swift` | The menu bar's whole state: settings, the live session, and what the last one left behind. |
 | `AnyRecBar/SystemPicker.swift` | macOS's on-screen content picker, and the configuration that holds it to windows and displays. |
 | `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
-| `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `LevelMeter`, `Notice` and `PermissionPanel`. |
+| `AnyRecBar/Preferences.swift` | The few settings that survive a relaunch, mapped onto `UserDefaults`. The Kit has no opinion about persistence. |
+| `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. |
 | `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, signature. Universal for release, native for debug. |
 | `scripts/signing.sh` | The identity both build scripts sign with, and the ad-hoc fallback when it is absent. |
 | `Formula/anyrec.rb`, `Casks/anyrec-app.rb` | Reference copies of what the tap serves. The live ones are in `homebrew-tap`. |
@@ -110,8 +111,8 @@ Invariants worth preserving:
 - Nothing in `AnyRecKit` prints, reads a key, or words a way out of anything. It
   answers in facts — `Advisory`, `EngineReadiness`, `TranscriptionError.Remedy`,
   `PermissionHost` — and each interface words them. "⏎ on Transcript" is true of a
-  terminal and of nothing else; the panel says "run anyrec in a terminal" for the
-  same `Advisory`, because it has no ⏎ and no row to press it on.
+  terminal and of nothing else; the app says "Settings › Transcription" for the same
+  `Advisory`, because it has no ⏎ and no row to press it on.
 - Anything both front ends offer lives in the Kit, including the lists they offer
   it from: `stopChoices` and `transcribeChoices` are on `RecordingConfiguration`
   so a menu and a cycling row cannot drift apart. How they are *chosen* — arrow
@@ -203,8 +204,30 @@ Invariants worth preserving:
   id would be the one place that did not. It is also what lets `--window <id>` record
   a window on another desktop.
 - The panel offers a microphone, a transcript and a stop time; system audio and the
-  merge are on and not shown. They are what the tool is for, and a toggle for each
-  asks a question whose answer is always yes. `anyrec record` keeps the flags.
+  merge live in Settings, on and rarely touched. They are what the tool is for, and a
+  toggle for each in a panel you opened to press one button asks a question whose
+  answer is always yes. `anyrec record` keeps the flags.
+- Setting an engine up must be possible without a terminal. The app installs on its
+  own through a cask, so "run anyrec in a terminal" was a way out that a whole class
+  of user could not take — `Settings › Transcription` is `EngineSetup`'s counterpart,
+  a sibling renderer over `WhisperSetup`, `AssetDownload` and `OpenAIKey`, never a
+  shared view with it.
+- The setup task is owned by `RecordingController`, not by the settings window. A
+  `brew install` and a model download outlive the window being closed, exactly as a
+  recording outlives the panel.
+- `Readiness` is re-probed after a setup run. It is a stored property filled once at
+  launch, so an engine installed from Settings would otherwise still read as missing
+  in the panel's Transcript row and in its advisory.
+- What a download costs is on the button, before it is pressed — `Wording.install`
+  carries `downloadSize`, as the terminal's page does. Nothing is fetched otherwise.
+- The settings window is reached by `openSettings()` after `NSApplication.activate`.
+  `LSUIElement` means no Dock icon and nothing to bring forward, so the window opens
+  behind every other app without it.
+- Persistence belongs to `AnyRecBar`, not to the Kit. A recording is configured from
+  nothing every time; an app that sits in a menu bar for days is what needs to
+  remember. `Preferences` maps a handful of fields onto `UserDefaults`, and the
+  microphone is stored as a device id and re-resolved, because the device it names
+  may be in a drawer by the next launch.
 - The meters poll at 10 Hz; the menu bar clock is held as text and only assigned
   when the second changes, so the status item redraws once a second rather than
   ten times. Don't drive the label off the tick directly.
@@ -304,7 +327,8 @@ Invariants worth preserving:
   not be checked at all is, because being offline is not a reason to ask again.
 - Nothing is installed or downloaded unless it was asked for: the setup CTA is
   behind ⏎ on the Transcript row and a page saying what it will fetch and how big
-  it is. `pending()` includes ffmpeg because whisper is fed through it — a model
+  it is, and behind a button in `Settings › Transcription` that says the same on
+  its face. `pending()` includes ffmpeg because whisper is fed through it — a model
   downloaded onto a machine without ffmpeg is dead weight.
 - A downloaded model only appears at its final path once its sha256 matches. A
   half-written model is worse than none, because `defaultModel()` picks the largest

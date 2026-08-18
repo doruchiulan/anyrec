@@ -5,6 +5,7 @@ import AnyRecKit
 /// last one left behind.
 struct MenuPanel: View {
     @Bindable var controller: RecordingController
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -36,6 +37,14 @@ struct MenuPanel: View {
                 .lineLimit(1)
                 .truncationMode(.head)
             Spacer()
+            Button("Settings") {
+                /// `LSUIElement` means no Dock icon and nothing to bring forward, so
+                /// the window opens behind everything unless the app is activated.
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                openSettings()
+            }
+            .buttonStyle(.link)
+            .font(.caption)
             Button("Quit") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.link)
                 .font(.caption)

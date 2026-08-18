@@ -36,13 +36,35 @@ struct WordingTests {
         #expect(Wording.engine(nil, with) == "Off")
     }
 
-    /// The terminal offers to install whisper on the spot; a panel has nothing to press
-    /// for it, so it names what does.
-    @Test("sends setup to the terminal rather than offering a key it cannot take")
-    func advisoryPointsAtTheTerminal() {
-        #expect(Wording.advisory(.whisperNotSetUp).contains("terminal"))
+    /// The terminal offers to install whisper on the row itself; the panel has no ⏎ and
+    /// no row to press it on, so it names the window that does. Naming the terminal would
+    /// be advice someone who installed only the app cannot take.
+    @Test("sends setup to the window that can do it, not to a terminal")
+    func advisoryPointsAtSettings() {
+        #expect(Wording.advisory(.whisperNotSetUp).contains("Settings"))
         #expect(Wording.advisory(.openAIKeyMissing).contains("OPENAI_API_KEY"))
+        #expect(!Wording.advisory(.whisperNotSetUp).contains("terminal"))
         #expect(!Wording.advisory(.whisperNotSetUp).contains("⏎"))
+    }
+
+    /// What a download will cost is on the button, never after it.
+    @Test("says what pressing install will fetch")
+    func installNamesItsDownload() {
+        let model = WhisperSetup.pending().filter { $0.bytes > 0 }
+        let installs: [WhisperSetup.Step] = [.install(formula: "ffmpeg", binary: "ffmpeg")]
+
+        #expect(Wording.install(installs) == "Install")
+        if !model.isEmpty { #expect(Wording.install(model).contains("downloads")) }
+    }
+
+    @Test("separates a key OpenAI refused from one it merely could not check")
+    func keyOutcomes() {
+        #expect(Wording.wasRefused(.rejected("bad key")))
+        #expect(Wording.wasRefused(.notSaved("disk full")))
+        #expect(!Wording.wasRefused(.savedUnverified(reason: "offline")))
+        #expect(!Wording.wasRefused(.savedButShadowed))
+        #expect(Wording.keyOutcome(.savedButShadowed).contains("OPENAI_API_KEY"))
+        #expect(Wording.keyOutcome(.rejected("bad key")).contains("bad key"))
     }
 
     @Test("distinguishes a merge nobody asked for from one that could not run")
@@ -57,7 +79,7 @@ struct WordingTests {
         let written = Wording.transcript(.failed(reason: "no model", remedy: .installWhisper))
 
         #expect(written.contains("no model"))
-        #expect(written.contains("terminal"))
+        #expect(written.contains("Settings"))
         #expect(Wording.transcript(.nothingHeard).contains("Nothing was heard"))
     }
 }

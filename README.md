@@ -119,8 +119,11 @@ the recording starts on the selection. The meters and the elapsed time take the
 panel's place while it runs, and the time also shows beside the menu bar icon, so
 a recording is visible with the panel shut.
 
-Setting whisper up, or pasting an OpenAI key, is still a terminal job: the panel
-says which engine cannot run and sends you to `anyrec` for it.
+Settings, from the panel's footer, is where the rest lives: whether to record
+call audio and merge, and a Transcription tab that installs whisper and its
+models — saying what it will fetch and how big before it fetches anything — or
+takes an OpenAI key. So the app is usable on its own; the CLI is a separate
+install, not a prerequisite.
 
 ## Permissions
 

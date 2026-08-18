@@ -18,13 +18,16 @@ final class RecordingController {
         case finished
     }
 
-    /// Opens on Automatic rather than Off. Someone who put a recorder in their menu bar
-    /// wants the transcript too, and `auto` is the setting that never leaves the machine.
+    /// Opens on what the last launch left, and on Automatic the first time: someone who
+    /// put a recorder in their menu bar wants the transcript too, and `auto` is the
+    /// setting that never leaves the machine.
     var configuration: RecordingConfiguration = {
         var configuration = RecordingConfiguration()
-        configuration.transcribe = .auto
+        Preferences.loaded(into: &configuration)
         return configuration
-    }()
+    }() {
+        didSet { Preferences.save(configuration) }
+    }
 
     private(set) var phase = Phase.idle
     private(set) var readiness = Readiness(appleLanguages: [])
@@ -38,6 +41,12 @@ final class RecordingController {
     private(set) var failure: String?
     private(set) var canSeeScreen = Permissions.screenRecordingGranted()
 
+    /// What the settings window is doing, and what it last did. Kept apart from the
+    /// recording's own `progress` and `failure`: an install runs while a recording does.
+    private(set) var setupProgress: String?
+    private(set) var setupFailure: String?
+    private(set) var keyOutcome: OpenAIKey.StoreOutcome?
+
     /// Bumped by the ticker so the meters redraw; the levels themselves are read
     /// straight off the buffers on their way to disk.
     private(set) var tick = Date()
@@ -48,8 +57,11 @@ final class RecordingController {
 
     private(set) var session: RecordingSession?
     private var ticker: Task<Void, Never>?
+    private var setup: Task<Void, Never>?
     private var askedForScreen = false
     private let picker = SystemPicker()
+
+    var isSettingUp: Bool { setupProgress != nil }
 
     var isRecording: Bool { phase == .recording || phase == .stopping }
     var advisory: Advisory? { readiness.advisory(for: configuration) }
@@ -63,6 +75,7 @@ final class RecordingController {
         let inputs = await Task.detached { AudioDevices.inputs() }.value
 
         microphones = inputs
+        configuration.microphone = Preferences.microphone(among: inputs)
         configuration.pinDefaultMicrophone(from: inputs)
         readiness = await probe
     }
@@ -89,6 +102,42 @@ final class RecordingController {
         }
 
         canSeeScreen = Permissions.screenRecordingGranted()
+    }
+
+    /// Setting an engine up outlives the window it was started from — a settings window
+    /// closes the moment you click away from it, and `brew install` does not — so the
+    /// task belongs here, with everything else the app delegate owns.
+    func installWhisper() {
+        guard setup == nil else { return }
+        setupFailure = nil
+
+        setup = Task {
+            for step in WhisperSetup.pending() {
+                setupProgress = step.title
+                do {
+                    try await WhisperSetup.perform(step) { line in
+                        Task { @MainActor in self.setupProgress = "\(step.title) — \(line)" }
+                    }
+                } catch {
+                    setupFailure = "\(error)"
+                    break
+                }
+            }
+            /// Whisper can be installed from here mid-session, so what the panel says
+            /// about the engines has to be asked again rather than left at launch.
+            readiness = await Readiness.probe()
+            setupProgress = nil
+            setup = nil
+        }
+    }
+
+    /// The key is handed straight to the Kit, which checks it against the API before
+    /// writing it and never gives it back. Nothing here keeps a copy.
+    func saveOpenAIKey(_ key: String) async {
+        keyOutcome = nil
+        let outcome = await OpenAIKey.validateAndStore(key)
+        readiness = await Readiness.probe()
+        keyOutcome = outcome
     }
 
     /// Asked once a launch, the first time the panel has to say the screen is off. Only

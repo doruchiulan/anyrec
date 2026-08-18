@@ -15,6 +15,10 @@ struct AnyRecBarApp: App {
         /// functionality is too complex for one, which live meters and a capture
         /// picker are.
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsWindow(controller: delegate.controller)
+        }
     }
 }
 

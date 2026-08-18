@@ -36,7 +36,8 @@ cask "anyrec-app" do
 
       brew install ffmpeg
 
-    Setting whisper up, or pasting an OpenAI key, is a terminal job:
+    Settings > Transcription installs whisper and its models, or takes an OpenAI
+    key. The terminal tool is a separate install, not a prerequisite:
 
       brew install doruchiulan/tap/anyrec
   EOS
