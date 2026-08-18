@@ -1,7 +1,9 @@
 import SwiftUI
 import AnyRecKit
 
-/// The settings, and the button that starts a recording from them.
+/// The settings, and the button that starts a recording from them. System audio and the
+/// merge are on and not shown: they are what the tool is for, and `anyrec record` carries
+/// a flag for anyone who wants a recording without them.
 struct SetupPanel: View {
     @Bindable var controller: RecordingController
 
@@ -9,10 +11,7 @@ struct SetupPanel: View {
         if controller.canSeeScreen {
             VStack(alignment: .leading, spacing: 12) {
                 Form {
-                    capture
                     microphone
-                    Toggle("System audio", isOn: $controller.configuration.systemAudio)
-                    Toggle("Merge into call.mp4", isOn: $controller.configuration.mux)
                     transcribe
                     stopAfter
                 }
@@ -25,22 +24,7 @@ struct SetupPanel: View {
                 start
             }
         } else {
-            PermissionPanel()
-        }
-    }
-
-    private var capture: some View {
-        Picker("Record", selection: $controller.configuration.capture) {
-            /// Recording the wrong window is worse than recording nothing, so nothing
-            /// is picked until someone picks it.
-            Text("Nothing picked yet").tag(CaptureChoice?.none)
-            ForEach(controller.catalogue?.sections ?? [], id: \.title) { section in
-                Section(section.title) {
-                    ForEach(section.entries, id: \.choice) { entry in
-                        Text(entry.choice.label).tag(CaptureChoice?.some(entry.choice))
-                    }
-                }
-            }
+            PermissionPanel(controller: controller)
         }
     }
 
@@ -69,9 +53,10 @@ struct SetupPanel: View {
         }
     }
 
+    /// Choosing what to record is the first half of this button, not a row above it.
     private var start: some View {
-        Button("Start Recording") {
-            Task { await controller.start() }
+        Button("Choose a Window & Record") {
+            controller.pickAndStart()
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)

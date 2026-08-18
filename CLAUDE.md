@@ -10,7 +10,8 @@ Discord and browsers are listed first; everything else follows.
 It ships as two front ends over one library. `anyrec` with no arguments opens a
 TUI (setup screen, interactive capture and microphone pickers, live meters);
 `anyrec record` is the same thing driven by flags, and is what a non-tty falls
-back to. `AnyRec.app` is a menu bar app with the same settings as a panel.
+back to. `AnyRec.app` is a menu bar app over the same Kit, offering the settings
+worth a panel and leaving the rest at their defaults.
 
 An optional pass turns the two audio tracks into a speaker-labelled transcript,
 with macOS 26's on-device `SpeechAnalyzer`, with whisper.cpp, or — for people who
@@ -29,8 +30,10 @@ would rather bring a key than a model — with OpenAI's API.
 - whisper.cpp (runtime, optional) — `whisper-cli` plus a ggml model in
   `~/Library/Application Support/anyrec/models`
 
-Requires macOS 15+. `SCStreamConfiguration.captureMicrophone` and
-`SCStreamOutputType.microphone` are Sequoia APIs with no fallback.
+Requires macOS 15.2+. `SCStreamConfiguration.captureMicrophone` and
+`SCStreamOutputType.microphone` are Sequoia APIs with no fallback, and
+`SCContentFilter.includedWindows` — what the menu bar's system picker is read back
+through — is 15.2.
 
 ## Commands
 
@@ -58,7 +61,8 @@ second one for "UI-common" code.
 | `Session/RecordingSession.swift` | One recording, start to finish: stream, folder, merge, transcript. |
 | `Session/TranscriptPass.swift` | The optional pass over closed files. Returns an outcome; never throws. |
 | `Readiness/Readiness.swift` | What is installed and available here, and the single `Advisory` worth showing for a configuration. |
-| `Capture/CaptureCatalogue.swift` | Every recordable window and display, in the order worth offering them. |
+| `Capture/CaptureCatalogue.swift` | Every recordable window and display, in the order worth offering them. What the terminal picks from. |
+| `Capture/PickedContent.swift` | What macOS's content picker handed back, read as a `CaptureTarget`. The inverse of `TargetResolver`. |
 | `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
 | `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
@@ -89,9 +93,11 @@ second one for "UI-common" code.
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
 | `AnyRecBar/RecordingController.swift` | The menu bar's whole state: settings, the live session, and what the last one left behind. |
+| `AnyRecBar/SystemPicker.swift` | macOS's on-screen content picker, and the configuration that holds it to windows and displays. |
 | `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `LevelMeter`, `Notice` and `PermissionPanel`. |
-| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, ad-hoc signature. |
+| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, signature. |
+| `scripts/signing.sh` | The identity both build scripts sign with, and the ad-hoc fallback when it is absent. |
 
 Invariants worth preserving:
 
@@ -174,20 +180,49 @@ Invariants worth preserving:
   `.window`-style `MenuBarExtra` tears its content down the moment you click away,
   and a recording has to outlive that.
 - The menu bar extra shows a panel, not a menu, which the HIG allows only for
-  functionality a menu cannot carry — live meters and a window picker are that.
-- The window list is reloaded every time the panel opens, and a pick that is no
-  longer in it is cleared. Windows close while the panel is shut, and Start must
-  not mean "record something that is gone". It is matched on the target, not the
-  whole choice: a window keeps its id while its title changes all call.
+  functionality a menu cannot carry — live meters are that.
+- The menu bar picks with `SCContentSharingPicker`, not a list of titles. Two
+  windows called "Meet — Meeting" are one word apart in a menu and a screen apart
+  in front of you. `PickedContent` reads the selection back to a `CaptureTarget`
+  and throws the filter away, so `TargetResolver` stays the only place a recording's
+  filter is built. The terminal keeps `CaptureCatalogue` because it has no screen to
+  point at — the Kit says what is recordable, each interface says how it is chosen.
+- `allowedPickerModes` is `[.singleWindow, .singleDisplay]`. The picker offers
+  applications otherwise, and an application filter is the display recording this
+  refuses to disguise.
+- Picking is the first half of Start, not a row above it. The panel has no capture
+  row: pressing the button opens the picker and a selection starts the recording, so
+  what is recorded is always what was pointed at a second ago. A pick that sits in
+  the panel goes stale — the window closes while the menu is shut — and the check
+  for that was code paid for by a step nobody wanted. Closing the picker without
+  choosing records nothing, which is what closing it means.
+- `TargetResolver.resolve` looks windows up with `onScreenWindowsOnly: false`. What
+  is worth *offering* is on-screen only, but the picker hands back windows from other
+  Spaces and `desktopIndependentWindow` follows one there, so refusing to resolve an
+  id would be the one place that did not. It is also what lets `--window <id>` record
+  a window on another desktop.
+- The panel offers a microphone, a transcript and a stop time; system audio and the
+  merge are on and not shown. They are what the tool is for, and a toggle for each
+  asks a question whose answer is always yes. `anyrec record` keeps the flags.
 - The meters poll at 10 Hz; the menu bar clock is held as text and only assigned
   when the second changes, so the status item redraws once a second rather than
   ten times. Don't drive the label off the tick directly.
 - macOS grants TCC to the *bundle*, so the menu bar app is `AnyRec.app` with a
   stable `CFBundleIdentifier` and its own grants — which is what
-  `PermissionHost.application` words. An ad-hoc signature changes every build, so
-  each rebuild asks again; that is the signature's doing, not a bug.
+  `PermissionHost.application` words. TCC keys off the signature too, which is why
+  both build scripts sign with a Developer ID from `scripts/signing.sh` rather than
+  ad-hoc: an ad-hoc signature changes every build, so every rebuild asked again.
+  Machines without that identity fall back to ad-hoc and get the old behaviour.
 - `NSMicrophoneUsageDescription` must be in the bundle's `Info.plist`. Without it
   the mic prompt terminates the app rather than failing softly.
+- The app must *ask* for Screen Recording, not just preflight it.
+  `CGPreflightScreenCaptureAccess` reads the answer; `CGRequestScreenCaptureAccess`
+  is what registers the app with TCC. An app that has only ever preflighted does not
+  appear in Privacy & Security at all, so the panel's "enable it here" pointed at a
+  list with no AnyRec row in it and the only way through was the `+` button. The ask
+  runs when `PermissionPanel` appears, before the button is offered, and once a
+  launch — macOS replies by offering Settings rather than granting, so a second ask
+  buys nothing.
 - There is no output-device setting to add: ScreenCaptureKit taps app audio
   before any output device.
 - The loudness match applies only to `call.mp4`. The three tracks are the masters

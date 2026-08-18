@@ -14,7 +14,7 @@ struct MenuPanel: View {
         }
         .padding(14)
         .frame(width: 320)
-        .task { await controller.refreshCatalogue() }
+        .task { await controller.refresh() }
     }
 
     @ViewBuilder private var content: some View {

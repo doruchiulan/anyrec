@@ -35,8 +35,8 @@ enum Wording {
         let ready = readiness.of(engine).isReady
         switch engine {
         case .auto: return "Automatic"
-        case .apple: return ready ? "Apple (on-device)" : "Apple (needs macOS 26)"
-        case .whisper: return ready ? "whisper.cpp" : "whisper.cpp (not installed)"
+        case .apple: return ready ? "Apple (on device, English only)" : "Apple (needs macOS 26)"
+        case .whisper: return ready ? "Whisper (on device)" : "Whisper (not installed)"
         case .openai: return ready ? "OpenAI (uploads audio)" : "OpenAI (no API key)"
         }
     }

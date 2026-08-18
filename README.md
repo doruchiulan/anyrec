@@ -90,8 +90,10 @@ cd anyrec && swift build -c release
 cp .build/release/anyrec /usr/local/bin/
 ```
 
-Requires macOS 15 or later. Microphone capture arrived in ScreenCaptureKit with
-Sequoia; there is no fallback on older systems.
+Requires macOS 15.2 or later. Microphone capture arrived in ScreenCaptureKit with
+Sequoia, and 15.2 is where a content filter began reporting what is in it, which
+is how the menu bar app reads back the window you point at. Neither has a
+fallback on older systems.
 
 ### The menu bar app
 
@@ -104,11 +106,13 @@ cp -R dist/AnyRec.app /Applications
 open /Applications/AnyRec.app
 ```
 
-It sits in the menu bar with no Dock icon and no window. Clicking it drops down
-the same settings the terminal screen has — capture, microphone, call audio,
-stop, merge, transcript — with the meters and the elapsed time in place once a
-recording is running. The time also shows beside the menu bar icon, so a
-recording is visible with the panel shut.
+It sits in the menu bar with no Dock icon and no window. Clicking it drops down a
+microphone, a transcript engine and a stop time — call audio and the merge are on
+and not asked about, which is what `anyrec record`'s flags are for. The button
+below them opens macOS's own picker: point at the window or display you want and
+the recording starts on the selection. The meters and the elapsed time take the
+panel's place while it runs, and the time also shows beside the menu bar icon, so
+a recording is visible with the panel shut.
 
 Setting whisper up, or pasting an OpenAI key, is still a terminal job: the panel
 says which engine cannot run and sends you to `anyrec` for it.
@@ -120,8 +124,9 @@ asks — the terminal you run `anyrec` from, or `AnyRec.app` itself. Enable both
 under System Settings → Privacy & Security, then quit and reopen it; the grant
 only applies to newly launched processes.
 
-`AnyRec.app` is ad-hoc signed, which gives each build a new identity, so macOS
-asks again after a rebuild.
+`AnyRec.app` is signed with a Developer ID, so its grants survive a rebuild. A
+machine without that identity in its keychain falls back to an ad-hoc signature,
+which changes every build — and macOS then asks again after each one.
 
 ```
 anyrec doctor

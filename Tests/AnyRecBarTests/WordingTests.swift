@@ -30,8 +30,9 @@ struct WordingTests {
         let without = Readiness(appleLanguages: [])
         let with = Readiness(appleLanguages: ["en"])
 
-        #expect(Wording.engine(.apple, with) == "Apple (on-device)")
+        #expect(Wording.engine(.apple, with) == "Apple (on device, English only)")
         #expect(Wording.engine(.apple, without) == "Apple (needs macOS 26)")
+        #expect(Wording.engine(.whisper, with) == "Whisper (on device)")
         #expect(Wording.engine(nil, with) == "Off")
     }
 

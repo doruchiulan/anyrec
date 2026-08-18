@@ -70,9 +70,14 @@ public struct RecordingConfiguration: Sendable {
     /// so another app changing the default mid-call cannot redirect the capture. It
     /// only ever fills an unset microphone, so running it after someone has chosen
     /// "off" would not undo them — but there is no reason to.
-    public mutating func pinDefaultMicrophone() {
+    ///
+    /// Callers that have just listed the inputs pass them back in. Enumerating twice
+    /// risks pinning a device that differs from the listed one by more than its id —
+    /// `isDefault` moves when a headset connects — and a menu matching on the whole
+    /// value then finds no row for the selection and draws itself empty.
+    public mutating func pinDefaultMicrophone(from inputs: [AudioInputDevice]? = nil) {
         guard microphone == nil else { return }
-        let inputs = AudioDevices.inputs()
+        let inputs = inputs ?? AudioDevices.inputs()
         microphone = inputs.first(where: \.isDefault) ?? inputs.first
     }
 
