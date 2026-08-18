@@ -29,7 +29,7 @@ struct SetupPanel: View {
     }
 
     private var microphone: some View {
-        Picker("Microphone", selection: $controller.configuration.microphone) {
+        Picker("Microphone", selection: $controller.microphone) {
             Text("Off").tag(AudioInputDevice?.none)
             ForEach(controller.microphones, id: \.self) { device in
                 Text(Wording.microphone(device)).tag(AudioInputDevice?.some(device))

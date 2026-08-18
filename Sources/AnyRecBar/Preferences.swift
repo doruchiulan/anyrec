@@ -38,18 +38,30 @@ enum Preferences {
         configuration.stopAfter = seconds > 0 ? seconds : nil
     }
 
+    /// The microphone is not in here. Everything above is only ever written by someone
+    /// changing it; a device is also *resolved*, at launch and whenever the panel opens,
+    /// and a resolution that found nothing must not overwrite what was remembered.
     static func save(_ configuration: RecordingConfiguration) {
         defaults.set(configuration.systemAudio, forKey: Key.systemAudio)
         defaults.set(configuration.mux, forKey: Key.mux)
         defaults.set(configuration.transcribe?.rawValue ?? "", forKey: Key.transcribe)
         defaults.set(configuration.stopAfter ?? 0, forKey: Key.stopAfter)
-        defaults.set(configuration.microphone?.id, forKey: Key.microphone)
     }
 
-    /// Nil when nothing was remembered, or when what was remembered is not here any
-    /// more — either way the caller falls back to pinning the system default.
+    /// Written only when someone picks one, so a headset in a drawer today is still the
+    /// headset when it comes back out. Nil is a choice too — it means Off.
+    static func saveMicrophone(_ device: AudioInputDevice?) {
+        defaults.set(device?.id ?? "", forKey: Key.microphone)
+    }
+
+    /// Nil when nothing was remembered, or when what was remembered is not plugged in —
+    /// either way the caller falls back to pinning the system default for this run.
     static func microphone(among inputs: [AudioInputDevice]) -> AudioInputDevice? {
-        guard let id = defaults.string(forKey: Key.microphone) else { return nil }
+        guard let id = defaults.string(forKey: Key.microphone), !id.isEmpty else { return nil }
         return inputs.first { $0.id == id }
     }
+
+    /// True when Off was chosen, as against never having chosen anything — the one case
+    /// where not resolving a device is the answer rather than a fallback.
+    static var microphoneIsOff: Bool { defaults.string(forKey: Key.microphone) == "" }
 }

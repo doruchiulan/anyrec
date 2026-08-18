@@ -63,6 +63,18 @@ final class RecordingController {
 
     var isSettingUp: Bool { setupProgress != nil }
 
+    /// The panel picks a microphone through here rather than writing the configuration
+    /// directly. Only a choice is worth remembering: the two places that *resolve* a
+    /// device — launch, and reopening the panel — would otherwise persist a nil for one
+    /// that is merely unplugged today, and forget it for good.
+    var microphone: AudioInputDevice? {
+        get { configuration.microphone }
+        set {
+            configuration.microphone = newValue
+            Preferences.saveMicrophone(newValue)
+        }
+    }
+
     var isRecording: Bool { phase == .recording || phase == .stopping }
     var advisory: Advisory? { readiness.advisory(for: configuration) }
 
@@ -76,7 +88,9 @@ final class RecordingController {
 
         microphones = inputs
         configuration.microphone = Preferences.microphone(among: inputs)
-        configuration.pinDefaultMicrophone(from: inputs)
+        if !Preferences.microphoneIsOff {
+            configuration.pinDefaultMicrophone(from: inputs)
+        }
         readiness = await probe
     }
 

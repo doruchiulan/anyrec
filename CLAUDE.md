@@ -228,6 +228,13 @@ Invariants worth preserving:
   remember. `Preferences` maps a handful of fields onto `UserDefaults`, and the
   microphone is stored as a device id and re-resolved, because the device it names
   may be in a drawer by the next launch.
+- The microphone is saved when it is *chosen*, never when it is resolved, which is why
+  the panel binds `controller.microphone` rather than `configuration.microphone`. Both
+  launch and reopening the panel resolve the stored id against what is plugged in, and
+  a resolution that found nothing writing itself back would forget a headset for good
+  the first time it was unplugged. An empty stored id is Off — a choice — as against
+  no id at all, which is why `pinDefaultMicrophone` is skipped for the first and not
+  the second.
 - The meters poll at 10 Hz; the menu bar clock is held as text and only assigned
   when the second changes, so the status item redraws once a second rather than
   ten times. Don't drive the label off the tick directly.
