@@ -2,9 +2,9 @@
 # on each release, bump the version and paste the zip's sha256 that
 # scripts/release.sh prints.
 #
-# Homebrew clears the quarantine flag on install, which is what lets an app that
-# is signed but not notarised go out this way. A zip downloaded from the release
-# page directly would still be refused by Gatekeeper.
+# Casks quarantine what they install — that is what `--no-quarantine` exists to
+# turn off — so the app this points at has to be notarised. Formulae are the ones
+# that install unquarantined, which is why anyrec's CLI never needed it.
 cask "anyrec" do
   version "0.2.0"
   sha256 "46fe5389858eda4f6716f54e9bab28fbbb35e0ac2ab742580fae3b2175225e57"

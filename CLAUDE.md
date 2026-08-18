@@ -214,10 +214,12 @@ Invariants worth preserving:
   both build scripts sign with a Developer ID from `scripts/signing.sh` rather than
   ad-hoc: an ad-hoc signature changes every build, so every rebuild asked again.
   Machines without that identity fall back to ad-hoc and get the old behaviour.
-- The app ships through a cask, not a download. Homebrew clears the quarantine
-  flag on install, so a signed-but-unnotarised bundle installs cleanly; the same
-  zip fetched from the releases page is refused by Gatekeeper. Notarising is what
-  would close that, and nothing here depends on it having been done.
+- The app has to be notarised, and a cask does not get you out of it. Casks apply
+  the quarantine flag — `--no-quarantine` is the opt-out — so an unnotarised
+  bundle installs and then refuses to open: `spctl` says `rejected: Unnotarized
+  Developer ID`, and clearing the attribute by hand is the only way in. Formulae
+  are the ones that install unquarantined, which is why the CLI never needed any
+  of this, and why reading across from `Formula/anyrec.rb` gets it wrong.
 - The app zip is made with `ditto -c -k --keepParent`, never `zip`. `zip` drops the
   symlinks and extended attributes a bundle's signature is checked against, and the
   app arrives with a signature that no longer verifies.

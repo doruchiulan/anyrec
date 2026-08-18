@@ -38,6 +38,16 @@ tar -czf "$TARBALL" -C "$DIST" anyrec
 ZIP="$DIST/AnyRec-$VERSION.zip"
 ditto -c -k --keepParent "$DIST/AnyRec.app" "$ZIP"
 
+# Zipped twice: the first archive is what goes up to Apple, and the ticket comes back
+# stapled to the bundle rather than to it. The second is what people download.
+if notarize "$ZIP" "$DIST/AnyRec.app"; then
+	rm "$ZIP"
+	ditto -c -k --keepParent "$DIST/AnyRec.app" "$ZIP"
+	NOTARISED="yes"
+else
+	NOTARISED="no — a cask install of this will be refused by Gatekeeper"
+fi
+
 echo
 lipo -archs "$DIST/anyrec"
 lipo -archs "$DIST/AnyRec.app/Contents/MacOS/AnyRec"
@@ -46,6 +56,7 @@ echo "tarball: $TARBALL"
 echo "sha256:  $(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
 echo "zip:     $ZIP"
 echo "sha256:  $(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
+echo "notarised: $NOTARISED"
 echo
 echo "Attach both to a GitHub release tagged v$VERSION, then copy each sha256 into"
 echo "Formula/anyrec.rb and Casks/anyrec.rb in your tap."
