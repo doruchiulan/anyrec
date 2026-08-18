@@ -6,8 +6,8 @@
 # is signed but not notarised go out this way. A zip downloaded from the release
 # page directly would still be refused by Gatekeeper.
 cask "anyrec" do
-  version "0.1.0"
-  sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+  version "0.2.0"
+  sha256 "46fe5389858eda4f6716f54e9bab28fbbb35e0ac2ab742580fae3b2175225e57"
 
   url "https://github.com/doruchiulan/anyrec/releases/download/v#{version}/AnyRec-#{version}.zip"
   name "AnyRec"
