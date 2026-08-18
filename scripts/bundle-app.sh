@@ -32,7 +32,7 @@ cat >"$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>$VERSION</string>
 	<key>CFBundleVersion</key><string>$VERSION</string>
-	<key>LSMinimumSystemVersion</key><string>15.0</string>
+	<key>LSMinimumSystemVersion</key><string>15.2</string>
 	<key>LSUIElement</key><true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>AnyRec records your microphone as its own track, so your side of a call is separate from everyone else's.</string>
@@ -40,9 +40,10 @@ cat >"$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Ad-hoc signature, as release.sh uses. The hardened runtime blocks audio input
-# without the entitlement, so both go on together or the microphone never opens.
-codesign --force --sign - --options runtime \
+# The hardened runtime blocks audio input without the entitlement, so both go on
+# together or the microphone never opens.
+source "$ROOT/scripts/signing.sh"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime \
 	--entitlements "$ROOT/Resources/anyrec.entitlements" "$APP"
 codesign --verify --strict "$APP"
 
@@ -52,6 +53,8 @@ echo
 echo "Move it to /Applications and open it, then grant Screen Recording and"
 echo "Microphone in Privacy & Security and reopen it — the grant only takes"
 echo "effect for newly launched processes."
-echo
-echo "An ad-hoc signature changes on every rebuild, so macOS treats each build as"
-echo "a new app and asks again. A Developer ID signature would not."
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+	echo
+	echo "An ad-hoc signature changes on every rebuild, so macOS treats each build as"
+	echo "a new app and asks again. A Developer ID signature would not."
+fi

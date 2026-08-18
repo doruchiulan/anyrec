@@ -14,8 +14,8 @@ mkdir -p "$DIST"
 swift build -c release "${ARCHS[@]}"
 BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/anyrec"
 
-# Ad-hoc signature. Swap `-` for a Developer ID to notarize instead.
-codesign --force --sign - --options runtime \
+source "$ROOT/scripts/signing.sh"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime \
 	--entitlements "$ROOT/Resources/anyrec.entitlements" "$BIN"
 codesign --verify --strict "$BIN"
 
