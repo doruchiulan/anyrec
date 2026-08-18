@@ -3,7 +3,9 @@ import PackageDescription
 
 let package = Package(
     name: "anyrec",
-    platforms: [.macOS(.v15)],
+    /// 15.2 is where `SCContentFilter` began reporting what is in it, which is how the
+    /// menu bar's system picker turns a selection back into a `CaptureTarget`.
+    platforms: [.macOS("15.2")],
     products: [
         .executable(name: "anyrec", targets: ["anyrec"]),
         .executable(name: "AnyRecBar", targets: ["AnyRecBar"]),

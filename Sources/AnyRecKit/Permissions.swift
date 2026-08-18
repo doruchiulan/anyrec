@@ -92,6 +92,16 @@ public enum Permissions {
         guard missing.isEmpty else { throw PermissionsError(missing: missing, host: host) }
     }
 
+    /// Asking is what puts the app in the Screen Recording list; preflighting does not.
+    /// macOS answers this one with its own dialog offering Settings rather than granting
+    /// inline, so the answer is nearly always false — the point of the call is the row it
+    /// leaves behind, without which there is nothing in Settings to switch on.
+    @discardableResult
+    public static func requestScreenRecording() async -> Bool {
+        if screenRecordingGranted() { return true }
+        return await Task.detached { CGRequestScreenCaptureAccess() }.value
+    }
+
     @discardableResult
     public static func requestMicrophone() async -> Bool {
         if microphoneGranted() { return true }

@@ -3,9 +3,13 @@ import Foundation
 import ScreenCaptureKit
 
 public enum TargetResolver {
+    /// Windows off the current Space are included here and nowhere else. What is worth
+    /// *offering* is what is on screen, but by the time an id has been picked the window
+    /// may have been dragged to another desktop — and `desktopIndependentWindow` follows
+    /// it there, so refusing to resolve it would be the one place that did not.
     public static func resolve(_ target: CaptureTarget) async throws -> ResolvedTarget {
         let content = try await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: true
+            false, onScreenWindowsOnly: false
         )
         return try resolve(target, in: content)
     }
