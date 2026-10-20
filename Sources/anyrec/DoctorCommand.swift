@@ -12,6 +12,14 @@ struct Doctor: AsyncParsableCommand {
             print("\(mark(granted)) \(permission.rawValue)")
             if !granted { print("    \(permission.settingsURL.absoluteString)") }
         }
+        if Permissions.requestAccessibility() {
+            print("\(mark(true)) Accessibility — mute is read off the call app's own button")
+        } else {
+            print(
+                "\(mark(false)) Accessibility — the microphone stays in the mix while you are "
+                    + "muted in Teams")
+            print("    \(Permission.accessibility.settingsURL.absoluteString)")
+        }
 
         if let ffmpeg = Muxer.ffmpegPath() {
             print("\(mark(true)) ffmpeg at \(ffmpeg)")

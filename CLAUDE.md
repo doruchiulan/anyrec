@@ -74,7 +74,9 @@ second one for "UI-common" code.
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. |
 | `LoudnessMatch.swift` | Measures both audio tracks and balances them for the merge. |
 | `MixPlan.swift` | How the two audio tracks go together — matched by loudness, or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it. |
-| `MicrophoneLive.swift` | When the call could hear the microphone, as a file beside the tracks. What both mixes and attribution keep the microphone out with. |
+| `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
+| `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
+| `MuteButton.swift` | The call app's own mute control, found in its accessibility tree and re-read four times a second. What Teams's mute is read from. |
 | `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
@@ -286,6 +288,34 @@ Invariants worth preserving:
   bleed check and boost the echo by the loudness difference. Bleed is detected as
   the microphone running *louder* while the call speaks — turn-taking makes that
   figure negative, so the sign alone separates the cases.
+- Mute is read from the app, never from the audio. Two ways, both polled four times
+  a second by `MicrophoneLive.Monitor`, which leaves `microphone-live.json` beside
+  the tracks; both mixes silence the microphone outside the live spans, and
+  attribution never claims a line there. First, Core Audio: an app that releases the
+  microphone on mute shows as running no input on its process object
+  (`kAudioProcessPropertyIsRunningInput`), with no permission and no integration.
+  Teams does *not* release it — its log shows `InputMuteStateChangeNotification`,
+  macOS 14's per-process input mute, which keeps the IO running and feeds it
+  silence, and that flag is the process's own: `pmin` on another process object
+  answers `who?`. So, second, the app's own mute button, read through accessibility:
+  `MuteButton` carries the labels per app (Teams: "Unmute mic" / "Mute mic"; Slack:
+  "Unmute microphone" / "Mute microphone", in the description with an empty title;
+  all watched flipping live), the tree is walked once to find it and the one element
+  re-read after that. Slack keeps the microphone open while muted too.
+  `AXEnhancedUserInterface` has to be set on the app first or Chromium stops the
+  tree at the close button; Electron's own switch is `AXManualAccessibility`, and
+  both are set. Needs the
+  Accessibility grant, which `doctor` asks for; without it Teams reads as live
+  throughout and nothing is gated, which is the safe failure. The Teams log and
+  its third-party API were looked at and dropped: the log only mentions mute when
+  AirPods are in, and the API needs a token and a Teams build that still has it.
+  Energy could not do this: a word to someone in the room while muted *is* speech
+  on the microphone, and a muted speakerphone call came back with "Me" on clicks
+  the engine had turned into words. When no watched app does any audio for the
+  whole recording, nothing is written and the microphone is left alone — a call
+  nobody saw is not a call that was muted. The window's own app is watched along
+  with the known ones, and a watched id covers the helpers under it, because a
+  browser's audio runs in `com.google.Chrome.helper`.
 - `sources` lists microphones even when Screen Recording is denied. Enumerating
   input devices needs no grant, so it must not be gated behind one.
 - Transcription is a separate, optional pass over files that are already closed.

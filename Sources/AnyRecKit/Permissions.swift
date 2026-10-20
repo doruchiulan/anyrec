@@ -1,15 +1,20 @@
 import AVFoundation
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
 public enum Permission: String, Sendable, CaseIterable {
     case screenRecording = "Screen Recording"
     case microphone = "Microphone"
+    /// Optional: what reading a call app's own mute button needs. Without it the
+    /// microphone stays in the mix while you are muted in Teams.
+    case accessibility = "Accessibility"
 
     var settingsAnchor: String {
         switch self {
         case .screenRecording: "Privacy_ScreenCapture"
         case .microphone: "Privacy_Microphone"
+        case .accessibility: "Privacy_Accessibility"
         }
     }
 
@@ -75,6 +80,19 @@ public enum Permissions {
 
     public static func microphoneGranted() -> Bool {
         AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    public static func accessibilityGranted() -> Bool {
+        AXIsProcessTrusted()
+    }
+
+    /// Asking is what puts the app in the Accessibility list, as with Screen Recording.
+    /// macOS answers with a dialog offering Settings rather than granting inline.
+    @discardableResult
+    public static func requestAccessibility() -> Bool {
+        if accessibilityGranted() { return true }
+        let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue()
+        return AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
     }
 
     /// Prompts for anything not yet granted, then throws listing what is still missing.

@@ -24,6 +24,16 @@ public enum MergeOutcome: Sendable {
 public struct RecordingOutcome: Sendable {
     public let summary: RecordingSummary
     public let merge: MergeOutcome
+    /// When the call could hear the microphone. Nil when no call app was seen.
+    public let microphoneLive: MicrophoneLive?
+
+    public init(
+        summary: RecordingSummary, merge: MergeOutcome, microphoneLive: MicrophoneLive? = nil
+    ) {
+        self.summary = summary
+        self.merge = merge
+        self.microphoneLive = microphoneLive
+    }
 }
 
 /// One recording, start to finish: the stream, the folder it writes into, the merge
@@ -39,6 +49,10 @@ public final class RecordingSession {
     public private(set) var startedAt = Date()
 
     private let recorder: Recorder
+    /// Whether the call app is holding the microphone, for as long as the stream runs.
+    /// The window's own app is watched alongside the known ones, so a call in
+    /// something unlisted still gets its mute read.
+    private let microphone: MicrophoneLive.Monitor
 
     public var levels: LevelMonitor { recorder.levels }
 
@@ -70,6 +84,8 @@ public final class RecordingSession {
         self.target = target
         self.plan = plan
         self.recorder = recorder
+        microphone = MicrophoneLive.Monitor(
+            watching: CallApps.watchList(including: target.bundleID))
     }
 
     public static func start(
@@ -85,6 +101,7 @@ public final class RecordingSession {
         )
         try await session.recorder.start()
         session.startedAt = Date()
+        session.microphone.start()
         return session
     }
 
@@ -98,20 +115,22 @@ public final class RecordingSession {
     /// than into a raw-mode screen.
     public func stop(progress: (Stage) -> Void = { _ in }) async throws -> RecordingOutcome {
         progress(.finishing)
+        let live = microphone.stop()
         let summary = try await recorder.stop()
+        /// Written before the merge, which reads it back like any later pass would.
+        try? live?.write(to: plan.microphoneLive)
 
-        guard configuration.mux else {
-            return RecordingOutcome(summary: summary, merge: .notRequested)
+        let outcome = { (merge: MergeOutcome) in
+            RecordingOutcome(summary: summary, merge: merge, microphoneLive: live)
         }
-        guard Readiness.ffmpegInstalled else {
-            return RecordingOutcome(summary: summary, merge: .ffmpegMissing)
-        }
+        guard configuration.mux else { return outcome(.notRequested) }
+        guard Readiness.ffmpegInstalled else { return outcome(.ffmpegMissing) }
 
         progress(.merging)
         do {
-            return RecordingOutcome(summary: summary, merge: .merged(try Muxer.mux(plan)))
+            return outcome(.merged(try Muxer.mux(plan)))
         } catch {
-            return RecordingOutcome(summary: summary, merge: .failed("\(error)"))
+            return outcome(.failed("\(error)"))
         }
     }
 

@@ -30,4 +30,18 @@ public struct ResolvedTarget {
     public let width: Int
     public let height: Int
     public let describing: String
+    /// The app that owns the window, so its microphone can be watched even when it
+    /// is not one of the known call apps. Nil for a display.
+    public let bundleID: String?
+
+    public init(
+        filter: SCContentFilter, width: Int, height: Int, describing: String,
+        bundleID: String? = nil
+    ) {
+        self.filter = filter
+        self.width = width
+        self.height = height
+        self.describing = describing
+        self.bundleID = bundleID
+    }
 }

@@ -3,18 +3,25 @@ import Foundation
 public struct CallApp: Sendable, Equatable {
     public let bundleID: String
     public let name: String
+    /// How the app's own mute control is labelled, when anyrec knows how to read it.
+    public let muteButton: MuteButton?
 
-    public init(bundleID: String, name: String) {
+    public init(bundleID: String, name: String, muteButton: MuteButton? = nil) {
         self.bundleID = bundleID
         self.name = name
+        self.muteButton = muteButton
     }
 }
 
 /// The apps whose windows are worth offering first.
 public enum CallApps {
     public static let known: [CallApp] = [
-        CallApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack"),
-        CallApp(bundleID: "com.microsoft.teams2", name: "Microsoft Teams"),
+        CallApp(
+            bundleID: "com.tinyspeck.slackmacgap", name: "Slack",
+            muteButton: MuteButton(muted: "Unmute microphone", live: "Mute microphone")),
+        CallApp(
+            bundleID: "com.microsoft.teams2", name: "Microsoft Teams",
+            muteButton: MuteButton(muted: "Unmute mic", live: "Mute mic")),
         CallApp(bundleID: "com.microsoft.teams", name: "Microsoft Teams (classic)"),
         CallApp(bundleID: "us.zoom.xos", name: "Zoom"),
         CallApp(bundleID: "com.google.meetbar", name: "Google Meet"),
@@ -38,5 +45,13 @@ public enum CallApps {
 
     public static func isKnown(_ bundleID: String) -> Bool {
         bundleIDs.contains(bundleID)
+    }
+
+    /// Every known app and the one recording, each with its mute button if it has one
+    /// — what a recording watches the microphone through.
+    public static func watchList(including bundleID: String?) -> [String: MuteButton?] {
+        var apps = Dictionary(uniqueKeysWithValues: known.map { ($0.bundleID, $0.muteButton) })
+        if let bundleID, apps.index(forKey: bundleID) == nil { apps[bundleID] = .some(nil) }
+        return apps
     }
 }

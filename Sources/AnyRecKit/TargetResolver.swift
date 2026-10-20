@@ -45,17 +45,22 @@ public enum TargetResolver {
         /// opened a window-server connection yet. A CLI never does; this opens one.
         _ = CGMainDisplayID()
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        return describe(filter, as: window.title ?? "window \(id)")
+        return describe(
+            filter, as: window.title ?? "window \(id)",
+            ownedBy: window.owningApplication?.bundleIdentifier)
     }
 
-    private static func describe(_ filter: SCContentFilter, as label: String) -> ResolvedTarget {
+    private static func describe(
+        _ filter: SCContentFilter, as label: String, ownedBy bundleID: String? = nil
+    ) -> ResolvedTarget {
         let scale = CGFloat(filter.pointPixelScale)
         let rect = filter.contentRect
         return ResolvedTarget(
             filter: filter,
             width: evenPixels(rect.width * scale),
             height: evenPixels(rect.height * scale),
-            describing: label
+            describing: label,
+            bundleID: bundleID
         )
     }
 
