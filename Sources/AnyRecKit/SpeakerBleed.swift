@@ -4,14 +4,14 @@ import Foundation
 /// once a few milliseconds later through the speakers and back into the microphone.
 ///
 /// Summing two near-identical copies comb-filters the result, and no filter can
-/// separate them afterwards — so the only thing to do is stop amplifying the echo
-/// and say what is wrong. Headphones are the actual fix.
+/// separate them afterwards — so `MixPlan` holds the microphone under the call
+/// instead, and this says what is wrong. Headphones are the actual fix.
 public enum SpeakerBleed {
     public static let warning =
-        "The microphone is picking up the speakers, so the call arrives twice in "
-        + "call.mp4 and hollows out. The separate tracks are unaffected, and the "
-        + "transcript is too — an echo is quieter than what caused it, so it still "
-        + "lands under the caller. Headphones are the only fix for the audio."
+        "The microphone is picking up the speakers, so it is held down whenever the "
+        + "call is talking, in call.mp4 and in the transcript. Every word survives "
+        + "once; anything you said over the other side does not. The separate tracks "
+        + "are untouched. Headphones are the fix."
 
     /// Measured at +8.2 dB and +5.8 dB on two speakerphone recordings; headphones put
     /// it well below zero. Three leaves room for people talking over each other.

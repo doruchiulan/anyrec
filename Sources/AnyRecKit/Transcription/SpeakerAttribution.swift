@@ -13,15 +13,40 @@ public enum SpeakerAttribution {
     /// putting the far end's words in your mouth is the worse mistake.
     static let margin = 1.5
 
+    /// What the microphone has to be *saying* before a line can be yours.
+    private struct Microphone {
+        /// The track as the mix heard it, so a line is judged on the audio the engine
+        /// actually transcribed. When the mix held the microphone under the call, a
+        /// cue that lands inside the far end's sentence can run twice the wire copy in
+        /// the raw track and still be nothing but the room; and while the call was not
+        /// listening, nothing on the microphone was said to anyone.
+        let heard: AudioEnvelope
+        /// Speech detection's own line, read off the raw track before the duck
+        /// empties a third of its frames. Against a digitally silent call any ratio
+        /// is infinite, so the microphone has to clear the room, not just the call.
+        let talking: Double
+    }
+
     /// Diarisation says how many voices there were, not which of them is holding the
     /// microphone — and it fuses two people into one letter when they take turns
     /// quickly. So every line is weighed on its own: yours are the ones the microphone
     /// heard louder, whatever letter they arrived under.
     public static func label(
-        _ utterances: [Utterance], microphone: AudioEnvelope, systemAudio: AudioEnvelope
+        _ utterances: [Utterance], microphone: AudioEnvelope, systemAudio: AudioEnvelope,
+        mix: MixPlan = .plain
     ) -> [Utterance] {
         guard !microphone.isEmpty, !systemAudio.isEmpty else { return utterances }
-        return renumber(utterances.flatMap { claim($0, microphone, systemAudio) })
+        var heard = microphone
+        if mix.balance == .duckedMicrophone {
+            heard = heard.held(
+                under: systemAudio, threshold: MixPlan.duckThreshold * Double(Int16.max),
+                release: MixPlan.duckRelease)
+        }
+        if let live = mix.microphoneLive {
+            heard = heard.only(during: live.spans)
+        }
+        let mic = Microphone(heard: heard, talking: SpeechRegions.threshold(for: microphone))
+        return renumber(utterances.flatMap { claim($0, mic, systemAudio) })
     }
 
     /// One segment can still hold two people, because the model gives a whole span a
@@ -29,7 +54,7 @@ public enum SpeakerAttribution {
     /// line is cut there and each part measured alone — and stays cut only if the
     /// parts disagree about who was talking.
     private static func claim(
-        _ utterance: Utterance, _ microphone: AudioEnvelope, _ systemAudio: AudioEnvelope
+        _ utterance: Utterance, _ microphone: Microphone, _ systemAudio: AudioEnvelope
     ) -> [Utterance] {
         let parts = sentences(of: utterance).map { part -> Utterance in
             guard spoke(from: part, microphone, systemAudio) else { return part }
@@ -80,11 +105,11 @@ public enum SpeakerAttribution {
     }
 
     private static func spoke(
-        from utterance: Utterance, _ microphone: AudioEnvelope, _ systemAudio: AudioEnvelope
+        from utterance: Utterance, _ microphone: Microphone, _ systemAudio: AudioEnvelope
     ) -> Bool {
-        let mine = microphone.level(from: utterance.start, to: utterance.end)
+        let mine = microphone.heard.level(from: utterance.start, to: utterance.end)
         let theirs = systemAudio.level(from: utterance.start, to: utterance.end)
-        return ratio(mine, theirs) >= margin
+        return mine > microphone.talking && ratio(mine, theirs) >= margin
     }
 
     /// Taking your lines out of a diarised set leaves a gap in its letters, or opens

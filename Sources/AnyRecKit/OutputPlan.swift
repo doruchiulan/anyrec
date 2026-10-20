@@ -6,18 +6,21 @@ extension String {
     }
 }
 
-/// Where each of the three streams lands on disk.
+/// Where each of the three streams lands on disk, and what was learned alongside them.
 public struct OutputPlan: Sendable, Equatable {
     public let directory: URL
     public let screen: URL
     public let systemAudio: URL
     public let microphone: URL
+    /// When the call could hear the microphone. Absent when nothing watched.
+    public let microphoneLive: URL
 
     public init(directory: URL) {
         self.directory = directory
         screen = directory.appendingPathComponent("screen.mov")
         systemAudio = directory.appendingPathComponent("system-audio.m4a")
         microphone = directory.appendingPathComponent("microphone.m4a")
+        microphoneLive = directory.appendingPathComponent("microphone-live.json")
     }
 
     public static func folderName(for date: Date) -> String {

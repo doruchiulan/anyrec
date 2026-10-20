@@ -29,20 +29,22 @@ public enum Muxer {
 
     /// Video is stream-copied; the audio tracks are mixed down to one stereo AAC track.
     public static func arguments(
-        for plan: OutputPlan, gains: TrackGains = .none
+        for plan: OutputPlan, mix: MixPlan = .plain
     ) throws -> (args: [String], output: URL) {
         let exists = { FileManager.default.fileExists(atPath: $0) }
         guard exists(plan.screen.path) else { throw MuxError.noVideo }
 
-        let audio = [(plan.systemAudio, gains.systemAudio), (plan.microphone, gains.microphone)]
-            .filter { exists($0.0.path) }
+        let audio = [plan.systemAudio, plan.microphone].filter { exists($0.path) }
         let output = plan.directory.appendingPathComponent("call.mp4")
 
         var args = ["-nostdin", "-y", "-i", plan.screen.path]
-        args += audio.flatMap { ["-i", $0.0.path] }
+        args += audio.flatMap { ["-i", $0.path] }
 
         if audio.count > 1 {
-            args += ["-filter_complex", mix(audio), "-map", "0:v", "-map", "[a]"]
+            args += [
+                "-filter_complex", mix.filter(systemAudio: 1, microphone: 2),
+                "-map", "0:v", "-map", "[a]",
+            ]
         } else if audio.count == 1 {
             args += ["-map", "0:v", "-map", "1:a"]
         } else {
@@ -55,33 +57,11 @@ public enum Muxer {
         return (args, output)
     }
 
-    /// Each gain rides in as its own `volume` stage; a gain of zero adds no stage at all.
-    private static func mix(_ audio: [(url: URL, gain: Double)]) -> String {
-        var stages: [String] = []
-        var inputs: [String] = []
-
-        for (index, track) in audio.enumerated() {
-            let stream = "[\(index + 1):a]"
-            guard abs(track.gain) >= 0.1 else {
-                inputs.append(stream)
-                continue
-            }
-            let label = "[g\(index)]"
-            stages.append(stream + String(format: "volume=%.1fdB", track.gain) + label)
-            inputs.append(label)
-        }
-
-        stages.append(
-            inputs.joined() + "amix=inputs=\(audio.count):duration=longest:normalize=0[a]"
-        )
-        return stages.joined(separator: ";")
-    }
-
     @discardableResult
     public static func mux(_ plan: OutputPlan) throws -> MuxOutcome {
         guard let ffmpeg = ffmpegPath() else { throw MuxError.ffmpegNotFound }
-        let balance = balance(plan, using: ffmpeg)
-        let (args, output) = try arguments(for: plan, gains: balance.gains)
+        let mix = decision(for: plan, using: ffmpeg)
+        let (args, output) = try arguments(for: plan, mix: mix)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
@@ -100,28 +80,15 @@ public enum Muxer {
         guard process.terminationStatus == 0 else {
             throw MuxError.failed(status: process.terminationStatus, log: String(log.suffix(2_000)))
         }
-        return MuxOutcome(output: output, notes: balance.notes)
+        return MuxOutcome(output: output, notes: mix.notes)
     }
 
-    /// Measuring costs one audio-only pass over each track; a mix that buries one
-    /// side of the call costs the recording. Bleed is checked first: raising a
-    /// microphone that already contains the call only doubles the echo.
-    private static func balance(
-        _ plan: OutputPlan, using ffmpeg: String
-    ) -> (gains: TrackGains, notes: [String]) {
+    /// With one track there is nothing to balance against.
+    private static func decision(for plan: OutputPlan, using ffmpeg: String) -> MixPlan {
         let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
-        guard exists(plan.systemAudio), exists(plan.microphone) else { return (.none, []) }
-
-        guard
-            !SpeakerBleed.detected(
-                systemAudio: plan.systemAudio, microphone: plan.microphone, using: ffmpeg
-            )
-        else { return (.none, [SpeakerBleed.warning]) }
-
-        let gains = LoudnessMatch.gains(
-            systemAudio: LoudnessMatch.measure(plan.systemAudio, using: ffmpeg),
-            microphone: LoudnessMatch.measure(plan.microphone, using: ffmpeg)
-        )
-        return (gains, [])
+        guard exists(plan.systemAudio), exists(plan.microphone) else { return .plain }
+        return MixPlan.decide(
+            systemAudio: plan.systemAudio, microphone: plan.microphone,
+            live: MicrophoneLive.read(plan.microphoneLive), using: ffmpeg)
     }
 }

@@ -11,19 +11,23 @@ public enum AudioMix {
     static let sampleRate = 16_000
     static let name = "mix.wav"
 
-    /// Nil when there is nothing to mix, so the caller can transcribe the one track
-    /// it has instead.
+    /// The file, plus how the tracks went into it. Nil when there is nothing to mix,
+    /// so the caller can transcribe the one track it has instead.
     public static func build(
-        microphone: URL?, systemAudio: URL?, into directory: URL, using ffmpeg: String
-    ) throws -> URL? {
-        let sources = [microphone, systemAudio].compactMap { $0 }
-        guard sources.count > 1 else { return nil }
+        microphone: URL?, systemAudio: URL?, live: MicrophoneLive?, into directory: URL,
+        using ffmpeg: String
+    ) throws -> (url: URL, plan: MixPlan)? {
+        guard let microphone, let systemAudio else { return nil }
 
+        /// The same decision the playable mix makes. Summing raw buries whoever is
+        /// talking in a quiet room, and summing a bleeding microphone hands the engine
+        /// every word twice — which it transcribes twice, under two speakers.
+        let plan = MixPlan.decide(
+            systemAudio: systemAudio, microphone: microphone, live: live, using: ffmpeg)
         let output = directory.appendingPathComponent(name)
-        var arguments = ["-nostdin", "-y", "-v", "error"]
-        arguments += sources.flatMap { ["-i", $0.path] }
-        arguments += [
-            "-filter_complex", filter(microphone: microphone, systemAudio: systemAudio, using: ffmpeg),
+        let arguments = [
+            "-nostdin", "-y", "-v", "error", "-i", microphone.path, "-i", systemAudio.path,
+            "-filter_complex", plan.filter(systemAudio: 1, microphone: 0),
             "-map", "[a]", "-ar", "\(sampleRate)", "-ac", "1", output.path,
         ]
 
@@ -31,39 +35,6 @@ public enum AudioMix {
         guard result.succeeded else {
             throw TranscriptionError.engineFailed(engine: "ffmpeg", log: result.combined)
         }
-        return output
-    }
-
-    /// The same loudness match the playable mix uses: summing raw would bury whoever
-    /// is talking in a quiet room, and an engine cannot transcribe what it cannot hear.
-    private static func filter(
-        microphone: URL?, systemAudio: URL?, using ffmpeg: String
-    ) -> String {
-        guard let microphone, let systemAudio else { return "amix=inputs=2[a]" }
-        let gains = LoudnessMatch.gains(
-            systemAudio: LoudnessMatch.measure(systemAudio, using: ffmpeg),
-            microphone: LoudnessMatch.measure(microphone, using: ffmpeg)
-        )
-        return stages([gains.microphone, gains.systemAudio])
-    }
-
-    /// One `volume` stage per track that needs one; a gain of zero adds no stage.
-    static func stages(_ gains: [Double]) -> String {
-        var built: [String] = []
-        var inputs: [String] = []
-
-        for (index, gain) in gains.enumerated() {
-            let stream = "[\(index):a]"
-            guard abs(gain) >= 0.1 else {
-                inputs.append(stream)
-                continue
-            }
-            built.append(stream + String(format: "volume=%.1fdB", gain) + "[g\(index)]")
-            inputs.append("[g\(index)]")
-        }
-
-        built.append(
-            inputs.joined() + "amix=inputs=\(gains.count):duration=longest:normalize=0[a]")
-        return built.joined(separator: ";")
+        return (output, plan)
     }
 }

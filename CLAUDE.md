@@ -73,8 +73,10 @@ second one for "UI-common" code.
 | `Permissions.swift` | TCC preflight and status. |
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. |
 | `LoudnessMatch.swift` | Measures both audio tracks and balances them for the merge. |
+| `MixPlan.swift` | How the two audio tracks go together — matched by loudness, or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it. |
+| `MicrophoneLive.swift` | When the call could hear the microphone, as a file beside the tracks. What both mixes and attribution keep the microphone out with. |
 | `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read. |
-| `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and stops the merge amplifying it. |
+| `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
 | `OutputPlan.swift` | The recording folder and the three track paths. |
 | `Transcription/Transcript.swift` | `Utterance`, turn folding, Markdown and SRT rendering. The tested part. |
@@ -272,10 +274,18 @@ Invariants worth preserving:
   and are never rewritten — the mix is the disposable, regenerable artefact.
 - Balance by loudness, never by peak: speech peaks as high as continuous call
   audio and averages ~13 dB below it, so peak-matching leaves the mic buried.
-- Speaker bleed is checked before the mic is boosted. On speakers the far end is
-  already in the mic track, and raising it doubles an echo the mix cannot undo.
-  Bleed is detected as the microphone running *louder* while the call speaks —
-  turn-taking makes that figure negative, so the sign alone separates the cases.
+- Speaker bleed is checked before the mic is boosted, and a bleeding mic is held
+  under the call rather than summed with it. On speakers the far end is already in
+  the mic track: boosting it doubles the echo, and summing it as-is hands the engine
+  every word twice — a 5-minute call came back as 503 lines over six "speakers",
+  each sentence shared out word by word between the wire's copy and the room's. The
+  duck is a sidechain compressor keyed on the system track, so it needs no estimate
+  of how loud or how late the echo is; measured at −39 dB under the far end and
+  0 dB where the call is silent. What it costs is anything said over the other
+  side. Both mixes decide this once, through `MixPlan` — `mix.wav` used to skip the
+  bleed check and boost the echo by the loudness difference. Bleed is detected as
+  the microphone running *louder* while the call speaks — turn-taking makes that
+  figure negative, so the sign alone separates the cases.
 - `sources` lists microphones even when Screen Recording is denied. Enumerating
   input devices needs no grant, so it must not be gated behind one.
 - Transcription is a separate, optional pass over files that are already closed.
@@ -293,7 +303,12 @@ Invariants worth preserving:
   envelopes over each line's span, so attribution stays exact without the engine
   knowing anything about the participants. It is also why bleed no longer
   misattributes: an echo is quieter than what caused it, so an echoed line still
-  scores for the caller.
+  scores for the caller. Two more checks, both from a muted speakerphone call that
+  came back with six lines of "Me": the mic has to clear `SpeechRegions`' own
+  threshold, because against a digitally silent call any room noise wins the
+  ratio; and in a bleeding recording the mic is read with the duck replayed on its
+  envelope, as the engine heard it, because a cue that lands inside the far end's
+  sentence ran 1.9× the wire copy in the raw mic and was nothing but the room.
 - Only the far end can be diarised, and only by an engine that does it. Slack
   pre-mixes every remote participant into system audio, so energy can answer
   "me or the call" and nothing finer. `--diarize` (openai only) is what turns

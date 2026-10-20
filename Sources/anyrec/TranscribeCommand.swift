@@ -53,12 +53,14 @@ struct Transcribe: AsyncParsableCommand {
 
     func run() async throws {
         let source = try resolveSource()
+        let directory = Self.isDirectory(source) ? source : source.deletingLastPathComponent()
         let job = TranscriptionService.Job(
             tracks: try tracks(of: source),
             engine: engine,
             language: language,
             model: model.map { URL(filePath: $0.expandingTilde) },
-            diarize: diarize
+            diarize: diarize,
+            live: MicrophoneLive.read(OutputPlan(directory: directory).microphoneLive)
         )
 
         let started = Date()
@@ -68,7 +70,6 @@ struct Transcribe: AsyncParsableCommand {
             return
         }
 
-        let directory = Self.isDirectory(source) ? source : source.deletingLastPathComponent()
         let name = "transcript-\(transcript.engine)"
         let written = try TranscriptionService.write(transcript, into: directory, named: name)
 

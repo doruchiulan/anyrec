@@ -20,7 +20,8 @@ public enum TranscriptPass {
     ) async -> TranscriptOutcome {
         do {
             let job = TranscriptionService.Job(
-                tracks: TranscriptionService.tracks(in: plan), engine: engine
+                tracks: TranscriptionService.tracks(in: plan), engine: engine,
+                live: MicrophoneLive.read(plan.microphoneLive)
             )
             let transcript = try await TranscriptionService.run(job, progress: progress)
             guard !transcript.isEmpty else { return .nothingHeard }

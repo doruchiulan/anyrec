@@ -83,4 +83,31 @@ struct AudioEnvelopeTests {
 
         #expect(AudioEnvelope.rms(of: samples) == [100])
     }
+
+    @Test("goes quiet while the key is loud and for the release after it")
+    func held() {
+        /// 20 ms frames: the key speaks for frames 2–3, the release is two more.
+        let track = AudioEnvelope(frames: Array(repeating: 5, count: 8))
+        let key = AudioEnvelope(frames: [0, 0, 9, 9, 0, 0, 0, 0])
+
+        let heard = track.held(under: key, threshold: 1, release: 0.04)
+
+        #expect(heard.frames == [5, 5, 0, 0, 0, 0, 5, 5])
+    }
+
+    @Test("keeps only the frames inside the given spans")
+    func only() {
+        let track = AudioEnvelope(frames: [5, 5, 5, 5, 5])
+
+        #expect(track.only(during: [0.02..<0.06]).frames == [0, 5, 5, 0, 0])
+        #expect(track.only(during: []).frames == [0, 0, 0, 0, 0])
+    }
+
+    @Test("leaves the track alone past the end of the key")
+    func shortKey() {
+        let track = AudioEnvelope(frames: [5, 5, 5, 5])
+        let key = AudioEnvelope(frames: [9])
+
+        #expect(track.held(under: key, threshold: 1, release: 0).frames == [0, 5, 5, 5])
+    }
 }

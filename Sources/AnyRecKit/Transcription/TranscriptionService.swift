@@ -18,16 +18,20 @@ public enum TranscriptionService {
         public var language: String?
         public var model: URL?
         public var diarize: Bool
+        /// When the call could hear the microphone, if anything watched. Nil leaves
+        /// the microphone alone.
+        public var live: MicrophoneLive?
 
         public init(
             tracks: [Track], engine: TranscriptionEngine = .auto, language: String? = nil,
-            model: URL? = nil, diarize: Bool = true
+            model: URL? = nil, diarize: Bool = true, live: MicrophoneLive? = nil
         ) {
             self.tracks = tracks
             self.engine = engine
             self.language = language
             self.model = model
             self.diarize = diarize
+            self.live = live
         }
     }
 
@@ -40,6 +44,8 @@ public enum TranscriptionService {
         let systemAudio: AudioEnvelope?
         /// Set only when there is a single track, where who spoke is not in question.
         let only: Speaker?
+        /// How the tracks went into the mix. Nil when there was no mix.
+        let mix: MixPlan?
     }
 
     /// Audio tracks of a recording, microphone first. Empty files are skipped —
@@ -71,7 +77,8 @@ public enum TranscriptionService {
         return Transcript(
             utterances: attribute(spoken.utterances, in: source),
             language: language ?? spoken.language,
-            engine: transcriber.name
+            engine: transcriber.name,
+            notes: source.mix?.notes ?? []
         )
     }
 
@@ -89,20 +96,21 @@ public enum TranscriptionService {
         progress("Preparing the audio…")
         guard
             let mix = try AudioMix.build(
-                microphone: microphone, systemAudio: systemAudio, into: scratch, using: ffmpeg)
+                microphone: microphone, systemAudio: systemAudio, live: job.live, into: scratch,
+                using: ffmpeg)
         else {
             let single = job.tracks[0]
             return Source(
                 url: single.url, regions: speech(in: single.url, using: ffmpeg),
-                microphone: nil, systemAudio: nil, only: single.speaker
+                microphone: nil, systemAudio: nil, only: single.speaker, mix: nil
             )
         }
 
         return Source(
-            url: mix, regions: speech(in: mix, using: ffmpeg),
+            url: mix.url, regions: speech(in: mix.url, using: ffmpeg),
             microphone: microphone.flatMap { AudioEnvelope.of($0, using: ffmpeg) },
             systemAudio: systemAudio.flatMap { AudioEnvelope.of($0, using: ffmpeg) },
-            only: nil
+            only: nil, mix: mix.plan
         )
     }
 
@@ -122,7 +130,8 @@ public enum TranscriptionService {
             return utterances
         }
         return SpeakerAttribution.label(
-            utterances, microphone: microphone, systemAudio: systemAudio)
+            utterances, microphone: microphone, systemAudio: systemAudio,
+            mix: source.mix ?? .plain)
     }
 
     /// The written files, in the order they were produced.

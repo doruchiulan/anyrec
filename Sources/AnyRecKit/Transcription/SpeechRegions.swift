@@ -23,11 +23,17 @@ public enum SpeechRegions {
 
     public static func detect(in envelope: AudioEnvelope) -> [Range<TimeInterval>] {
         guard envelope.peak > 0 else { return [] }
-        let threshold = min(envelope.noiseFloor * overFloor, envelope.peak * ceilingShare)
+        let threshold = threshold(for: envelope)
         let loud = envelope.frames.indices.filter { envelope.frames[$0] > threshold }
         return group(loud)
             .filter { AudioEnvelope.time(of: $0.count) >= minimum }
             .map { pad($0, within: envelope.duration) }
+    }
+
+    /// The level a track has to reach to count as talking. Attribution asks the same
+    /// question of the microphone, so one line is drawn for both.
+    static func threshold(for envelope: AudioEnvelope) -> Double {
+        min(envelope.noiseFloor * overFloor, envelope.peak * ceilingShare)
     }
 
     /// Runs of loud frames, broken wherever the quiet between them outlasts `gap`.

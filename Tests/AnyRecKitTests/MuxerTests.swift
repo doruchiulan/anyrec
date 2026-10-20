@@ -29,6 +29,17 @@ struct MuxerTests {
         #expect(output.lastPathComponent == "call.mp4")
     }
 
+    @Test("holds the microphone under the call when it bleeds")
+    func bleeding() throws {
+        let plan = try self.plan(with: ["screen.mov", "system-audio.m4a", "microphone.m4a"])
+        defer { try? FileManager.default.removeItem(at: plan.directory) }
+
+        let (args, _) = try Muxer.arguments(for: plan, mix: MixPlan(balance: .duckedMicrophone))
+
+        let graph = try #require(args.firstIndex(of: "-filter_complex").map { args[$0 + 1] })
+        #expect(graph.contains("[2:a][key]" + MixPlan.duck))
+    }
+
     @Test("maps a lone audio track directly, without a mix filter")
     func singleTrack() throws {
         let plan = try self.plan(with: ["screen.mov", "system-audio.m4a"])

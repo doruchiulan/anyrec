@@ -37,6 +37,33 @@ public struct AudioEnvelope: Sendable, Equatable {
         return frames[first..<last].reduce(0, +) / Double(last - first)
     }
 
+    /// This track as a mix heard it with `key` ducking it: silent for as long as the
+    /// key is above `threshold`, and for `release` after it drops below. The rest is
+    /// untouched. Frames are in sample units, so a full-scale threshold is scaled
+    /// before it gets here.
+    public func held(under key: AudioEnvelope, threshold: Double, release: TimeInterval)
+        -> AudioEnvelope
+    {
+        let hold = Self.index(at: release)
+        var quietUntil = -1
+        let frames = frames.indices.map { index -> Double in
+            if index < key.frames.count, key.frames[index] > threshold {
+                quietUntil = index + hold
+            }
+            return index <= quietUntil ? 0 : frames[index]
+        }
+        return AudioEnvelope(frames: frames)
+    }
+
+    /// This track with everything outside `spans` silenced.
+    public func only(during spans: [Range<TimeInterval>]) -> AudioEnvelope {
+        AudioEnvelope(
+            frames: frames.indices.map { index in
+                let time = Self.time(of: index)
+                return spans.contains { $0.contains(time) } ? frames[index] : 0
+            })
+    }
+
     public static func of(_ url: URL, using ffmpeg: String) -> AudioEnvelope? {
         guard let samples = decode(url, using: ffmpeg) else { return nil }
         return AudioEnvelope(frames: rms(of: samples))
