@@ -12,6 +12,7 @@ struct RecordingScreen {
 
     func run() async -> Ending {
         while true {
+            if session.captureEnded { return .stopped }
             if session.reachedDeadline { return .deadline }
 
             Terminal.write(render(elapsed: session.elapsed))

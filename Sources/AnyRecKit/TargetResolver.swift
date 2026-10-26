@@ -7,19 +7,19 @@ public enum TargetResolver {
     /// *offering* is what is on screen, but by the time an id has been picked the window
     /// may have been dragged to another desktop — and `desktopIndependentWindow` follows
     /// it there, so refusing to resolve it would be the one place that did not.
-    public static func resolve(_ target: CaptureTarget) async throws -> ResolvedTarget {
+    public static func resolve(_ target: CaptureTarget, ownerPID: pid_t? = nil) async throws -> ResolvedTarget {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: false
         )
-        return try resolve(target, in: content)
+        return try resolve(target, in: content, ownerPID: ownerPID)
     }
 
     public static func resolve(
-        _ target: CaptureTarget, in content: SCShareableContent
+        _ target: CaptureTarget, in content: SCShareableContent, ownerPID: pid_t? = nil
     ) throws -> ResolvedTarget {
         switch target {
         case .display(let index): try resolveDisplay(index, in: content)
-        case .window(let id): try resolveWindow(id, in: content)
+        case .window(let id): try resolveWindow(id, in: content, ownerPID: ownerPID)
         }
     }
 
@@ -35,9 +35,10 @@ public enum TargetResolver {
     }
 
     private static func resolveWindow(
-        _ id: CGWindowID, in content: SCShareableContent
+        _ id: CGWindowID, in content: SCShareableContent, ownerPID: pid_t?
     ) throws -> ResolvedTarget {
-        guard let window = content.windows.first(where: { $0.windowID == id }) else {
+        guard let window = content.windows.first(where: { $0.windowID == id }),
+            ownerPID == nil || window.owningApplication?.processID == ownerPID else {
             throw TargetError.windowNotFound(id)
         }
         /// `desktopIndependentWindow:` asks SkyLight which displays the window's rect

@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag, for example v0.4.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      ANYREC_REQUIRE_NOTARIZATION: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release tag and credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANYREC_CERTIFICATE_BASE64: ${{ secrets.ANYREC_CERTIFICATE_BASE64 }}
+          ANYREC_CERTIFICATE_PASSWORD: ${{ secrets.ANYREC_CERTIFICATE_PASSWORD }}
+          ANYREC_NOTARY_KEY: ${{ secrets.ANYREC_NOTARY_KEY }}
+          ANYREC_NOTARY_KEY_ID: ${{ secrets.ANYREC_NOTARY_KEY_ID }}
+          ANYREC_NOTARY_ISSUER_ID: ${{ secrets.ANYREC_NOTARY_ISSUER_ID }}
+        run: |
+          bash scripts/ci-signing.sh check
+          bash scripts/release-tag.sh "$RELEASE_TAG"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'This tag already has a release. Refusing to replace it.' >&2
+            exit 1
+          fi
+
+      - name: Test
+        run: |
+          xcodebuild -version
+          swift --version
+          python3 scripts/tests/test-release.py
+          swift test
+
+      - name: Prepare signing keychain
+        env:
+          ANYREC_CERTIFICATE_BASE64: ${{ secrets.ANYREC_CERTIFICATE_BASE64 }}
+          ANYREC_CERTIFICATE_PASSWORD: ${{ secrets.ANYREC_CERTIFICATE_PASSWORD }}
+          ANYREC_NOTARY_KEY: ${{ secrets.ANYREC_NOTARY_KEY }}
+          ANYREC_NOTARY_KEY_ID: ${{ secrets.ANYREC_NOTARY_KEY_ID }}
+          ANYREC_NOTARY_ISSUER_ID: ${{ secrets.ANYREC_NOTARY_ISSUER_ID }}
+        run: bash scripts/ci-signing.sh prepare
+
+      - name: Build, sign and notarize
+        env:
+          ANYREC_SIGN_IDENTITY: ${{ vars.ANYREC_SIGN_IDENTITY }}
+        run: bash scripts/release.sh "${RELEASE_TAG#v}"
+
+      - name: Verify packaged downloads
+        run: bash scripts/verify-release.sh "${RELEASE_TAG#v}"
+
+      - name: Retain release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: anyrec-${{ env.RELEASE_TAG }}
+          path: |
+            dist/AnyRec-*.zip
+            dist/anyrec-*-universal.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes \
+            --title "AnyRec ${RELEASE_TAG#v}" \
+            "dist/AnyRec-${RELEASE_TAG#v}.zip" \
+            "dist/anyrec-${RELEASE_TAG#v}-universal.tar.gz" dist/SHA256SUMS
+          gh release edit "$RELEASE_TAG" --draft=false
+
+      - name: Remove signing material
+        if: always()
+        run: bash scripts/ci-signing.sh cleanup

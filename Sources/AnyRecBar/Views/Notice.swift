@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// One line worth reading before pressing anything — an advisory, or what went wrong.
+/// One line worth reading before pressing anything — an advisory, or what went wrong. The
+/// symbol carries the colour; the words stay in the standard label colour so they read.
 struct Notice: View {
     enum Level {
         case advisory
@@ -16,13 +17,13 @@ struct Notice: View {
     }
 
     var body: some View {
-        Label(text, systemImage: symbol)
-            .font(.caption)
-            .foregroundStyle(level == .error ? Color.red : .secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var symbol: String {
-        level == .error ? "exclamationmark.octagon" : "exclamationmark.triangle"
+        Label {
+            Text(text).foregroundStyle(.secondary)
+        } icon: {
+            Image(systemName: level == .error ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(level == .error ? .red : .yellow)
+        }
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

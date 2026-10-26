@@ -8,13 +8,14 @@ final class Interrupt: @unchecked Sendable {
     private static let watched = [SIGINT, SIGTERM, SIGHUP]
 
     private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var resumed = false
     private var fired = false
     private var sources: [DispatchSourceSignal] = []
 
-    static func wait() async {
-        await Interrupt().suspend()
+    static func wait(until stopped: () -> Bool = { false }) async {
+        let interrupt = watching()
+        while !Task.isCancelled, !interrupt.isTriggered, !stopped() {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     /// Watches without suspending, so a redraw loop can poll it between keypresses.
@@ -32,15 +33,6 @@ final class Interrupt: @unchecked Sendable {
         Self.watched.forEach { signal($0, SIG_DFL) }
     }
 
-    private func suspend() async {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            self.continuation = continuation
-            lock.unlock()
-            install()
-        }
-    }
-
     private func install() {
         for number in Self.watched {
             signal(number, SIG_IGN)
@@ -52,12 +44,6 @@ final class Interrupt: @unchecked Sendable {
     }
 
     private func fire() {
-        lock.lock()
-        defer { lock.unlock() }
-        fired = true
-        guard !resumed, let continuation else { return }
-        resumed = true
-        self.continuation = nil
-        continuation.resume()
+        lock.withLock { fired = true }
     }
 }

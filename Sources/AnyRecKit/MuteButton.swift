@@ -28,6 +28,13 @@ public struct MuteButton: Sendable, Equatable {
 }
 
 extension MuteButton {
+    public struct Window: Sendable {
+        public let identity: UUID
+        public let processID: pid_t
+        public let bounds: CGRect
+        public let title: String?
+    }
+
     /// Finds the button in one of the app's windows, then re-reads just that element:
     /// one round trip, as often as asked. The walk that finds it is the expensive part
     /// — thousands of elements in a calendar window — so it is repeated only every few
@@ -40,6 +47,9 @@ extension MuteButton {
         private let button: MuteButton
         private let app: AXUIElement
         private var element: AXUIElement?
+        private var window: AXUIElement?
+        private var windowIdentity = UUID()
+        private let processID: pid_t
         private var lastSearch = Date.distantPast
 
         /// Nil without the Accessibility grant, or when the app is not running.
@@ -50,6 +60,7 @@ extension MuteButton {
                 ).first
             else { return nil }
             self.button = button
+            processID = running.processIdentifier
             app = AXUIElementCreateApplication(running.processIdentifier)
             AXUIElementSetMessagingTimeout(app, Self.timeout)
             /// Chromium exposes web content only to clients that ask for it; without
@@ -66,6 +77,7 @@ extension MuteButton {
                 return state
             }
             element = nil
+            window = nil
             guard Date().timeIntervalSince(lastSearch) >= Self.searchInterval else { return nil }
             lastSearch = Date()
             element = find()
@@ -77,9 +89,32 @@ extension MuteButton {
                 return nil
             }
             for window in windows {
-                if let found = search(window, depth: 0) { return found }
+                if let found = search(window, depth: 0) {
+                    self.window = window
+                    windowIdentity = UUID()
+                    return found
+                }
             }
             return nil
+        }
+
+        public func focusedWindow() -> Window? {
+            guard muted() != nil, let window,
+                let focused: AXUIElement = Self.value(app, kAXFocusedWindowAttribute),
+                CFEqual(window, focused),
+                let position: AXValue = Self.value(window, kAXPositionAttribute),
+                let size: AXValue = Self.value(window, kAXSizeAttribute),
+                Self.value(window, kAXMinimizedAttribute) as Bool? != true
+            else { return nil }
+            var origin = CGPoint.zero
+            var dimensions = CGSize.zero
+            guard AXValueGetValue(position, .cgPoint, &origin),
+                AXValueGetValue(size, .cgSize, &dimensions),
+                dimensions.width > 0, dimensions.height > 0
+            else { return nil }
+            return Window(identity: windowIdentity, processID: processID,
+                          bounds: CGRect(origin: origin, size: dimensions),
+                          title: Self.value(window, kAXTitleAttribute))
         }
 
         private func search(_ element: AXUIElement, depth: Int) -> AXUIElement? {

@@ -72,8 +72,9 @@ public enum SpeakerAttribution {
 
     /// Time is shared out by length. A word-level clock would place the cut better,
     /// but no engine that diarises returns one, and the parts only have to be right
-    /// enough that each lands on its own side of the seam.
-    private static func sentences(of utterance: Utterance) -> [Utterance] {
+    /// enough that each lands on its own side of the seam. Voice separation cuts the
+    /// same way, for the same reason.
+    static func sentences(of utterance: Utterance) -> [Utterance] {
         let parts = sentences(in: utterance.text)
         guard parts.count > 1 else { return [utterance] }
         let letters = Double(parts.reduce(0) { $0 + $1.count })

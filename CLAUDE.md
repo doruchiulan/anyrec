@@ -10,12 +10,14 @@ Discord and browsers are listed first; everything else follows.
 It ships as two front ends over one library. `anyrec` with no arguments opens a
 TUI (setup screen, interactive capture and microphone pickers, live meters);
 `anyrec record` is the same thing driven by flags, and is what a non-tty falls
-back to. `AnyRec.app` is a menu bar app over the same Kit, offering the settings
-worth a panel and leaving the rest at their defaults.
+back to. `AnyRec.app` is a regular Mac app over the same Kit — a library window of every
+recording, with Settings — and a menu bar helper that starts and watches a recording,
+offering the settings worth a panel and leaving the rest at their defaults.
 
-An optional pass turns the two audio tracks into a speaker-labelled transcript,
-with macOS 26's on-device `SpeechAnalyzer`, with whisper.cpp, or — for people who
-would rather bring a key than a model — with OpenAI's API.
+An optional pass turns the two audio tracks into a speaker-labelled transcript:
+on-device with NVIDIA's Parakeet (through FluidAudio, in 25 languages, a download
+away), with macOS 26's `SpeechAnalyzer`, with whisper.cpp, or — for people who would
+rather bring a key than a model — with OpenAI's API.
 
 ## Tech Stack
 
@@ -24,11 +26,19 @@ would rather bring a key than a model — with OpenAI's API.
 - swift-argument-parser — CLI
 - SwiftUI `MenuBarExtra` — the menu bar app
 - swift-testing — tests
-- ffmpeg (runtime) — merges the tracks into `call.mp4`; on by default, degrades
-  to a warning plus the separate tracks when absent
+- ffmpeg (runtime) — merges the tracks into `call.mp4` and makes the mix the engines
+  hear; on by default, degrades to a warning plus the separate tracks when absent.
+  Found on `PATH`, or fetched as a static build into
+  `~/Library/Application Support/anyrec/bin` by `FFmpegSetup`, so Homebrew is not needed
 - Speech (macOS 26) — `SpeechAnalyzer`/`SpeechTranscriber`, optional
-- whisper.cpp (runtime, optional) — `whisper-cli` plus a ggml model in
-  `~/Library/Application Support/anyrec/models`
+- whisper.cpp (SwiftPM binary target, the xcframework its own CI builds) — linked
+  into the Kit, so whisper runs in-process; its ggml model goes in
+  `~/Library/Application Support/anyrec/models`. The framework is embedded in the app
+  bundle and the CLI tarball by `scripts/embed-whisper.sh`
+- FluidAudio (SwiftPM, pinned) — Parakeet TDT 0.6B v3 on CoreML, the default on-device
+  engine (~480 MB, under `parakeet-tdt-0.6b-v3-coreml/` in the models folder), and
+  pyannote community-1 diarization for telling the far end's voices apart (~22 MB,
+  under `speaker-diarization/`). Attribution is in `NOTICE.md`.
 
 Requires macOS 15.2+. `SCStreamConfiguration.captureMicrophone` and
 `SCStreamOutputType.microphone` are Sequoia APIs with no fallback, and
@@ -42,8 +52,9 @@ swift build                 # debug
 swift test                  # swift-testing suites
 swift build -c release
 scripts/release.sh <ver>    # universal, signed: CLI tarball + app zip + sha256s
-scripts/bundle-app.sh       # dist/AnyRec.app — the menu bar app
+scripts/bundle-app.sh       # dist/AnyRec.app — the Mac app and its menu bar helper
 ./.build/debug/anyrec doctor
+./.build/debug/anyrec speakers --download   # the 22 MB speaker models, no terminal UI needed
 ```
 
 ## Architecture
@@ -63,6 +74,11 @@ second one for "UI-common" code.
 | `Readiness/Readiness.swift` | What is installed and available here, and the single `Advisory` worth showing for a configuration. |
 | `Capture/CaptureCatalogue.swift` | Every recordable window and display, in the order worth offering them. What the terminal picks from. |
 | `Capture/PickedContent.swift` | What macOS's content picker handed back, read as a `CaptureTarget`. The inverse of `TargetResolver`. |
+| `Session/RecordingLibrary.swift` | Every finished recording under the output folder, newest first, and which artefacts each has left. What the app's library window lists. |
+| `Session/RecordingInfo.swift` | `recording.json`, written when a recording starts: the window's title, its app, the picture's size. What the library titles a recording by. |
+| `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `thumbnail.jpg`, for the library's list rows. |
+| `Session/Waveform.swift` | A recording's loudness cut into columns for drawing, read with AVFoundation so it needs no ffmpeg. |
+| `Transcription/Summary.swift` | A summary as data (overview, decisions, actions with the second they were said), `SummaryProvider` (Claude Code, Codex, OpenAI API, Gemini CLI) and `Summarizer.summary`. |
 | `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
 | `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
@@ -77,36 +93,59 @@ second one for "UI-common" code.
 | `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
 | `MuteButton.swift` | The call app's own mute control, found in its accessibility tree and re-read four times a second. What Teams's mute is read from. |
+| `CallWatch.swift` | A call starting, read as a known call app taking the microphone. What the menu bar's offer to record comes from. |
+| `AnyRecBar/CallReminder.swift` | A persistent Record/Dismiss banner above the focused Slack or Teams call window, with native notifications as fallback. |
+| `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record opens the capture picker. |
 | `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
 | `OutputPlan.swift` | The recording folder and the three track paths. |
 | `Transcription/Transcript.swift` | `Utterance`, turn folding, Markdown and SRT rendering. The tested part. |
+| `Transcription/TranscriptStore.swift` | Publishes transcript generations and selects their own voices and summary atomically. |
 | `Transcription/TranscriptionService.swift` | Builds the mix, finds the speech, picks the engine, labels the result. |
 | `Transcription/AudioMix.swift` | Sums the two tracks into the single file the engines transcribe. |
 | `Transcription/SpeechRegions.swift` | Where the talking is, so no engine is handed room tone to invent over. |
 | `Transcription/SpeakerAttribution.swift` | Who said each line, from which track was louder while it was said. |
 | `Transcription/AppleTranscriber.swift` | macOS 26 `SpeechAnalyzer`, `@available`-gated, plus `AppleSpeech` for callers that cannot be. |
-| `Transcription/WhisperTranscriber.swift` | `whisper-cli`, model discovery, JSON parsing. |
+| `Transcription/ParakeetTranscriber.swift` | Parakeet on CoreML via FluidAudio: the words with their times, cut into lines; and `ParakeetSetup`, the one place its model is fetched. |
+| `FFmpegSetup.swift` | A static ffmpeg fetched into the tools folder when there is none on `PATH`, made executable and let out of quarantine. |
+| `Transcription/WhisperTranscriber.swift` | whisper.cpp through its C API, in-process: model discovery, language detection, segments. |
+| `Transcription/AudioSamples.swift` | A file's audio as 16 kHz mono float, read a second at a time with AVFoundation. What whisper is handed. |
 | `Transcription/OpenAITranscriber.swift` | The hosted API, behind the user's own key. Multipart upload, `diarized_json`/`verbose_json` parsing. |
 | `Transcription/AudioChunks.swift` | Cuts the speech regions out to mp3, under the API's 25 MB limit, keeping each part's offset. |
 | `Transcription/Summarizer.swift` | The `claude -p` pass over the finished text. |
 | `Transcription/WhisperSetup.swift` | What is missing before whisper can run, and how to fetch it. |
 | `Transcription/AssetDownload.swift` | Downloading a model, with progress and a checksum. |
 | `Transcription/OpenAIKey.swift` | Where the user's key is read from and written to. |
+| `Transcription/VoiceSeparation.swift` | The far end told apart on-device, whatever engine wrote the words: FluidAudio's segments and per-voice prints, lettered and laid over the lines. |
+| `Transcription/VoiceLibrary.swift` | The people anyrec has been told the names of, as voiceprints on disk, and the cosine match against them. |
+| `Transcription/SpeakerNames.swift` | Per-generation speaker letters and `VoiceNaming`, which names the active generation from any interface. |
+| `Transcription/SpeakerSetup.swift` | Whether the speaker models are here, and the one place FluidAudio is let on the network to fetch them. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
+| `anyrec/SpeakersCommand.swift`, `anyrec/SpeakerPrompt.swift` | `anyrec speakers`, and the plain-terminal questions that put names to letters after any transcript. |
 | `AnyRecBar/RecordingController.swift` | The menu bar's whole state: settings, the live session, and what the last one left behind. |
+| `AnyRecBar/RecordingJobs.swift` | Serial background merging and transcription, keyed by recording directory, independent of capture and the saved panel. |
+| `Session/CapturedRecording.swift` | Finalized tracks and microphone timing, ready for merging after capture has been released. |
 | `AnyRecBar/SystemPicker.swift` | macOS's on-screen content picker, and the configuration that holds it to windows and displays. |
 | `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
 | `AnyRecBar/Preferences.swift` | The few settings that survive a relaunch, mapped onto `UserDefaults`. The Kit has no opinion about persistence. |
-| `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. |
-| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: `LSUIElement`, bundle id, mic usage string, signature. Universal for release, native for debug. |
+| `AnyRecBar/Commands.swift` | The menu bar's File, View, Playback and Recording commands. The open player reaches them as a focused value. |
+| `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (call.mp4, or the three masters with a track silenced), and the ⌘⇧R shortcut. |
+| `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video, summary and voice naming, with its transcript, tracks and files in the inspector. Reads files the Kit left; writes only voice names (via `VoiceNaming`) and ticks on action items. Summaries are written by `RecordingController`, which outlives the window. |
+| `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
+| `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
+| `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: bundle id, icon, mic usage string, signature. Universal for release, native for debug. |
+| `scripts/embed-whisper.sh` | Copies whisper.framework beside a binary and repoints its rpath from `.build` to `@executable_path/../Frameworks`; both build scripts source it. |
 | `scripts/signing.sh` | The identity both build scripts sign with, and the ad-hoc fallback when it is absent. |
 | `Formula/anyrec.rb`, `Casks/anyrec-app.rb` | Reference copies of what the tap serves. The live ones are in `homebrew-tap`. |
 
 Invariants worth preserving:
 
+- Saving capture releases the recorder before merging or transcription. Done clears
+  only the saved panel; starting another recording never cancels pending processing.
+  Job progress and failures belong to recording directories, and stale callbacks cannot
+  update completed or retried jobs. Quit waits for capture and background work.
 - There is one recording flow, and it is `RecordingSession`. `record`, the TUI and
   the menu bar all drive it; none may grow its own start/stop/merge/transcribe.
   When two of them had one they silently diverged three ways — `record` never
@@ -207,10 +246,9 @@ Invariants worth preserving:
   Spaces and `desktopIndependentWindow` follows one there, so refusing to resolve an
   id would be the one place that did not. It is also what lets `--window <id>` record
   a window on another desktop.
-- The panel offers a microphone, a transcript and a stop time; system audio and the
-  merge live in Settings, on and rarely touched. They are what the tool is for, and a
-  toggle for each in a panel you opened to press one button asks a question whose
-  answer is always yes. `anyrec record` keeps the flags.
+- The idle panel offers Record Window and recent recordings. Microphone, transcript,
+  stop time and system audio live in Settings. The app always merges the tracks into
+  `call.mp4`; merging is not a user option. `anyrec record` keeps the flags.
 - Setting an engine up must be possible without a terminal. The app installs on its
   own through a cask, so "run anyrec in a terminal" was a way out that a whole class
   of user could not take — `Settings › Transcription` is `EngineSetup`'s counterpart,
@@ -221,12 +259,84 @@ Invariants worth preserving:
   recording outlives the panel.
 - `Readiness` is re-probed after a setup run. It is a stored property filled once at
   launch, so an engine installed from Settings would otherwise still read as missing
-  in the panel's Transcript row and in its advisory.
+  in Settings and in the panel's advisory.
 - What a download costs is on the button, before it is pressed — `Wording.install`
   carries `downloadSize`, as the terminal's page does. Nothing is fetched otherwise.
-- The settings window is reached by `openSettings()` after `NSApplication.activate`.
-  `LSUIElement` means no Dock icon and nothing to bring forward, so the window opens
-  behind every other app without it.
+- A window opened from the menu bar helper is reached after `NSApplication.activate`:
+  the helper is clicked while another app is in front, and the window would open behind
+  it otherwise.
+- The app is a regular app (Dock icon, library window at launch), not an `LSUIElement`
+  agent, and closing the last window must not quit it: `applicationShouldTerminateAfterLastWindowClosed`
+  is false, because a recording and the menu bar helper outlive the window.
+- The library window does no work in a view's `init` or in a body that redraws often.
+  `RecordingDetail` makes its `Playback` in `.task(id:)`: made in `init`, it was a new
+  `AVPlayer`, a new time observer and a fresh decode of the call's audio on every redraw
+  of the list, none of them ever stopped, and a search keystroke started another. The
+  playhead moves ten times a second, so only the views that show it read it — the clock,
+  the waveform, and the transcript's highlight through `Playback.currentLine`, which
+  changes once a line. What has to be found on disk (summary providers, free space) is
+  read into `RecordingController` and held, like `readiness`, and `library` is only
+  assigned when what is on disk changed.
+- The library's list is laid out the way Notes lays out its own: large bold headings
+  for Today, Yesterday, Previous 7 Days, Previous 30 Days, then months, then years;
+  rows of a bold title, the time or date beside a line of what was said (the summary's
+  first sentence, else the transcript's first words), and the app and length where Notes
+  puts the folder; a status badge in the leading margin and a still on the right.
+- A recording's waveform is decoded once and kept as `waveform.json` beside the tracks;
+  its list thumbnail likewise as `thumbnail.jpg`.
+  Decoding is the cost — about 4 s of CPU for a 100-minute call, however the samples are
+  summed — and like `call.mp4` it is derived: delete it and it is made again.
+- The app is built from the system's components and follows the macOS HIG, not a
+  mockup. Text uses text styles (`.headline`, `.subheadline`, `.callout`), never point
+  sizes; colours are system colours; containers are `GroupBox`, grouped `Form`s and
+  `List`s. The exception is the recording's own page, which keeps its cards and its own
+  transport under the video, because it was tried the system's way and read worse. Its
+  Transcript/Tracks/Files tabs live in the inspector beside it, open by default, so the
+  transcript stays in view while the video plays. Settings is a toolbar of panes, reopened on
+  the last one. Every command is in the menu bar — toolbar items, context-menu items
+  and the helper's actions are copies of menu commands, never the only way in.
+- The app bundle is linked as built against the SDK it really was. SwiftPM records the
+  deployment target (15.2) as the SDK in `LC_BUILD_VERSION`, and macOS 26 gives its
+  current design — Liquid Glass toolbars, floating toolbar items, the floating sidebar —
+  only to apps built against SDK 26 or later; everything else gets a compatibility mode
+  with a flat band across the top. `bundle-app.sh` passes `-platform_version` to the
+  linker with `xcrun --show-sdk-version`, which leaves the deployment target alone.
+  A hand-made glass overlay never matched Notes until this was fixed: in compatibility
+  mode `glassEffect` is not the real thing. The recording's Finder, Share and ⓘ buttons
+  are toolbar items at the start of the recording's toolbar row, so they stay while the
+  page scrolls. They are not pushed to the trailing end: the window's toolbar is one
+  strip across the recording and the inspector, so the trailing end is over the
+  inspector, and an overlay in that row is drawn under the toolbar. So everything is
+  pushed to the trailing end and walked back by two invisible toolbar items whose widths
+  are measured (`ToolbarStrip`): one holds the buttons at the recording's edge, one
+  centres the inspector's Transcript/Tracks/Files tabs over the inspector, which has no
+  row of its own above the transcript. The measurements are applied on the next turn of
+  the run loop — a width changed inside the layout pass that measured it is an AppKit
+  exception, and crashed the app — and each is worked out from its frame plus the widths
+  that frame was laid out under, never nudged by an offset, because the three callbacks
+  of one pass all run `place()` and three nudges from one stale frame ran a width to its
+  clamp. The widths live in `LibraryView`, not the recording's page, and the page is not
+  re-identified per recording: widths that started from zero for each one opened sent
+  the buttons on a visible walk from the trailing edge at every change of selection.
+  The widths are computed from the inspector's and the tabs' *widths*, which hold still
+  during a window resize, with a constant per width taken from positions — and the
+  positions have to be real ones. The toolbar moves its items itself after SwiftUI has
+  laid them out, so SwiftUI's geometry for a toolbar item is wherever it was last laid
+  out: the tabs reported one x through three changes of the pad. `ToolbarProbe` reads
+  each item's view from AppKit instead, 300 ms after anything changed, and an offset is
+  acted on only when two looks agree, so a frame caught mid-move changes nothing. The
+  inspector's frame does come from SwiftUI (it lays the content out), applied a turn of
+  the run loop later — changed inside the pass that measured it, it was an AppKit
+  exception that crashed the app. Nothing is measured while the inspector is hidden: the
+  strip then has no gap or tabs in it. The probes pass clicks through (`hitTest` nil):
+  as plain views over the ⓘ and the tabs they swallowed every click on them. The
+  constants and last widths are remembered in `Preferences`, so the first layout of a
+  launch is right rather than walking into place over a second, and a first calibration
+  is taken from the first look — only a correction to an existing one waits for two.
+- The menu bar extra can be switched off (Settings › General), because whether an
+  extra is in the menu bar is the person's call, and the system hides extras when the
+  menu bar is full. The Dock menu carries New Recording and Stop Recording for that
+  reason.
 - Persistence belongs to `AnyRecBar`, not to the Kit. A recording is configured from
   nothing every time; an app that sits in a menu bar for days is what needs to
   remember. `Preferences` maps a handful of fields onto `UserDefaults`, and the
@@ -304,9 +414,12 @@ Invariants worth preserving:
   re-read after that. Slack keeps the microphone open while muted too.
   `AXEnhancedUserInterface` has to be set on the app first or Chromium stops the
   tree at the close button; Electron's own switch is `AXManualAccessibility`, and
-  both are set. Needs the
-  Accessibility grant, which `doctor` asks for; without it Teams reads as live
-  throughout and nothing is gated, which is the safe failure. The Teams log and
+  both are set. Needs the Accessibility grant, which every front end *asks* for
+  the way the app asks for Screen Recording — only asking lists the app in Privacy
+  & Security — the menu bar once a launch when the panel opens, the TUI before raw
+  mode, `record` in its preflight, `doctor` outright. It is never required:
+  `Advisory.accessibilityMissing` says what is missing, and without it Teams reads
+  as live throughout and nothing is gated, which is the safe failure. The Teams log and
   its third-party API were looked at and dropped: the log only mentions mute when
   AirPods are in, and the API needs a token and a Teams build that still has it.
   Energy could not do this: a word to someone in the room while muted *is* speech
@@ -316,6 +429,22 @@ Invariants worth preserving:
   nobody saw is not a call that was muted. The window's own app is watched along
   with the known ones, and a watched id covers the helpers under it, because a
   browser's audio runs in `com.google.Chrome.helper`.
+- A call is detected the way mute is, and offered rather than acted on. `CallWatch`
+  reads Core Audio's process list every two seconds; a known call app running
+  microphone input is a call beginning (Teams holds it from the join, muted or not),
+  and its release is the call ending. Slack and Teams get a persistent banner above
+  the focused call window, found through its mute control. It follows the window
+  and hides when another window is focused. If there is no room above, it sits just
+  inside the top edge. Other apps or an unidentified call window use a notification.
+  The banner's Record button starts its call window directly, matched by process,
+  bounds and title, with ownership checked again before capture. Missing or ambiguous
+  windows are rejected. Notification fallbacks still open the picker; Dismiss
+  suppresses the offer for that call.
+  Starting a recording or ending the call removes the reminder. An
+  app testing its microphone looks like a call, which is why nothing records until
+  the button is pressed. One offer per call, withdrawn when it ends, only while
+  idle, off in Settings › General. Notifications are asked for the first time
+  there is one to show, so the dialog arrives with its reason in view.
 - `sources` lists microphones even when Screen Recording is denied. Enumerating
   input devices needs no grant, so it must not be gated behind one.
 - Transcription is a separate, optional pass over files that are already closed.
@@ -329,7 +458,7 @@ Invariants worth preserving:
   handed a quiet track invents sentences to fill it and stamps them with
   plausible times, and interleaving those against real ones scrambles the call.
   Ordering has to come from audio the engine heard whole.
-- The tracks are still what says *who*. `SpeakerAttribution` compares the two
+- For local transcription, the tracks say *who*. `SpeakerAttribution` compares the two
   envelopes over each line's span, so attribution stays exact without the engine
   knowing anything about the participants. It is also why bleed no longer
   misattributes: an echo is quieter than what caused it, so an echoed line still
@@ -339,11 +468,40 @@ Invariants worth preserving:
   ratio; and in a bleeding recording the mic is read with the duck replayed on its
   envelope, as the engine heard it, because a cue that lands inside the far end's
   sentence ran 1.9× the wire copy in the raw mic and was nothing but the room.
-- Only the far end can be diarised, and only by an engine that does it. Slack
-  pre-mixes every remote participant into system audio, so energy can answer
-  "me or the call" and nothing finer. `--diarize` (openai only) is what turns
-  "Call" into "Speaker A", "Speaker B"; energy then reclaims your own lines from
-  whatever letters they arrived under.
+- For local transcription, only the far end needs diarising. Slack
+  pre-mixes every remote participant into system audio, so energy can answer "me
+  or the call" and nothing finer; `VoiceSeparation` runs FluidAudio over the mix
+  after a local engine has written the words, letters the voices by first appearance
+  and lays them over the lines by overlap, cutting a paragraph at sentence ends
+  when its halves disagree. Energy keeps the last word on "Me".
+- OpenAI diarization keeps its speaker labels and segment times through attribution
+  and speaker processing, including on merged-only recordings. `SpeakerRecognition`
+  samples clean passages for each supplied label; `SpeakerEmbedding` uses the pinned
+  local model's FBANK and embedding stages without segmentation or clustering.
+  Voiceprints match against the existing library without changing speaking turns.
+  Short, overlapping or inconsistent samples remain unnamed. Missing models or
+  extraction failures retain nameable labels with no reusable print.
+- A voice named once is found on the next call. The diarizer's centroid per voice
+  is its print, the generation's voices file keeps each letter's print and longest line beside the
+  tracks, and naming a letter — `anyrec speakers`, the prompt after a transcript,
+  the outcome panel — files the print under the name in
+  `~/Library/Application Support/anyrec/voices/`. The next recording matches every
+  voice against the library by cosine similarity and names what it recognises.
+  Nothing caps the library: OpenAI's known-speaker references stop at four, which
+  is why they are not used — a meeting here can be twenty people. The 0.5 match
+  threshold is provisional, set from FluidAudio's own table, and only ever moves
+  up until it has been measured on real calls: the wrong name is the worse mistake.
+- Each generation is kept as `transcript-<engine>-<UUID>.json` plus Markdown and
+  SRT. `TranscriptStore` writes all files before atomically selecting the generation
+  in `.transcription.json`, which also binds its voices and summary. Legacy files
+  remain readable. Regeneration uses the background queue without capturing or
+  merging again, preserves the previous version on failure, and never changes the
+  default engine. Naming renders only the active generation.
+- The speaker models are the documented exception to the checksum rule: they are
+  several files each, fetched by FluidAudio from a pinned revision over HTTPS with
+  a size check, and only from `SpeakerSetup.fetch` — the setup screen's Speakers
+  row, Settings, or `anyrec speakers --download`. Transcription runs with
+  `ModelHub.offlineMode` on and can never download.
 - Attribution is per line, never per voice. A diarising model fuses two people
   into one letter when they take turns quickly, and a voice weighed as a whole
   then averages out below the margin — so nothing is claimed and nobody is "Me",
@@ -361,6 +519,44 @@ Invariants worth preserving:
   gaps. whisper is the one that needs it most — without VAD its first segment
   spans the leading silence and starts at 0 — but the hosted models hallucinate
   over room tone too. Engines running their own detection ignore the argument.
+- The on-device engine is Parakeet, and `auto` reaches for it first: Parakeet when its
+  model is here, Apple's engine where that can run, whisper after that. It needs
+  nothing installed — choosing it *is* the request for its model, so picking Parakeet
+  in the panel or Settings starts the download, with the size on the choice, and ffmpeg
+  comes with it when there is none, because the mix the engine is handed is made with
+  ffmpeg. Parakeet tells the language itself, so none is detected for it beforehand,
+  and the transcript carries none unless one was given. It is handed the whole file —
+  a TDT model does not invent over silence as whisper does — and a line placed where
+  nobody was speaking is dropped. Its words come with times and no lines; a line ends
+  at a sentence end after a moment, at a pause of most of a second, or at twenty
+  seconds, so attribution is never averaging two speakers. Whisper stays for its 99
+  languages, and nothing about it is installed either: whisper.cpp is linked in as the
+  xcframework its CI publishes on its nightly `b####` builds (the tagged releases carry
+  none), pinned by build number and checksum in `Package.swift`, and only its model is
+  downloaded. The framework is dynamic, so every binary that links the Kit ships with
+  `whisper.framework` beside it — `Contents/Frameworks` in the app, `Frameworks` next
+  to `bin` in the CLI tarball, which the formula installs into the prefix — with the
+  rpath repointed from `.build` and the framework signed with the same identity, or the
+  hardened runtime refuses to load it. Homebrew is needed for nothing.
+- ffmpeg is fetched, not installed: a static GPL build from ffmpeg-static's releases,
+  pinned by version and checksum per architecture, into the app's own tools folder,
+  which `Muxer.ffmpegPath` tries after the package managers' paths. It has to be made
+  executable and have the quarantine attribute removed, or Gatekeeper refuses to run
+  what a download brought.
+- A new install opens on the welcome window, once (`Preferences.welcomed`), and Help
+  brings it back. Two steps cover all four permissions and on-device engine
+  downloads. Screen Recording, Microphone, Accessibility and Notifications must
+  be granted before setup can finish. Recording entry points also require completed
+  setup. Other preferences stay in Settings and use their defaults.
+  Screen Recording granted during a run takes effect for a newly
+  launched process, so the window says so and offers a relaunch. Welcome is a
+  separate window so it cannot block quitting. Finishing setup opens
+  the library; later launches open the library directly.
+- Voices travel as one file, `.anyrecvoices`: the library's people and prints as JSON,
+  no audio. Importing adds the people a library does not have and the prints it does
+  not have under names it does, so a team names each person once. File › Import and
+  Export Voices, the People list and the welcome window all go through the same two
+  panels on `RecordingController`.
 - Nothing leaves the machine unless it was asked for by name. `--engine openai`
   and `--summarize` are the only two that do, and both say so wherever they are
   offered. `auto` must stay local-only: falling back to an upload because a model

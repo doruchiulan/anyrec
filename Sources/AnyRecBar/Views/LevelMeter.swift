@@ -1,59 +1,74 @@
+import AppKit
 import SwiftUI
 import AnyRecKit
 
-/// One track's level, read off the buffers already on their way to disk. The bar fills
-/// to RMS with the current peak riding on top as a marker, and the loudest peak of the
-/// whole run is held beside it — the same reading the terminal's meter gives.
-struct LevelMeter: View {
-    let track: AudioTrack
-    let levels: LevelMonitor
+struct RecordingMeters: View {
+    private struct Reading {
+        let track: AudioTrack
+        let level: AudioLevel
+    }
 
-    private static let height: CGFloat = 6
+    private let readings: [Reading]
+
+    init(tracks: [AudioTrack], levels: LevelMonitor) {
+        // Snapshot before ForEach so SwiftUI sees new values instead of the same monitor reference.
+        readings = tracks.map { Reading(track: $0, level: levels.level(for: $0)) }
+    }
 
     var body: some View {
-        let level = levels.level(for: track)
-        let colour = colour(for: level.peak)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(readings, id: \.track) { reading in
+                LevelMeter(track: reading.track, level: reading.level)
+            }
+        }
+    }
+}
 
-        VStack(alignment: .leading, spacing: 4) {
+struct LevelMeter: View {
+    let track: AudioTrack
+    let level: AudioLevel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(track.rawValue)
+                Text(track == .systemAudio ? "Call audio" : "Microphone")
                 Spacer()
-                Text(MeterScale.reading(level.peak)).monospacedDigit()
-                Text("max \(MeterScale.reading(levels.sessionPeak(for: track)))")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                Text(reading(level.peak)).monospacedDigit().foregroundStyle(.secondary)
             }
-            .font(.caption)
-
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.quaternary)
-                    Capsule()
-                        .fill(colour)
-                        .frame(width: fraction(level.rms) * geometry.size.width)
-                    Rectangle()
-                        .fill(colour)
-                        .frame(width: 2)
-                        .offset(x: fraction(level.peak) * (geometry.size.width - 2))
-                }
-            }
-            .frame(height: Self.height)
+            .font(.subheadline)
+            LevelIndicator(value: Double(MeterScale.fraction(level.peak)))
+                .frame(height: 12)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(track.rawValue) level")
         .accessibilityValue("\(MeterScale.reading(level.peak)) dBFS")
     }
 
-    private func fraction(_ dBFS: Float) -> CGFloat {
-        CGFloat(MeterScale.fraction(dBFS))
+    private func reading(_ peak: Float) -> String {
+        let dB = "\(MeterScale.reading(peak)) dB"
+        switch MeterScale.zone(peak) {
+        case .faint: return "Quiet · \(dB)"
+        case .hot: return "Too loud · \(dB)"
+        case .silent, .healthy: return dB
+        }
+    }
+}
+
+private struct LevelIndicator: NSViewRepresentable {
+    let value: Double
+
+    func makeNSView(context: Context) -> NSLevelIndicator {
+        let indicator = NSLevelIndicator()
+        indicator.levelIndicatorStyle = .continuousCapacity
+        indicator.minValue = 0
+        indicator.maxValue = 1
+        indicator.warningValue = 0.8
+        indicator.criticalValue = 0.95
+        indicator.isEditable = false
+        return indicator
     }
 
-    private func colour(for peak: Float) -> Color {
-        switch MeterScale.zone(peak) {
-        case .silent: .secondary
-        case .faint: .yellow
-        case .healthy: .green
-        case .hot: .red
-        }
+    func updateNSView(_ indicator: NSLevelIndicator, context: Context) {
+        indicator.doubleValue = value
     }
 }

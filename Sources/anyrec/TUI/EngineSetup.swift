@@ -11,12 +11,13 @@ enum EngineSetup {
         /// call, so what it covers is worth reading before the call rather than after.
         case .apple: true
         case .auto: false
-        case .whisper, .openai: !readiness.of(engine).isReady
+        case .parakeet, .whisper, .openai: !readiness.of(engine).isReady
         }
     }
 
     static func run(for engine: TranscriptionEngine, readiness: Readiness) async -> String? {
         switch engine {
+        case .parakeet: await installParakeet(readiness)
         case .whisper: await installWhisper(readiness)
         case .openai: await saveKey()
         case .apple: showLanguages(readiness.appleLanguages)
@@ -53,18 +54,36 @@ enum EngineSetup {
         }
     }
 
+    /// ⏎ on Parakeet: nothing to install, one model to download, and ffmpeg beside it
+    /// when there is none — Homebrew is not involved.
+    private static func installParakeet(_ readiness: Readiness) async -> String? {
+        guard case .needsSetup(let steps) = readiness.of(.parakeet) else { return "Parakeet is ready." }
+        guard
+            Page.confirm(
+                title: "Set up Parakeet?",
+                lines: steps.map { "  \($0.title)  —  \($0.detail)" } + ["", download(steps)]
+                    + ["", "Twenty-five languages, on this Mac. Nothing is uploaded."],
+                action: "start")
+        else { return nil }
+        return await perform(steps, title: "Setting Parakeet up…", name: "Parakeet")
+    }
+
+    private static func perform(_ steps: [WhisperSetup.Step], title: String, name: String) async -> String {
+        let progress = Progress(steps, title: title)
+        for (index, step) in steps.enumerated() {
+            progress.begin(index)
+            do {
+                try await WhisperSetup.perform(step) { progress.note(index, $0) }
+            } catch {
+                Page.notice(title: "\(step.title) failed", lines: ["\(error)"])
+                return "\(name) is not set up: \(step.title.lowercased()) failed."
+            }
+        }
+        return "\(name) is ready."
+    }
+
     private static func installWhisper(_ readiness: Readiness) async -> String? {
         guard case .needsSetup(let steps) = readiness.of(.whisper) else { return "whisper is ready." }
-
-        if WhisperSetup.needsHomebrew {
-            Page.notice(
-                title: "Homebrew is needed first",
-                lines: [
-                    "whisper is installed with Homebrew, which is not on this machine.",
-                    "Install it from https://brew.sh, then come back.",
-                ])
-            return "Homebrew is needed to install whisper — see https://brew.sh"
-        }
 
         guard
             Page.confirm(
@@ -73,17 +92,40 @@ enum EngineSetup {
                 action: "start")
         else { return nil }
 
-        let progress = Progress(steps)
-        for (index, step) in steps.enumerated() {
-            progress.begin(index)
-            do {
-                try await WhisperSetup.perform(step) { progress.note(index, $0) }
-            } catch {
-                Page.notice(title: "\(step.title) failed", lines: ["\(error)"])
-                return "whisper is not set up: \(step.title.lowercased()) failed."
-            }
+        return await perform(steps, title: "Setting whisper up…", name: "whisper")
+    }
+
+    /// ⏎ on the Speakers row. The one download here that does not go through a
+    /// checksum, which the Kit explains; the page says what and how big.
+    static func installSpeakers() async -> String? {
+        guard !Readiness.speakersReady else {
+            let known = VoiceLibrary.load().names
+            return known.isEmpty
+                ? "Speakers are told apart on-device. Name them after a transcript to remember them."
+                : "Known by name: \(known.joined(separator: ", "))."
         }
-        return "whisper is ready."
+        guard
+            Page.confirm(
+                title: "Tell the far end's voices apart?",
+                lines: [
+                    "  Download the speaker models  —  \(SpeakerSetup.downloadSize)",
+                    "",
+                    "They run on this machine, for every engine. Name a voice once",
+                    "and it is recognised on the next call. Nothing is uploaded.",
+                ],
+                action: "start")
+        else { return nil }
+
+        Page.working(title: "Downloading the speaker models…")
+        do {
+            try await SpeakerSetup.fetch { line in
+                Page.working(title: "Downloading the speaker models…", lines: ["  \(line)"])
+            }
+        } catch {
+            Page.notice(title: "The download failed", lines: ["\(error)"])
+            return "Speakers are not set up: the download failed."
+        }
+        return "Speakers are ready."
     }
 
     private static func download(_ steps: [WhisperSetup.Step]) -> String {
@@ -127,12 +169,14 @@ enum EngineSetup {
 /// so a redraw only happens when the line it would draw actually changed.
 private final class Progress: @unchecked Sendable {
     private let steps: [WhisperSetup.Step]
+    private let title: String
     private let lock = NSLock()
     private var current = 0
     private var notes: [String]
 
-    init(_ steps: [WhisperSetup.Step]) {
+    init(_ steps: [WhisperSetup.Step], title: String) {
         self.steps = steps
+        self.title = title
         self.notes = Array(repeating: "", count: steps.count)
     }
 
@@ -161,6 +205,6 @@ private final class Progress: @unchecked Sendable {
                 + (note.isEmpty ? "" : styled("  \(note)", .dim))
         }
         lock.unlock()
-        Page.working(title: "Setting whisper up…", lines: lines + ["", "This can take a while."])
+        Page.working(title: title, lines: lines + ["", "This can take a while."])
     }
 }

@@ -54,17 +54,10 @@ struct AssetDownloadTests {
 
 @Suite("WhisperSetup")
 struct WhisperSetupTests {
-    @Test("strips the colour and spinners brew draws even when told not to")
-    func plainOutput() {
-        #expect(WhisperSetup.plain("\u{1B}[32m==>\u{1B}[0m Fetching whisper-cpp") == "==> Fetching whisper-cpp")
-        #expect(WhisperSetup.plain("\u{1B}[2K  downloading") == "downloading")
-        #expect(WhisperSetup.plain("\u{1B}[?25l") == "")
-    }
-
     @Test("says what each step will cost before it starts")
     func stepLabels() {
-        #expect(WhisperSetup.Step.install(formula: "ffmpeg", binary: "ffmpeg").detail
-            == "brew install ffmpeg")
+        #expect(WhisperSetup.Step.fetchFFmpeg.title == "Download ffmpeg")
+        #expect(WhisperSetup.Step.fetchParakeet.detail == "483 MB")
         #expect(WhisperSetup.Step.fetch(WhisperSetup.model).detail == "574 MB")
         #expect(WhisperSetup.Step.fetch(WhisperSetup.model).title
             == "Download ggml-large-v3-turbo-q5_0.bin")

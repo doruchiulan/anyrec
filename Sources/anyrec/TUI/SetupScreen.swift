@@ -4,7 +4,7 @@ import AnyRecKit
 /// The settings screen. Returns the chosen configuration, or nil if the user backed out.
 struct SetupScreen {
     enum Row: Int, CaseIterable {
-        case capture, microphone, systemAudio, stopAfter, mux, transcribe, start
+        case capture, microphone, systemAudio, stopAfter, mux, transcribe, speakers, start
 
         var label: String {
             switch self {
@@ -14,6 +14,7 @@ struct SetupScreen {
             case .systemAudio: "Call audio"
             case .mux: "Merge"
             case .transcribe: "Transcript"
+            case .speakers: "Speakers"
             case .start: ""
             }
         }
@@ -71,6 +72,7 @@ struct SetupScreen {
         case .capture: await editCapture()
         case .microphone: editMicrophone()
         case .transcribe: await editTranscribe()
+        case .speakers: notice = await EngineSetup.installSpeakers()
         case .systemAudio, .mux, .stopAfter: adjust(1)
         case .start: return ready()
         }
@@ -154,6 +156,7 @@ struct SetupScreen {
         case .stopAfter: configuration.stopLabel
         case .mux: configuration.muxLabel
         case .transcribe: configuration.transcribeLabel(readiness)
+        case .speakers: RecordingConfiguration.speakersLabel
         case .start: ""
         }
     }

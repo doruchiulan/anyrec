@@ -16,6 +16,8 @@ public struct OutputPlan: Sendable, Equatable {
     public let microphoneLive: URL
 
     public init(directory: URL) {
+        let directory = URL(fileURLWithPath: directory.path, isDirectory: true)
+            .resolvingSymlinksInPath().standardizedFileURL
         self.directory = directory
         screen = directory.appendingPathComponent("screen.mov")
         systemAudio = directory.appendingPathComponent("system-audio.m4a")

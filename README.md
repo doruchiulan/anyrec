@@ -50,8 +50,8 @@ is over rather than after:
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
   call.mp4            everything together — play this one
-  transcript-apple.md who said what, in order
-  transcript-apple.srt subtitles for call.mp4
+  transcript-apple-<id>.md  who said what, in order
+  transcript-apple-<id>.srt subtitles for call.mp4
 ```
 
 Separate tracks mean you can drop your own microphone, duck one side against the
@@ -111,19 +111,33 @@ cp -R dist/AnyRec.app /Applications
 open /Applications/AnyRec.app
 ```
 
-It sits in the menu bar with no Dock icon and no window. Clicking it drops down a
-microphone, a transcript engine and a stop time — call audio and the merge are on
-and not asked about, which is what `anyrec record`'s flags are for. The button
-below them opens macOS's own picker: point at the window or display you want and
-the recording starts on the selection. The meters and the elapsed time take the
+It is a regular Mac app — a Dock icon and a library window of every recording — with
+a small helper in the menu bar for starting one from anywhere. The helper shows
+Record Window and recent recordings; microphone, transcription and stop-time
+preferences live in Settings. Record Window opens macOS's own picker: point at
+the window or display you want and recording starts on selection. The meters and the elapsed time take the
 panel's place while it runs, and the time also shows beside the menu bar icon, so
 a recording is visible with the panel shut.
 
-Settings, from the panel's footer, is where the rest lives: whether to record
-call audio and merge, and a Transcription tab that installs whisper and its
-models — saying what it will fetch and how big before it fetches anything — or
-takes an OpenAI key. So the app is usable on its own; the CLI is a separate
-install, not a prerequisite.
+Closing the recorded window automatically stops and saves the recording. Switching
+apps, minimizing the window, muting or silence do not trigger this. If a call ends
+but its window stays open, stop the recording manually.
+
+After stopping, Done clears the saved panel. Merging and transcription continue in
+the background, so another recording can start immediately. Each recording shows
+its progress in the library and its detail page; In Progress lists pending work.
+Local processing runs one recording at a time. Quitting waits for pending work.
+
+The reminder above a detected Slack or Teams call has a Record button that starts
+that window directly. Record Window in the menu bar still opens the window picker.
+
+The first launch opens a two-step welcome window: grant Screen Recording,
+Microphone, Accessibility and Notifications, then download an on-device
+transcription engine if you want one. All four permissions must be granted,
+including any required restart, before setup can finish or recording can start. Finishing
+setup opens the recordings library. Other preferences use their defaults and can
+be changed in Settings. Nothing is fetched before you choose it, and download
+buttons show the size. The CLI is a separate install, not a prerequisite.
 
 ## Permissions
 
@@ -146,7 +160,7 @@ ok   Microphone
 ok   ffmpeg at /opt/homebrew/bin/ffmpeg
 ok   apple speech, on-device, and only these languages
     Cantonese, Chinese, English, French, German, Italian, Japanese, Korean, Portuguese, Spanish
-ok   whisper at /opt/homebrew/bin/whisper-cli
+ok   whisper built in
 ok   whisper model ggml-large-v3-turbo-q5_0.bin
 ok   OpenAI key found — --engine openai uploads the audio
 ok   Slack, Zoom
@@ -200,7 +214,9 @@ like — the frame follows — but close it and capture stops there, with everyt
 up to that point written, merged and ready to transcribe.
 
 ffmpeg is what merges the tracks. Without it you still get all three, but no
-`call.mp4` — `anyrec doctor` and the recording banner both say so.
+`call.mp4` — `anyrec doctor` and the recording banner both say so. The app and
+the setup screen fetch a static build when there is none (no Homebrew needed),
+or install your own:
 
 ```
 brew install ffmpeg
@@ -214,6 +230,7 @@ truncated `.mov`.
 | `tui` | The interactive screen. The default, so plain `anyrec` opens it. |
 | `record` | Capture from flags alone, no interaction. |
 | `transcribe` | Transcribe a recording. Defaults to the newest one. |
+| `speakers` | Put names to the voices in a transcript. They are remembered for the next call. |
 | `sources` | Everything capturable — windows, displays, microphones — with the ids the flags take. |
 | `doctor` | Permissions, ffmpeg, transcription engines, call apps with a window open. |
 
@@ -229,9 +246,20 @@ truncated `.mov`.
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
 | `--mic` | system default | The input device id, from `anyrec sources`. |
-| `--transcribe` | off | `auto`, `apple`, `whisper` or `openai`, run once the tracks are closed. |
+| `--transcribe` | off | `auto`, `parakeet`, `apple`, `whisper` or `openai`, run once the tracks are closed. |
 
 ## Transcripts
+
+In the app, open a recording and choose **Generate Transcript…** in the Transcript
+tab. Existing transcripts have **Regenerate Transcript…**, with an engine picker
+for that run. Both actions are also in the recording's context menu and the
+Recording menu. Processing continues in the library's **In Progress** view while
+you record another call.
+
+Regenerating keeps the current transcript visible until the replacement succeeds.
+Each version has its own speaker names and summary; a replacement starts without
+the previous summary. Automatic summaries run again when enabled in Settings.
+The engine chosen for one recording does not change your default engine.
 
 The engine transcribes both tracks mixed together, so the turns come back in the
 order they were actually spoken. Who said each one is then settled by the tracks
@@ -248,6 +276,25 @@ anyrec transcribe --engine openai   # OpenAI's API, with your own key
 The interactive screen can run it for you the moment a recording stops — the
 `Transcript` row. `record` always leaves that to a separate `transcribe` call.
 
+### Who is who on the call
+
+The far end is one stream, so "Call" is everyone else at once until the speaker
+model is fetched — 22 MB, from the `Speakers` row, from Settings in the menu bar
+app, or with `anyrec speakers --download`. With it, every transcript tells the
+other voices apart on your machine, whichever engine wrote the words, and labels
+them Speaker A, Speaker B and so on. Name a letter once:
+
+```
+anyrec speakers                    # asks about each lettered voice in the newest recording
+anyrec speakers --name A=John --name B=Sarah
+```
+
+The transcript is rewritten with the names in, and each named voice is kept as a
+voiceprint in `~/Library/Application Support/anyrec/voices/`. The next call that
+voice is on comes back already named. There is no limit on how many people the
+library holds, and nothing in it ever leaves the machine. The interactive screen
+and the menu bar app ask the same question right after a transcript.
+
 ```markdown
 # rec-2026-07-25-131411
 
@@ -260,36 +307,42 @@ wiring plan for the Costi house before we get to the budget.
 Zigbee sensors or move everything to KNX.
 ```
 
-You get `transcript-<engine>.md` and a matching `.srt` you can drop onto
-`call.mp4`.
+You get `transcript-<engine>-<id>.md`, a matching `.srt` you can drop onto
+`call.mp4`, and `.json` data. `.transcription.json` selects the active version;
+previous files remain in the recording folder. Older unversioned recordings still
+open normally. [The processing pipeline](docs/pipeline.md) shows the full flow.
 
-Three engines:
+Four engines:
 
 | | | |
 |---|---|---|
+| `parakeet` | NVIDIA Parakeet TDT 0.6B v3, on CoreML | on your machine · ~150× realtime on Apple silicon, one 480 MB download, 25 languages including Romanian |
 | `apple` | macOS 26 `SpeechAnalyzer` | on your machine · ~12× realtime, no setup, 10 languages — no Romanian |
-| `whisper` | whisper.cpp | on your machine · ~5× realtime, needs a model, 99 languages including Romanian |
+| `whisper` | whisper.cpp, built in | on your machine · ~5× realtime, one 574 MB download, 99 languages including Romanian |
 | `openai` | OpenAI's API | uploads the audio · your own key, no install, 99 languages |
 
-`auto` detects the spoken language first and picks between the two local ones:
-Apple when it has a model for that language, whisper otherwise. Detection needs
-whisper installed; without it, `auto` assumes English. It never picks `openai` —
-nothing leaves your machine unless you name the engine that does.
+`auto` is Parakeet once its model is here, Apple when it has a model for the
+language, whisper after that. Parakeet tells the language itself; for the other
+two, `auto` detects it first, which needs whisper installed — without it, `auto`
+assumes English. It never picks `openai` — nothing leaves your machine unless you
+name the engine that does.
+
+Parakeet needs nothing installed. Choose it — in the app's panel or Settings, or
+on the setup screen's Transcript row with ⏎ — and the model is fetched, with
+ffmpeg beside it when there is none.
 
 Apple is the engine that can be ready and still have nothing to say: pick it for
 a call in a language it has no model for and the transcript fails rather than
 degrades. Put the Transcript row on `apple` and press ⏎ to see which languages
 this Mac has, or run `anyrec doctor`.
 
-whisper needs a binary and a model. Run `anyrec` with no arguments, put the
-Transcript row on `whisper`, and press ⏎: it lists what is missing and how large
-the download is, and fetches it once you say go. Nothing is installed or
-downloaded until you do.
+whisper is built in; it needs a model. Run `anyrec` with no arguments, put the
+Transcript row on `whisper`, and press ⏎: it says how large the download is and
+fetches it once you say go. Nothing is downloaded until you do.
 
 To do it by hand instead:
 
 ```
-brew install whisper-cpp
 cd ~/Library/Application\ Support/anyrec/models
 curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
 curl -LO https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
@@ -326,13 +379,12 @@ recorded; whether they have agreed to the recording being sent to OpenAI is a
 separate question, and worth asking before you use it on someone else's voice.
 `anyrec doctor` tells you whether a key is set.
 
-It runs `gpt-4o-transcribe-diarize`, which separates the far end into `Speaker A`,
-`Speaker B` and so on — worth having, because a call can hold more than two
-people and anyrec only ever sees two tracks. Slack mixes every remote
-participant into system audio, so without diarisation they all arrive as one
-`Call`. Your own lines are still identified from the microphone track, whichever
-letter the model gave them — including when the model puts your sentence and
-someone's reply in the same cue, which it does when the reply comes quickly.
+It runs `gpt-4o-transcribe-diarize`, which labels speakers and timestamps their
+segments. AnyRec keeps those assignments, including the label for your own voice.
+When the local speaker model is installed, AnyRec extracts voiceprints from clean
+passages to recognise people you've named before. This does not rerun diarization
+or replace OpenAI's speaking turns. Without the local model, speakers can still
+be named manually, but their voices cannot be remembered across recordings.
 
 `--no-diarize` falls back to `whisper-1` and the plain `Me`/`Call` split. Either
 way the audio is trimmed to where the talking is, and anything still over the
@@ -391,7 +443,7 @@ Two things worth knowing:
 ```
 swift build
 swift test
-scripts/release.sh 0.1.0    # universal binary, signed, tarball + sha256
+scripts/release.sh 0.4.0    # universal app + CLI archives and SHA256SUMS
 scripts/bundle-app.sh       # dist/AnyRec.app
 ```
 
@@ -400,8 +452,10 @@ what this machine can do. `anyrec` and `AnyRecBar` are renderers over it and
 know nothing about each other, so a third interface is a third renderer rather
 than a third copy of the recording flow.
 
-`scripts/release.sh` ad-hoc signs by default. Swap the `-` identity for a
-Developer ID if you ever want to notarize and ship outside Homebrew.
+`scripts/release.sh` uses the configured Developer ID when available, with an
+ad-hoc fallback for local builds. The GitHub release workflow requires signing
+and notarization. See [GitHub release setup](docs/github-releases.md) for secrets,
+version tags, and publishing instructions.
 
 ## License
 

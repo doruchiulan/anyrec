@@ -5,7 +5,7 @@ import AnyRecKit
 struct Record: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "record",
-        abstract: "Record until Ctrl-C."
+        abstract: "Record until Ctrl-C or the captured window closes."
     )
 
     @Option(name: .shortAndLong, help: "Directory the recording folder is created in.")
@@ -60,7 +60,7 @@ struct Record: AsyncParsableCommand {
         print(startBanner(session))
         if let warning = ffmpegWarning() { print(warning) }
 
-        await Interrupt.wait()
+        await Interrupt.wait(until: { session.captureEnded })
         let outcome = try await session.stop { print("\n" + SummaryReport.status($0)) }
         print(SummaryReport.render(outcome))
         await TranscriptReport.follow(session)
@@ -106,7 +106,7 @@ struct Record: AsyncParsableCommand {
         Recording \(target.describing) at \(target.width)×\(target.height), \(fps) fps
         Tracks:    \(tracks)
         Folder:    \(session.plan.directory.path)
-        Stops:     on Ctrl-C
+        Stops:     on Ctrl-C or when the recorded window closes
         Then:      \(mux ? "merges into call.mp4 (--no-mux to skip)" : "leaves the tracks separate")
 
         Everyone on this call should know it is being recorded.

@@ -21,6 +21,9 @@ struct TUISession {
     func run() async throws {
         guard Terminal.isInteractive else { throw TUIError.notATerminal }
         try Permissions.requireScreenRecording(host: .terminal)
+        /// Optional, so asked rather than required: the dialog lists the terminal
+        /// under Accessibility, and the setup screen says what is missing until then.
+        Permissions.requestAccessibility()
 
         /// Both of these are slow — the first device enumeration cold-starts
         /// AVFoundation — and must happen before the screen is blanked.

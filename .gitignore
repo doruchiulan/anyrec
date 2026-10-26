@@ -14,3 +14,10 @@ Recordings/
 
 # Never commit: holds .security-key
 logs/
+
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.keychain-db

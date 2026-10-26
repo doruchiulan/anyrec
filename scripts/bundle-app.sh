@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wraps the AnyRecBar binary in AnyRec.app. macOS grants Screen Recording and
-# Microphone to a bundle, so the menu bar app has to be one to hold its own grants.
+# Microphone to a bundle, so the app has to be one to hold its own grants.
 set -euo pipefail
 
 CONFIG="${1:-debug}"
@@ -22,12 +22,26 @@ else
 	build() { swift build -c "$CONFIG" "$@"; }
 fi
 
-build --product AnyRecBar
-BIN="$(build --show-bin-path)/AnyRecBar"
+# SwiftPM records the deployment target as the SDK the binary was built with, and
+# macOS 26 gives its current design — Liquid Glass toolbars, floating toolbar items,
+# the sidebar — only to apps built against SDK 26 or later. Everything else runs in a
+# compatibility mode that draws a flat band across the top of the window. So the SDK
+# actually used is written into the binary; the deployment target stays where it is.
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+LINK_SDK=(-Xlinker -platform_version -Xlinker macos -Xlinker 15.2 -Xlinker "$SDK_VERSION")
+
+build --product AnyRecBar "${LINK_SDK[@]}"
+BIN="$(build "${LINK_SDK[@]}" --show-bin-path)/AnyRecBar"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/AnyRec"
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
+# whisper.cpp is linked as a framework, which the binary looks for on its rpath. Into the
+# bundle it goes, with an rpath that points there instead of into .build.
+source "$ROOT/scripts/embed-whisper.sh"
+embed_whisper "$APP/Contents/MacOS/AnyRec" "$APP/Contents/Frameworks"
 
 cat >"$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -38,11 +52,12 @@ cat >"$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundleDisplayName</key><string>AnyRec</string>
 	<key>CFBundleIdentifier</key><string>com.doruchiulan.anyrec</string>
 	<key>CFBundleExecutable</key><string>AnyRec</string>
+	<key>CFBundleIconFile</key><string>AppIcon</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>$VERSION</string>
 	<key>CFBundleVersion</key><string>$VERSION</string>
 	<key>LSMinimumSystemVersion</key><string>15.2</string>
-	<key>LSUIElement</key><true/>
+	<key>NSPrincipalClass</key><string>NSApplication</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>AnyRec records your microphone as its own track, so your side of a call is separate from everyone else's.</string>
 </dict>
@@ -52,6 +67,8 @@ PLIST
 # The hardened runtime blocks audio input without the entitlement, so both go on
 # together or the microphone never opens.
 source "$ROOT/scripts/signing.sh"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime \
+	--identifier org.ggml.whisper "$APP/Contents/Frameworks/whisper.framework"
 codesign --force --sign "$SIGN_IDENTITY" --options runtime \
 	--entitlements "$ROOT/Resources/anyrec.entitlements" "$APP"
 codesign --verify --strict "$APP"

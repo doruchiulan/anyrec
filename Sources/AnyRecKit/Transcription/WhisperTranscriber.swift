@@ -1,18 +1,17 @@
 import Foundation
+import whisper
 
-/// whisper.cpp behind `whisper-cli`. Slower than Apple's engine but it is the
-/// only local option that speaks Romanian.
+/// whisper.cpp, inside the process: the framework its own CI builds, linked in, so
+/// nothing is installed and the model is the only download. Slower than Parakeet, but
+/// 99 languages to its 25.
 public struct WhisperTranscriber: Transcriber {
     public let name = "whisper"
-    public let binary: String
     public let model: URL
 
     public static var modelDirectory: URL {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/anyrec/models")
     }
-
-    public static func binaryPath() -> String? { Shell.path(of: "whisper-cli") }
 
     /// The largest `.bin` in the model directory — bigger is better here, and a
     /// user who downloaded two models wants the good one.
@@ -39,104 +38,96 @@ public struct WhisperTranscriber: Transcriber {
         url.lastPathComponent.contains("silero")
     }
 
-    public init(model: URL? = nil, binary: String? = nil) throws {
-        guard let found = binary ?? Self.binaryPath() else { throw TranscriptionError.whisperNotFound }
+    public init(model: URL? = nil) throws {
         guard let model = model ?? Self.defaultModel() else {
             throw TranscriptionError.modelNotFound(Self.modelDirectory)
         }
-        self.binary = found
         self.model = model
     }
 
     /// Reads only the opening of the file: whisper decides on the first window anyway.
     public func detectLanguage(of url: URL) throws -> String? {
-        let audio = try Self.wav(from: url, seconds: 30)
-        defer { try? FileManager.default.removeItem(at: audio.deletingLastPathComponent()) }
-
-        let result = try Shell.run(binary, ["-m", model.path, "-f", audio.path, "-dl"])
-        guard
-            let line = result.combined
-                .split(separator: "\n")
-                .last(where: { $0.contains("auto-detected language:") }),
-            let tag = line.split(separator: ":").last?
-                .split(separator: "(").first?
-                .trimmingCharacters(in: .whitespaces),
-            !tag.isEmpty
-        else { return nil }
-        return tag
+        let samples = try AudioSamples.read(url, seconds: 30)
+        let context = try Self.context(for: model)
+        defer { whisper_free(context) }
+        let threads = Self.threads
+        let fed = samples.withUnsafeBufferPointer {
+            whisper_pcm_to_mel(context, $0.baseAddress, Int32($0.count), threads)
+        }
+        guard fed == 0 else { return nil }
+        let id = whisper_lang_auto_detect(context, 0, threads, nil)
+        guard id >= 0, let tag = whisper_lang_str(id) else { return nil }
+        return String(cString: tag)
     }
 
     /// `regions` are ignored: whisper.cpp runs silero over the audio itself.
     public func speech(
         of url: URL, in regions: [Range<TimeInterval>], language: String?
     ) async throws -> Speech {
-        let audio = try Self.wav(from: url)
-        let scratch = audio.deletingLastPathComponent()
-        defer { try? FileManager.default.removeItem(at: scratch) }
+        let samples = try AudioSamples.read(url)
+        let context = try Self.context(for: model)
+        defer { whisper_free(context) }
 
-        let prefix = scratch.appendingPathComponent("out")
-        var arguments = [
-            "-m", model.path, "-f", audio.path,
-            "-l", language ?? "auto",
-            "-oj", "-of", prefix.path, "-np",
-        ]
+        var params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
+        params.n_threads = Self.threads
+        params.print_progress = false
+        params.print_realtime = false
+        params.print_special = false
+        params.print_timestamps = false
+        params.detect_language = false
+        /// The C strings have to outlive the call; `strdup` gives them a lifetime of
+        /// their own, freed once whisper is done with them.
+        let tag = strdup(language ?? "auto")
+        defer { free(tag) }
+        params.language = UnsafePointer(tag)
+        var vadPath: UnsafeMutablePointer<CChar>?
+        defer { free(vadPath) }
         if let vad = Self.voiceDetectionModel() {
-            arguments += ["--vad", "--vad-model", vad.path]
+            vadPath = strdup(vad.path)
+            params.vad = true
+            params.vad_model_path = UnsafePointer(vadPath)
+            params.vad_params = whisper_vad_default_params()
         }
 
-        let result = try Shell.run(binary, arguments)
-        guard result.succeeded else {
+        let status = samples.withUnsafeBufferPointer {
+            whisper_full(context, params, $0.baseAddress, Int32($0.count))
+        }
+        guard status == 0 else {
+            throw TranscriptionError.engineFailed(engine: name, log: "whisper_full failed with \(status).")
+        }
+
+        let lines = (0..<whisper_full_n_segments(context)).compactMap { index in
+            Self.utterance(
+                from: whisper_full_get_segment_t0(context, index),
+                to: whisper_full_get_segment_t1(context, index),
+                text: whisper_full_get_segment_text(context, index).map { String(cString: $0) } ?? "")
+        }
+        return Speech(utterances: lines)
+    }
+
+    /// A segment's times come in centiseconds, its text with a leading space.
+    static func utterance(from t0: Int64, to t1: Int64, text: String) -> Utterance? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return Utterance(start: TimeInterval(t0) / 100, end: TimeInterval(t1) / 100, text: trimmed)
+    }
+
+    private static func context(for model: URL) throws -> OpaquePointer {
+        /// whisper narrates model loading and Metal setup on stderr, which in the
+        /// terminal lands on the setup screen's alternate screen.
+        whisper_log_set({ _, _, _ in }, nil)
+        var params = whisper_context_default_params()
+        params.use_gpu = true
+        guard let context = whisper_init_from_file_with_params(model.path, params) else {
             throw TranscriptionError.engineFailed(
-                engine: name, log: String(result.combined.suffix(2_000)))
+                engine: "whisper", log: "The model could not be loaded: \(model.lastPathComponent)")
         }
-
-        let json = try Data(contentsOf: prefix.appendingPathExtension("json"))
-        return Speech(utterances: try Self.parse(json))
+        return context
     }
 
-    static func parse(_ data: Data) throws -> [Utterance] {
-        let payload = try JSONDecoder().decode(WhisperOutput.self, from: data)
-        return payload.transcription.map {
-            Utterance(
-                start: TimeInterval($0.offsets.from) / 1_000,
-                end: TimeInterval($0.offsets.to) / 1_000,
-                text: $0.text
-            )
-        }
-    }
-
-    /// whisper-cli only reads flac/mp3/ogg/wav, and always at 16 kHz mono.
-    private static func wav(from url: URL, seconds: Int? = nil) throws -> URL {
-        guard let ffmpeg = Muxer.ffmpegPath() else { throw TranscriptionError.ffmpegNotFound }
-        let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("anyrec-audio-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        let output = scratch.appendingPathComponent("audio.wav")
-
-        var args = ["-nostdin", "-y", "-v", "error", "-i", url.path]
-        if let seconds { args += ["-t", String(seconds)] }
-        args += ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output.path]
-
-        let result = try Shell.run(ffmpeg, args)
-        guard result.succeeded else {
-            throw TranscriptionError.engineFailed(engine: "ffmpeg", log: result.combined)
-        }
-        return output
-    }
+    private static let threads = Int32(max(1, min(8, ProcessInfo.processInfo.activeProcessorCount)))
 
     private static func size(of url: URL) -> Int {
         (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
     }
-}
-
-private struct WhisperOutput: Decodable {
-    struct Segment: Decodable {
-        struct Offsets: Decodable {
-            let from: Int
-            let to: Int
-        }
-        let offsets: Offsets
-        let text: String
-    }
-    let transcription: [Segment]
 }

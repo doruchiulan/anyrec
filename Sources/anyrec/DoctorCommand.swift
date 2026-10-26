@@ -60,11 +60,7 @@ struct Doctor: AsyncParsableCommand {
     private func whisperReport() -> [String] {
         var lines: [String] = []
 
-        if let whisper = WhisperTranscriber.binaryPath() {
-            lines.append("\(mark(true)) whisper at \(whisper)")
-        } else {
-            lines.append("\(mark(false)) whisper not found — no Romanian transcripts")
-        }
+        lines.append("\(mark(true)) whisper built in")
         if let model = WhisperTranscriber.defaultModel() {
             lines.append("\(mark(true)) whisper model \(model.lastPathComponent)")
         } else {

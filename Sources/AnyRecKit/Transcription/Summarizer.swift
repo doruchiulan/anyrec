@@ -44,12 +44,18 @@ public enum Summarizer {
 
         let result = try Shell.run(
             claude, ["-p", prompt(for: transcript)],
-            input: transcript.plainText, directory: scratch
+            input: timedInput(for: transcript), directory: scratch
         )
         guard result.succeeded else {
             throw TranscriptionError.engineFailed(
                 engine: "claude", log: String(result.combined.suffix(2_000)))
         }
         return result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func timedInput(for transcript: Transcript) -> String {
+        transcript.utterances.map {
+            "[\($0.start)s] \($0.speaker.label): \($0.text)"
+        }.joined(separator: "\n")
     }
 }

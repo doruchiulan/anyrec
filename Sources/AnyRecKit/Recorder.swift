@@ -72,6 +72,9 @@ public final class Recorder: NSObject {
     private var writers: [SCStreamOutputType: TrackWriter] = [:]
     private var sessionStart: CMTime?
     private var failure: Error?
+    private var streamFailure: Error?
+
+    public var captureEnded: Bool { queue.sync { streamFailure != nil } }
 
     public init(options: CaptureOptions, target: ResolvedTarget, plan: OutputPlan) {
         self.options = options
@@ -100,7 +103,7 @@ public final class Recorder: NSObject {
             try? await stream.stopCapture()
             self.stream = nil
         }
-        let (tracks, error) = queue.sync { (writers, failure) }
+        let (tracks, error) = queue.sync { (writers, failure ?? streamFailure) }
         for track in tracks.values { await track.finish() }
 
         let ended = error.flatMap(Self.endOfRecording)
@@ -241,6 +244,6 @@ extension AudioTrack {
 
 extension Recorder: SCStreamDelegate {
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        queue.async { self.failure = self.failure ?? error }
+        queue.async { self.streamFailure = self.streamFailure ?? error }
     }
 }

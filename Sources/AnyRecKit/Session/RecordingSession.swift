@@ -47,6 +47,7 @@ public final class RecordingSession {
     /// Stamped when the stream is running, not when the object is made, so the clock
     /// counts recorded time rather than the wait for ScreenCaptureKit.
     public private(set) var startedAt = Date()
+    private var stoppedAt: Date?
 
     private let recorder: Recorder
     /// Whether the call app is holding the microphone, for as long as the stream runs.
@@ -55,8 +56,9 @@ public final class RecordingSession {
     private let microphone: MicrophoneLive.Monitor
 
     public var levels: LevelMonitor { recorder.levels }
+    public var captureEnded: Bool { recorder.captureEnded }
 
-    public var elapsed: TimeInterval { Date().timeIntervalSince(startedAt) }
+    public var elapsed: TimeInterval { (stoppedAt ?? Date()).timeIntervalSince(startedAt) }
 
     public var remaining: TimeInterval? {
         configuration.stopAfter.map { max(0, $0 - elapsed) }
@@ -93,12 +95,16 @@ public final class RecordingSession {
     ) async throws -> RecordingSession {
         guard let capture = configuration.capture else { throw SessionError.nothingToRecord }
 
-        let target = try await TargetResolver.resolve(capture.target)
+        let target = try await TargetResolver.resolve(capture.target, ownerPID: capture.ownerPID)
         let plan = try OutputPlan.create(in: configuration.outputDirectory)
         let session = RecordingSession(
             configuration: configuration, target: target, plan: plan,
             recorder: Recorder(options: configuration.options, target: target, plan: plan)
         )
+        try? RecordingInfo(
+            title: target.describing, bundleID: target.bundleID, width: target.width,
+            height: target.height, fps: configuration.fps
+        ).write(to: plan.directory)
         try await session.recorder.start()
         session.startedAt = Date()
         session.microphone.start()
@@ -115,28 +121,22 @@ public final class RecordingSession {
     /// than into a raw-mode screen.
     public func stop(progress: (Stage) -> Void = { _ in }) async throws -> RecordingOutcome {
         progress(.finishing)
+        let captured = try await finishCapture()
+        if configuration.mux { progress(.merging) }
+        return await captured.merged(enabled: configuration.mux)
+    }
+
+    public func finishCapture() async throws -> CapturedRecording {
+        stoppedAt = Date()
         let live = microphone.stop()
         let summary = try await recorder.stop()
-        /// Written before the merge, which reads it back like any later pass would.
         try? live?.write(to: plan.microphoneLive)
-
-        let outcome = { (merge: MergeOutcome) in
-            RecordingOutcome(summary: summary, merge: merge, microphoneLive: live)
-        }
-        guard configuration.mux else { return outcome(.notRequested) }
-        guard Readiness.ffmpegInstalled else { return outcome(.ffmpegMissing) }
-
-        progress(.merging)
-        do {
-            return outcome(.merged(try Muxer.mux(plan)))
-        } catch {
-            return outcome(.failed("\(error)"))
-        }
+        return CapturedRecording(summary: summary, microphoneLive: live)
     }
 
     /// Nil when no transcript was asked for.
     public func transcript(
-        progress: @Sendable (String) -> Void = { _ in }
+        progress: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> TranscriptOutcome? {
         guard let engine = configuration.transcribe else { return nil }
         return await TranscriptPass.run(plan, engine: engine, progress: progress)

@@ -5,22 +5,26 @@ import Foundation
 /// `me` is measured, never guessed: the microphone is its own file, so whichever
 /// track runs louder while a line is being said is the one that said it. Slack
 /// mixes everyone else into a single stream, so the far end is one voice — `others`
-/// — unless the engine diarised it into several, which is all `voice` carries.
-public enum Speaker: Sendable, Equatable, Hashable {
+/// — unless it was diarised into several, which is what `voice` carries, lettered.
+/// A letter becomes `named` once someone has said who it is, here or on an earlier
+/// call whose voiceprint matched.
+public enum Speaker: Sendable, Equatable, Hashable, Codable {
     case me
     case others
     case voice(String)
+    case named(String)
 
     public var label: String {
         switch self {
         case .me: "Me"
         case .others: "Call"
-        case .voice(let name): "Speaker \(name)"
+        case .voice(let letter): "Speaker \(letter)"
+        case .named(let name): name
         }
     }
 }
 
-public struct Utterance: Sendable, Equatable {
+public struct Utterance: Sendable, Equatable, Codable {
     public var start: TimeInterval
     public var end: TimeInterval
     public var text: String
@@ -36,12 +40,19 @@ public struct Utterance: Sendable, Equatable {
     }
 }
 
-public struct Transcript: Sendable, Equatable {
+public struct Transcript: Sendable, Equatable, Codable {
     /// Consecutive lines from one speaker, read as a single turn.
     public struct Turn: Sendable, Equatable {
         public let speaker: Speaker
         public let start: TimeInterval
         public let text: String
+    }
+
+    /// The transcript as data, beside the Markdown and the subtitles, so the two can
+    /// be rendered again when a letter gets a name without running an engine again.
+    public static func read(_ url: URL) -> Transcript? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Transcript.self, from: data)
     }
 
     public let utterances: [Utterance]
@@ -79,7 +90,7 @@ public struct Transcript: Sendable, Equatable {
         }
     }
 
-    /// Speaker-labelled prose. This is what gets handed to a model for summarising.
+    /// Speaker-labelled prose grouped by turn.
     public var plainText: String {
         turns
             .map { "[\(Self.clock($0.start))] \($0.speaker.label): \($0.text)" }

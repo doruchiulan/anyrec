@@ -9,12 +9,15 @@ enum TranscriptReport {
         print("")
         if let outcome = await session.transcript(progress: { print("  \($0)") }) {
             print(render(outcome))
+            if case .written(_, _, let voices) = outcome {
+                SpeakerPrompt.offer(voices, in: session.plan.directory)
+            }
         }
     }
 
     static func render(_ outcome: TranscriptOutcome) -> String {
         switch outcome {
-        case .written(let files, let notes):
+        case .written(let files, let notes, _):
             (files.map { "  Wrote \($0.path)" } + notes.map { "\n  \($0)" }).joined(separator: "\n")
         case .nothingHeard:
             "  Nothing was heard, so there is no transcript."
@@ -36,12 +39,12 @@ extension TranscriptionError.Remedy {
     /// say the same four things differently.
     var advice: String {
         switch self {
-        case .installWhisper:
-            "Run `anyrec` with no arguments to install it, or `brew install whisper-cpp`."
         case .downloadModel(let directory):
             "Run `anyrec` with no arguments to download one into \(directory.path)."
         case .installFFmpeg:
-            "Install it with `brew install ffmpeg`."
+            "Run `anyrec` with no arguments to download it, or `brew install ffmpeg`."
+        case .downloadParakeet:
+            "Run `anyrec` with no arguments, pick Parakeet on Transcript, and ⏎ downloads it."
         case .provideOpenAIKey(let file):
             """
             Run `anyrec` with no arguments to paste one, or bring your own:

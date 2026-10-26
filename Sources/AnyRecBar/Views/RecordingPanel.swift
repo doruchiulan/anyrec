@@ -7,41 +7,37 @@ struct RecordingPanel: View {
     @Bindable var controller: RecordingController
 
     var body: some View {
-        /// Read so the clock and the meters redraw on every tick.
         let _ = controller.tick
 
         if let session = controller.session {
             VStack(alignment: .leading, spacing: 12) {
-                header(session)
-                ForEach(tracks(of: session), id: \.self) { track in
-                    LevelMeter(track: track, levels: session.levels)
+                HStack {
+                    Label("Recording", systemImage: "record.circle.fill")
+                        .font(.headline).foregroundStyle(.red)
+                    Spacer()
+                    if let left = session.remaining {
+                        Text(Wording.remaining(left)).font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
-                folder(session)
-                stop
-            }
-        }
-    }
-
-    private func header(_ session: RecordingSession) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Image(systemName: "record.circle.fill").foregroundStyle(.red)
-                Text(Wording.clock(session.elapsed))
-                    .font(.title2.monospacedDigit())
-                Spacer()
-                if let left = session.remaining {
-                    Text(Wording.remaining(left))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Wording.clock(session.elapsed))
+                        .font(.largeTitle).monospacedDigit()
+                    Text(session.target.describing).lineLimit(1).truncationMode(.middle)
+                    Text(detail(session)).font(.subheadline).foregroundStyle(.secondary)
                 }
+                RecordingMeters(tracks: tracks(of: session), levels: session.levels)
+                Button(role: .destructive) {
+                    Task { await controller.stop() }
+                } label: {
+                    Label(controller.phase == .stopping ? "Finishing…" : "Stop Recording", systemImage: "stop.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
+                .keyboardShortcut(".")
+                .disabled(controller.phase == .stopping)
             }
-            Text(session.target.describing)
-                .font(.callout)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text(detail(session))
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -49,8 +45,8 @@ struct RecordingPanel: View {
         let progress = session.progress()
         let size = "\(session.target.width)×\(session.target.height)"
         let dropped = DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames)
-        return "\(size) · \(session.configuration.fps) fps · \(progress.screenFrames) frames"
-            + (dropped ? " · \(progress.droppedSamples) dropped" : "")
+        return "\(size) · \(session.configuration.fps) fps"
+            + (dropped ? " · \(progress.droppedSamples) frames dropped" : "")
     }
 
     private func tracks(of session: RecordingSession) -> [AudioTrack] {
@@ -59,24 +55,5 @@ struct RecordingPanel: View {
                 ? session.configuration.systemAudio
                 : session.configuration.microphone != nil
         }
-    }
-
-    private func folder(_ session: RecordingSession) -> some View {
-        Text(session.plan.directory.lastPathComponent)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-    }
-
-    private var stop: some View {
-        Button(controller.phase == .stopping ? "Finishing…" : "Stop") {
-            Task { await controller.stop() }
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .tint(.red)
-        .disabled(controller.phase == .stopping)
-        .frame(maxWidth: .infinity)
     }
 }

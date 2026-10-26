@@ -17,20 +17,38 @@ if [[ "$VERSION" != "$SOURCE_VERSION" ]]; then
 fi
 
 cd "$ROOT"
+source "$ROOT/scripts/signing.sh"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 
 swift build -c release "${ARCHS[@]}"
 BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/anyrec"
 
-source "$ROOT/scripts/signing.sh"
-codesign --force --sign "$SIGN_IDENTITY" --options runtime \
-	--entitlements "$ROOT/Resources/anyrec.entitlements" "$BIN"
-codesign --verify --strict "$BIN"
+# The CLI ships as bin/anyrec plus Frameworks/whisper.framework, laid out as Homebrew
+# installs them: the binary's rpath is @executable_path/../Frameworks, and the prefix
+# has both.
+CLI="$DIST/cli"
+mkdir -p "$CLI/bin"
+cp "$BIN" "$CLI/bin/anyrec"
+source "$ROOT/scripts/embed-whisper.sh"
+embed_whisper "$CLI/bin/anyrec" "$CLI/Frameworks"
 
-cp "$BIN" "$DIST/anyrec"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime \
+	--identifier org.ggml.whisper "$CLI/Frameworks/whisper.framework"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime \
+	--entitlements "$ROOT/Resources/anyrec.entitlements" "$CLI/bin/anyrec"
+codesign --verify --strict --deep "$CLI/bin/anyrec"
+
+CLI_ZIP="$DIST/cli-notarization.zip"
+ditto -c -k --keepParent "$CLI" "$CLI_ZIP"
+if ! notarize_archive "$CLI_ZIP" && [[ "${ANYREC_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
+	echo "CLI notarization failed; release stopped" >&2
+	exit 1
+fi
+rm "$CLI_ZIP"
+
 TARBALL="$DIST/anyrec-$VERSION-universal.tar.gz"
-tar -czf "$TARBALL" -C "$DIST" anyrec
+tar -czf "$TARBALL" -C "$CLI" bin Frameworks
 
 # `ditto` rather than `zip`, which flattens the symlinks and extended attributes a
 # signed bundle is checked against — the app arrives with a broken signature otherwise.
@@ -45,11 +63,17 @@ if notarize "$ZIP" "$DIST/AnyRec.app"; then
 	ditto -c -k --keepParent "$DIST/AnyRec.app" "$ZIP"
 	NOTARISED="yes"
 else
+	if [[ "${ANYREC_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
+		echo "app notarization failed; release stopped" >&2
+		exit 1
+	fi
 	NOTARISED="no — a cask install of this will be refused by Gatekeeper"
 fi
 
+(cd "$DIST" && shasum -a 256 "AnyRec-$VERSION.zip" "anyrec-$VERSION-universal.tar.gz" > SHA256SUMS)
+
 echo
-lipo -archs "$DIST/anyrec"
+lipo -archs "$CLI/bin/anyrec"
 lipo -archs "$DIST/AnyRec.app/Contents/MacOS/AnyRec"
 echo
 echo "tarball: $TARBALL"

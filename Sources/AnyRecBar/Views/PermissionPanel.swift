@@ -19,13 +19,16 @@ struct PermissionPanel: View {
             Label("Screen Recording is off", systemImage: "lock.circle")
                 .font(.headline)
             Text(error.relaunch)
-                .font(.caption)
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Open Privacy & Security") {
+            Button {
                 NSWorkspace.shared.open(Permission.screenRecording.settingsURL)
+            } label: {
+                Text("Open Privacy & Security…").frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
         }
         .task { await controller.requestScreenRecording() }
     }

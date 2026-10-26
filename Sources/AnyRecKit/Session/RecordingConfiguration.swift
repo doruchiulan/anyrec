@@ -8,10 +8,12 @@ public enum Defaults {
 public struct CaptureChoice: Sendable, Hashable {
     public let target: CaptureTarget
     public let label: String
+    public let ownerPID: pid_t?
 
-    public init(target: CaptureTarget, label: String? = nil) {
+    public init(target: CaptureTarget, label: String? = nil, ownerPID: pid_t? = nil) {
         self.target = target
         self.label = label ?? Self.describe(target)
+        self.ownerPID = ownerPID
     }
 
     private static func describe(_ target: CaptureTarget) -> String {

@@ -11,7 +11,7 @@ extension RecordingConfiguration {
     }
 
     var stopLabel: String {
-        guard let stopAfter else { return "when I press q" }
+        guard let stopAfter else { return "no time limit" }
         let minutes = Int(stopAfter) / 60
         return minutes % 60 == 0 ? "after \(minutes / 60)h" : "after \(minutes)m"
     }
@@ -24,7 +24,9 @@ extension RecordingConfiguration {
     func transcribeLabel(_ readiness: Readiness) -> String {
         guard let engine = transcribe else { return "Off" }
         switch (engine, readiness.of(engine).isReady) {
-        case (.auto, _): return "On — pick the engine by language"
+        case (.auto, _): return "On — Parakeet, Apple or whisper, whichever is here"
+        case (.parakeet, true): return "On — Parakeet, on-device, 25 languages"
+        case (.parakeet, false): return "On — Parakeet, not downloaded yet"
         case (.apple, true): return "On — Apple, on-device, \(readiness.appleLanguages.count) languages"
         case (.apple, false): return "On — Apple, which needs macOS 26"
         case (.whisper, true): return "On — whisper.cpp"
@@ -32,6 +34,16 @@ extension RecordingConfiguration {
         case (.openai, true): return "On — OpenAI, uploads the audio"
         case (.openai, false): return "On — OpenAI, but no API key is set"
         }
+    }
+
+    /// Not a setting: there is nothing to switch off about telling the far end apart on
+    /// this machine, so the row only says whether it can, and how many it knows.
+    static var speakersLabel: String {
+        guard Readiness.speakersReady else {
+            return "Off — ⏎ downloads the \(SpeakerSetup.downloadSize) speaker model"
+        }
+        let known = VoiceLibrary.load().names.count
+        return "On — told apart on-device" + (known > 0 ? ", \(known) known by name" : "")
     }
 
     mutating func cycleStop(by delta: Int) {
@@ -52,6 +64,8 @@ extension RecordingConfiguration {
 /// The advisory in the terminal's words: ⏎ and named rows are what this screen has.
 func phrase(_ advisory: Advisory) -> String {
     switch advisory {
+    case .parakeetNotSetUp:
+        "No engine is set up yet — pick Parakeet on Transcript and ⏎ downloads it (\(ParakeetSetup.downloadSize))."
     case .whisperNotSetUp:
         "whisper is not set up yet — ⏎ on Transcript installs it for you."
     case .openAIKeyMissing:
@@ -66,5 +80,9 @@ func phrase(_ advisory: Advisory) -> String {
         "Apple has models for \(count) languages — ⏎ lists them, whisper covers the rest."
     case .bothAudioTracksOff:
         "Both audio tracks are off — this will be a silent video."
+    case .speakersNotSetUp:
+        "The far end will be one voice — ⏎ on Speakers fetches the model that tells them apart."
+    case .accessibilityMissing:
+        "Mute in Teams and Slack is not seen — allow your terminal under Privacy & Security › Accessibility."
     }
 }

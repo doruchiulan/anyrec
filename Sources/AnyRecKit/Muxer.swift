@@ -23,7 +23,8 @@ public struct MuxOutcome: Sendable {
 /// Optional post-pass that folds the separate tracks into one playable file.
 public enum Muxer {
     public static func ffmpegPath() -> String? {
-        ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+        /// A package manager's first, then the one the app fetched itself.
+        ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg", FFmpegSetup.path.path]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
@@ -61,7 +62,10 @@ public enum Muxer {
     public static func mux(_ plan: OutputPlan) throws -> MuxOutcome {
         guard let ffmpeg = ffmpegPath() else { throw MuxError.ffmpegNotFound }
         let mix = decision(for: plan, using: ffmpeg)
-        let (args, output) = try arguments(for: plan, mix: mix)
+        var (args, output) = try arguments(for: plan, mix: mix)
+        let temporary = plan.directory.appendingPathComponent(".merge-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        args[args.count - 1] = temporary.path
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
@@ -79,6 +83,11 @@ public enum Muxer {
 
         guard process.terminationStatus == 0 else {
             throw MuxError.failed(status: process.terminationStatus, log: String(log.suffix(2_000)))
+        }
+        if FileManager.default.fileExists(atPath: output.path) {
+            _ = try FileManager.default.replaceItemAt(output, withItemAt: temporary)
+        } else {
+            try FileManager.default.moveItem(at: temporary, to: output)
         }
         return MuxOutcome(output: output, notes: mix.notes)
     }

@@ -33,4 +33,19 @@ struct OutputPlanTests {
         #expect(plan.microphone.lastPathComponent == "microphone.m4a")
         #expect(plan.directory.lastPathComponent == "call")
     }
+
+    @Test("capture and library use the same key through an output-folder symlink")
+    func directoryIdentity() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-identity-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let physical = root.appendingPathComponent("physical")
+        let alias = root.appendingPathComponent("alias")
+        try FileManager.default.createDirectory(at: physical, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: physical)
+        let plan = try OutputPlan.create(in: alias, named: "rec-2026-10-23-010000")
+        let entry = try #require(RecordingLibrary.entries(in: physical).first)
+        #expect(plan.directory == entry.directory)
+        #expect(Set([plan.directory]).contains(entry.directory))
+        #expect(OutputPlan(directory: URL(fileURLWithPath: entry.directory.path)).directory == entry.directory)
+    }
 }

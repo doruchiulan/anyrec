@@ -1,13 +1,19 @@
 import Foundation
 
-public enum TranscriptionEngine: String, Sendable, Hashable, CaseIterable {
+public enum TranscriptionEngine: String, Sendable, Hashable, CaseIterable, Codable {
     case auto
+    /// On this Mac, in twenty-five languages, with nothing to install: the one `auto`
+    /// reaches for first.
+    case parakeet
     case apple
     case whisper
     case openai
 
     /// The audio leaves the machine. `auto` never picks one of these.
     public var isRemote: Bool { self == .openai }
+
+    /// Tells the language itself, so none is detected for it beforehand.
+    public var hearsLanguage: Bool { self == .parakeet || isRemote }
 }
 
 /// What one engine heard in one track.
@@ -33,30 +39,30 @@ public protocol Transcriber: Sendable {
 
 public enum TranscriptionError: Error, CustomStringConvertible {
     case noAudio
-    case whisperNotFound
     case modelNotFound(URL)
     case ffmpegNotFound
     case engineFailed(engine: String, log: String)
     case unsupportedLanguage(engine: String, language: String)
     case appleUnavailable
     case openAIKeyMissing(URL)
+    case parakeetNotSetUp
 
     /// What would put the error right, when anything would. A fact rather than a
     /// sentence: "run `anyrec` with no arguments" is advice only a terminal can give,
     /// and the same missing model is a button somewhere else.
     public enum Remedy: Sendable, Equatable {
-        case installWhisper
         case downloadModel(into: URL)
         case installFFmpeg
         case provideOpenAIKey(file: URL)
+        case downloadParakeet
     }
 
     public var remedy: Remedy? {
         switch self {
-        case .whisperNotFound: .installWhisper
         case .modelNotFound(let directory): .downloadModel(into: directory)
         case .ffmpegNotFound: .installFFmpeg
         case .openAIKeyMissing(let file): .provideOpenAIKey(file: file)
+        case .parakeetNotSetUp: .downloadParakeet
         default: nil
         }
     }
@@ -66,12 +72,10 @@ public enum TranscriptionError: Error, CustomStringConvertible {
         switch self {
         case .noAudio:
             "No audio track was found to transcribe."
-        case .whisperNotFound:
-            "whisper-cli is not on PATH."
         case .modelNotFound(let directory):
             "No whisper model found in \(directory.path)."
         case .ffmpegNotFound:
-            "ffmpeg is needed to feed whisper."
+            "ffmpeg is needed to mix the tracks."
         case .engineFailed(let engine, let log):
             "\(engine) failed:\n\(log)"
         case .unsupportedLanguage(let engine, let language):
@@ -80,6 +84,8 @@ public enum TranscriptionError: Error, CustomStringConvertible {
             "Apple's on-device transcription needs macOS 26 or later."
         case .openAIKeyMissing:
             "No OpenAI API key."
+        case .parakeetNotSetUp:
+            "Parakeet's model is not downloaded."
         }
     }
 }

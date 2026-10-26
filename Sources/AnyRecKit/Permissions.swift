@@ -106,6 +106,9 @@ public enum Permissions {
             let granted = await AVCaptureDevice.requestAccess(for: .audio)
             if !granted { missing.append(.microphone) }
         }
+        /// Asked for, never required: a recording without it is whole, only deaf to
+        /// the call app's mute button.
+        if needsMicrophone { requestAccessibility() }
 
         guard missing.isEmpty else { throw PermissionsError(missing: missing, host: host) }
     }
