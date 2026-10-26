@@ -46,13 +46,13 @@ public struct AudioEnvelope: Sendable, Equatable {
     {
         let hold = Self.index(at: release)
         var quietUntil = -1
-        let frames = frames.indices.map { index -> Double in
+        let heldFrames = frames.indices.map { index -> Double in
             if index < key.frames.count, key.frames[index] > threshold {
                 quietUntil = index + hold
             }
             return index <= quietUntil ? 0 : frames[index]
         }
-        return AudioEnvelope(frames: frames)
+        return AudioEnvelope(frames: heldFrames)
     }
 
     /// This track with everything outside `spans` silenced.
