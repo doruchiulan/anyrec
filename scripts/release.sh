@@ -52,7 +52,7 @@ tar -czf "$TARBALL" -C "$CLI" bin Frameworks
 
 # `ditto` rather than `zip`, which flattens the symlinks and extended attributes a
 # signed bundle is checked against — the app arrives with a broken signature otherwise.
-"$ROOT/scripts/bundle-app.sh" release >/dev/null
+"$ROOT/scripts/bundle-app.sh" release
 ZIP="$DIST/AnyRec-$VERSION.zip"
 ditto -c -k --keepParent "$DIST/AnyRec.app" "$ZIP"
 

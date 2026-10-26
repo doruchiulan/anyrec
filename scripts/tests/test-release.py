@@ -111,6 +111,31 @@ esac
         self.assertIn('stapler staple AnyRec.app', log)
         self.assertIn('stapler validate AnyRec.app', log)
 
+    def test_release_preserves_app_bundle_failure_output(self):
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        source = self.root / 'Sources/anyrec'
+        source.mkdir(parents=True)
+        (source / 'AnyRec.swift').write_text('version: "1.2.3",\n')
+        shutil.copy(ROOT / 'scripts/release.sh', scripts)
+        (scripts / 'signing.sh').write_text(
+            'SIGN_IDENTITY=test\nnotarize_archive() { return 0; }\n')
+        (scripts / 'embed-whisper.sh').write_text('embed_whisper() { return 0; }\n')
+        bundle = scripts / 'bundle-app.sh'
+        bundle.write_text('#!/bin/bash\necho "app linker failure"\nexit 1\n')
+        bundle.chmod(0o700)
+        binary = self.root / 'anyrec'
+        binary.write_text('fixture')
+        self.env.update(PATH=f'{self.root}:{os.environ["PATH"]}',
+                        TEST_BINARY_DIR=str(self.root), ANYREC_REQUIRE_NOTARIZATION='1')
+        self.tool('swift', 'echo "$TEST_BINARY_DIR"\n')
+        self.tool('codesign', 'exit 0\n')
+        self.tool('ditto', 'touch "${@: -1}"\n')
+        self.tool('tar', 'exit 0\n')
+        result = self.run_command('bash', str(scripts / 'release.sh'), '1.2.3')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('app linker failure', result.stdout + result.stderr)
+
     def test_missing_ci_secrets_stop_before_keychain_creation(self):
         result = self.run_command('bash', str(ROOT / 'scripts/ci-signing.sh'), 'check')
         self.assertNotEqual(result.returncode, 0)
