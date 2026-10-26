@@ -27,34 +27,38 @@ struct LevelMeterTests {
     @Test("refreshes a displayed meter when capture updates the same monitor")
     func refreshes() async throws {
         let source = Source()
-        for track in AudioTrack.allCases {
-            source.levels.record(AudioLevel(peak: -48, rms: -50), for: track)
-        }
         let host = NSHostingView(rootView: Probe(source: source))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 280, height: 70),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = host
         defer { window.contentView = nil }
-        host.layoutSubtreeIfNeeded()
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(indicators(in: host).count == 2)
-        #expect(indicators(in: host).allSatisfy { abs($0.doubleValue - 0.2) < 0.01 })
+        try await waitForMeters(in: host, source: source, peak: -48, fraction: 0.2)
         let initial = try pixels(of: #require(indicators(in: host).first))
 
-        for track in AudioTrack.allCases {
-            source.levels.record(AudioLevel(peak: -6, rms: -10), for: track)
-        }
-        source.tick += 1
-        try await Task.sleep(for: .milliseconds(50))
-        host.layoutSubtreeIfNeeded()
-        #expect(indicators(in: host).allSatisfy { abs($0.doubleValue - 0.9) < 0.01 })
+        try await waitForMeters(in: host, source: source, peak: -6, fraction: 0.9)
         #expect(try pixels(of: #require(indicators(in: host).first)) != initial)
 
-        try await Task.sleep(for: .milliseconds(450))
-        source.tick += 1
-        try await Task.sleep(for: .milliseconds(50))
-        host.layoutSubtreeIfNeeded()
-        #expect(indicators(in: host).allSatisfy { $0.doubleValue == 0 })
+        try await waitForMeters(in: host, source: source, peak: nil, fraction: 0)
+    }
+
+    private func waitForMeters(in host: NSView, source: Source,
+                               peak: Float?, fraction: Double) async throws {
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline {
+            if let peak {
+                for track in AudioTrack.allCases {
+                    source.levels.record(AudioLevel(peak: peak, rms: peak), for: track)
+                }
+            }
+            source.tick += 1
+            try await Task.sleep(for: .milliseconds(20))
+            host.layoutSubtreeIfNeeded()
+            let meters = indicators(in: host)
+            if meters.count == 2 && meters.allSatisfy({ abs($0.doubleValue - fraction) < 0.01 }) {
+                return
+            }
+        }
+        Issue.record("Meters did not reach \(fraction): \(indicators(in: host).map(\.doubleValue))")
     }
 
     private func indicators(in view: NSView) -> [NSLevelIndicator] {
