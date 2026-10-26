@@ -9,6 +9,18 @@ check_secrets() {
         ANYREC_NOTARY_KEY ANYREC_NOTARY_KEY_ID ANYREC_NOTARY_ISSUER_ID; do
         [[ -n "${!name:-}" ]] || { echo "Missing GitHub secret: $name" >&2; return 1; }
     done
+    python3 - <<'PY'
+import os, re
+checks = {
+    'ANYREC_NOTARY_KEY_ID': r'[A-Z0-9]{10}',
+    'ANYREC_NOTARY_ISSUER_ID': r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}',
+}
+for name, pattern in checks.items():
+    if not re.fullmatch(pattern, os.environ[name]):
+        raise SystemExit(f'{name} has an invalid format. Use the value from App Store Connect Team Keys.')
+if '-----BEGIN PRIVATE KEY-----' not in os.environ['ANYREC_NOTARY_KEY']:
+    raise SystemExit('ANYREC_NOTARY_KEY must contain the downloaded .p8 file, not its path.')
+PY
 }
 
 prepare() {
@@ -27,16 +39,21 @@ except ValueError:
 PY
     local password
     password="$(openssl rand -hex 32)"
+    echo 'Creating temporary signing keychain.'
     security create-keychain -p "$password" "$KEYCHAIN" >/dev/null 2>&1
     security set-keychain-settings -lut 21600 "$KEYCHAIN"
     security unlock-keychain -p "$password" "$KEYCHAIN" >/dev/null 2>&1
+    echo 'Importing signing certificate; failure here indicates the .p12 or its password.'
     security import "$SIGNING_DIR/certificate.p12" -k "$KEYCHAIN" \
         -P "$ANYREC_CERTIFICATE_PASSWORD" -t cert -f pkcs12 -T /usr/bin/codesign >/dev/null 2>&1
+    echo 'Certificate imported. Configuring signing access.'
     security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$password" "$KEYCHAIN" >/dev/null 2>&1
     security list-keychains -d user -s "$KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+    echo 'Validating Apple notarization credentials.'
     xcrun notarytool store-credentials anyrec-ci --keychain "$KEYCHAIN" \
         --key "$SIGNING_DIR/notary.p8" --key-id "$ANYREC_NOTARY_KEY_ID" \
         --issuer "$ANYREC_NOTARY_ISSUER_ID" >/dev/null 2>&1
+    echo 'Apple notarization credentials validated.'
     rm "$SIGNING_DIR/certificate.p12" "$SIGNING_DIR/notary.p8"
     printf 'ANYREC_NOTARY_PROFILE=anyrec-ci\nANYREC_NOTARY_KEYCHAIN=%s\n' "$KEYCHAIN" >>"$GITHUB_ENV"
 }

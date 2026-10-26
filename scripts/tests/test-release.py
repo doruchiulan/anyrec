@@ -121,19 +121,28 @@ esac
         self.env.update(RUNNER_TEMP=str(self.root), GITHUB_ENV=str(self.root / 'env'),
                         ANYREC_CERTIFICATE_BASE64='dGVz\ndA==',
                         ANYREC_CERTIFICATE_PASSWORD='synthetic-password',
-                        ANYREC_NOTARY_KEY='synthetic-private-key',
-                        ANYREC_NOTARY_KEY_ID='synthetic-key-id',
-                        ANYREC_NOTARY_ISSUER_ID='synthetic-issuer')
+                        ANYREC_NOTARY_KEY='-----BEGIN PRIVATE KEY-----\nsynthetic-private-key',
+                        ANYREC_NOTARY_KEY_ID='X123456789',
+                        ANYREC_NOTARY_ISSUER_ID='00000000-0000-0000-0000-000000000000')
         script = str(ROOT / 'scripts/ci-signing.sh')
         prepared = self.run_command('bash', script, 'prepare')
         self.assertEqual(prepared.returncode, 0, prepared.stderr)
-        for secret in ['synthetic-password', 'synthetic-private-key', 'synthetic-key-id']:
+        for secret in ['synthetic-password', 'synthetic-private-key', 'X123456789']:
             self.assertNotIn(secret, prepared.stdout + prepared.stderr)
         self.assertIn('ANYREC_NOTARY_PROFILE=anyrec-ci', (self.root / 'env').read_text())
         self.assertFalse((self.root / 'anyrec-signing/certificate.p12').exists())
         self.assertFalse((self.root / 'anyrec-signing/notary.p8').exists())
         self.assertEqual(self.run_command('bash', script, 'cleanup').returncode, 0)
         self.assertFalse((self.root / 'anyrec-signing').exists())
+
+    def test_invalid_issuer_is_rejected_without_disclosing_its_value(self):
+        self.env.update(ANYREC_CERTIFICATE_BASE64='dGVzdA==',
+                        ANYREC_CERTIFICATE_PASSWORD='test', ANYREC_NOTARY_KEY='test',
+                        ANYREC_NOTARY_KEY_ID='X123456789', ANYREC_NOTARY_ISSUER_ID='wrong-issuer')
+        result = self.run_command('bash', str(ROOT / 'scripts/ci-signing.sh'), 'check')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('ANYREC_NOTARY_ISSUER_ID has an invalid format', result.stderr)
+        self.assertNotIn('wrong-issuer', result.stdout + result.stderr)
 
 
 if __name__ == '__main__':
