@@ -136,6 +136,49 @@ esac
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('app linker failure', result.stdout + result.stderr)
 
+    def test_bundle_sets_sdk_metadata_without_linker_overrides(self):
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        source = self.root / 'Sources/anyrec'
+        source.mkdir(parents=True)
+        (source / 'AnyRec.swift').write_text('version: "1.2.3",\n')
+        resources = self.root / 'Resources'
+        resources.mkdir()
+        (resources / 'AppIcon.icns').touch()
+        shutil.copy(ROOT / 'scripts/bundle-app.sh', scripts)
+        (scripts / 'signing.sh').write_text('SIGN_IDENTITY=test\n')
+        (scripts / 'embed-whisper.sh').write_text('embed_whisper() { return 0; }\n')
+        binary = self.root / 'AnyRecBar'
+        fixture = self.root / 'main.c'
+        fixture.write_text('int main(void) { return 0; }')
+        built = self.run_command('xcrun', 'clang', '-arch', 'arm64', '-arch', 'x86_64',
+                                 str(fixture), '-o', str(binary))
+        self.assertEqual(built.returncode, 0, built.stderr)
+        sdk = self.run_command('xcrun', '--sdk', 'macosx', '--show-sdk-version').stdout.strip()
+        self.env.update(PATH=f'{self.root}:{os.environ["PATH"]}',
+                        TEST_BINARY_DIR=str(self.root))
+        self.tool('swift', '''
+for arg in "$@"; do
+    if [[ "$arg" == -platform_version ]]; then
+        echo "clang: error: unknown argument: '-platform_version'" >&2
+        exit 1
+    fi
+done
+if [[ "$*" == *--show-bin-path* ]]; then echo "$TEST_BINARY_DIR"; fi
+''')
+        self.tool('codesign', 'exit 0\n')
+        for configuration in ['debug', 'release']:
+            with self.subTest(configuration=configuration):
+                result = self.run_command('bash', str(scripts / 'bundle-app.sh'), configuration)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                app_binary = self.root / 'dist/AnyRec.app/Contents/MacOS/AnyRec'
+                for architecture in ['arm64', 'x86_64']:
+                    info = self.run_command('xcrun', 'vtool', '-arch', architecture,
+                                            '-show-build', str(app_binary))
+                    self.assertEqual(info.returncode, 0, info.stderr)
+                    self.assertRegex(info.stdout, r'minos\s+15\.2')
+                    self.assertIn(f'sdk {sdk}', info.stdout)
+
     def test_missing_ci_secrets_stop_before_keychain_creation(self):
         result = self.run_command('bash', str(ROOT / 'scripts/ci-signing.sh'), 'check')
         self.assertNotEqual(result.returncode, 0)

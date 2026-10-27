@@ -22,21 +22,19 @@ else
 	build() { swift build -c "$CONFIG" "$@"; }
 fi
 
-# SwiftPM records the deployment target as the SDK the binary was built with, and
-# macOS 26 gives its current design — Liquid Glass toolbars, floating toolbar items,
-# the sidebar — only to apps built against SDK 26 or later. Everything else runs in a
-# compatibility mode that draws a flat band across the top of the window. So the SDK
-# actually used is written into the binary; the deployment target stays where it is.
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
-LINK_SDK=(-Xlinker -platform_version -Xlinker macos -Xlinker 15.2 -Xlinker "$SDK_VERSION")
 
-build --product AnyRecBar "${LINK_SDK[@]}"
-BIN="$(build "${LINK_SDK[@]}" --show-bin-path)/AnyRecBar"
+build --product AnyRecBar
+BIN="$(build --show-bin-path)/AnyRecBar"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/AnyRec"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
+# SwiftPM can record the deployment target as the SDK, disabling current macOS styling.
+xcrun vtool -set-build-version macos 15.2 "$SDK_VERSION" -replace \
+	-output "$APP/Contents/MacOS/AnyRec" "$APP/Contents/MacOS/AnyRec"
 
 # whisper.cpp is linked as a framework, which the binary looks for on its rpath. Into the
 # bundle it goes, with an rpath that points there instead of into .build.
