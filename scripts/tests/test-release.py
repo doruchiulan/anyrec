@@ -1,4 +1,6 @@
+import hashlib
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -178,6 +180,51 @@ if [[ "$*" == *--show-bin-path* ]]; then echo "$TEST_BINARY_DIR"; fi
                     self.assertEqual(info.returncode, 0, info.stderr)
                     self.assertRegex(info.stdout, r'minos\s+15\.2')
                     self.assertIn(f'sdk {sdk}', info.stdout)
+
+    def verification_fixture(self):
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        shutil.copy(ROOT / 'scripts/verify-release.sh', scripts)
+        dist = self.root / 'dist'
+        contents = dist / 'AnyRec.app/Contents'
+        contents.mkdir(parents=True)
+        (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleShortVersionString': '1.2.3'}))
+        binary = self.root / 'bin/anyrec'
+        binary.parent.mkdir()
+        binary.write_text('#!/bin/bash\necho 1.2.3\n')
+        binary.chmod(0o700)
+        archive = dist / 'AnyRec-1.2.3.zip'
+        tarball = dist / 'anyrec-1.2.3-universal.tar.gz'
+        self.assertEqual(self.run_command('ditto', '-c', '-k', '--keepParent',
+                                          str(contents.parent), str(archive)).returncode, 0)
+        self.assertEqual(self.run_command('tar', '-czf', str(tarball), '-C',
+                                          str(self.root), 'bin').returncode, 0)
+        (dist / 'SHA256SUMS').write_text(''.join(
+            f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in [archive, tarball]))
+        self.env.update(PATH=f'{self.root}:{os.environ["PATH"]}', ANYREC_REQUIRE_NOTARIZATION='1',
+                        TEST_CALL_LOG=str(self.root / 'calls'))
+        self.tool('lipo', 'exit 0\n')
+        self.tool('xcrun', 'exit 0\n')
+        self.tool('codesign', '''
+echo "$*" >>"$TEST_CALL_LOG"
+if [[ "$*" == *--check-notarization* ]]; then exit "${TEST_NOTARY_EXIT:-0}"; fi
+''')
+        self.tool('spctl', '''
+if [[ "${@: -1}" != *.app ]]; then
+    echo 'rejected (the code is valid but does not seem to be an app)' >&2
+    exit 3
+fi
+''')
+
+    def test_verifies_cli_notarization_without_assessing_it_as_an_app(self):
+        self.verification_fixture()
+        script = str(self.root / 'scripts/verify-release.sh')
+        result = self.run_command('bash', script, '1.2.3')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = (self.root / 'calls').read_text()
+        self.assertIn('--check-notarization -R=notarized', calls)
+        self.env['TEST_NOTARY_EXIT'] = '3'
+        self.assertNotEqual(self.run_command('bash', script, '1.2.3').returncode, 0)
 
     def test_missing_ci_secrets_stop_before_keychain_creation(self):
         result = self.run_command('bash', str(ROOT / 'scripts/ci-signing.sh'), 'check')

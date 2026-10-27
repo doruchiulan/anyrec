@@ -34,5 +34,5 @@ CLI_VERSION="$("$SCRATCH/cli/bin/anyrec" --version)" || {
 if [[ "${ANYREC_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
     xcrun stapler validate "$APP"
     spctl --assess --type execute "$APP"
-    spctl --assess --type execute "$SCRATCH/cli/bin/anyrec"
+    codesign --verify --strict --check-notarization -R=notarized "$SCRATCH/cli/bin/anyrec"
 fi
