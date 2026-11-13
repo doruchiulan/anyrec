@@ -18,9 +18,9 @@ struct AnyRec: AsyncParsableCommand {
         a courtesy, it is the law: say it out loud or post it in the channel before \
         you start.
         """,
-        version: "0.4.0",
+        version: "0.5.0",
         subcommands: [
-            Tui.self, Record.self, Transcribe.self, Speakers.self, Sources.self, Doctor.self,
+            Tui.self, Record.self, Transcribe.self, Speakers.self, Sources.self, Doctor.self, MCPCommand.self,
         ],
         defaultSubcommand: Tui.self
     )

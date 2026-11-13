@@ -64,7 +64,8 @@ extension TranscriptionService {
             : (primary.utterances, nil)
         let attributed = Transcript(utterances: lines, language: primary.language, engine: primary.engine,
                                    notes: primary.notes + failures.map { "Engine unavailable: \($0)" })
-        return TranscriptionCandidates(primary: Transcribed(transcript: attributed, voices: voices),
+        let named = ParticipantAttribution.apply(voices, lines: lines, evidence: job.participants)
+        return TranscriptionCandidates(primary: Transcribed(transcript: attributed, voices: named),
                                        transcripts: transcripts, failures: failures)
     }
 }

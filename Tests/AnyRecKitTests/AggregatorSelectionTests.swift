@@ -34,7 +34,7 @@ struct AggregatorSelectionTests {
         options.enabledEngines.insert(.openai)
         #expect(options.engines(preferred: .openai, available: [.whisper, .openai]) == [.whisper])
         options.aggregatorEngines.insert(.openai)
-        #expect(options.engines(preferred: .openai, available: [.whisper, .openai]) == [.openai, .whisper])
+        #expect(options.engines(preferred: .openai, available: [.whisper, .openai]) == [.whisper, .openai])
     }
 
     @Test("legacy settings preserve participants and all other options")

@@ -29,7 +29,21 @@ struct TranscriptionOptionsTests {
         #expect(try JSONDecoder().decode(TranscriptionOptions.self, from: JSONEncoder().encode(options)) == options)
     }
 
-    @Test("engines overlap, retain preferred order and isolate a failed engine")
+    @Test("Aggregator order ignores the previous engine", arguments: TranscriptionEngine.allCases)
+    func fixedOrder(previous: TranscriptionEngine) {
+        var options = TranscriptionOptions()
+        options.parallel = true
+        options.enabledEngines = [.parakeet, .apple, .whisper, .openai]
+        options.aggregatorEngines = options.enabledEngines
+        let available = options.enabledEngines
+        #expect(options.engines(preferred: previous, available: available) == [.parakeet, .apple, .whisper, .openai])
+        options.review = true
+        #expect(options.engines(preferred: previous, available: available) == [.parakeet, .apple, .whisper, .openai])
+        options.aggregatorEngines = [.whisper, .openai]
+        #expect(options.engines(preferred: previous, available: available) == [.whisper, .openai])
+    }
+
+    @Test("engines overlap, retain requested order and isolate a failed engine")
     func parallel() async throws {
         let gate = StartGate()
         let engines: [TranscriptionEngine] = [.whisper, .parakeet, .apple]

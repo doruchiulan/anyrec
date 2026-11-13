@@ -96,6 +96,23 @@ timestamps when supported by the transcript. Custom instructions cannot remove
 those requirements or replace the structured result with free-form text. Validate
 the output structure; allow empty lists when no decisions or actions were agreed.
 
+## Live meeting summary
+
+Show a running summary during recording so users can catch up on the discussion
+without waiting for the call to end.
+
+- Use one fast transcription engine to process incoming audio incrementally.
+- Periodically send new transcript passages and earlier meeting context to the
+  selected LLM to update key points, decisions and action items.
+- Mark live notes as provisional and revise them when participants change a
+  decision or later speech clarifies an earlier point.
+- After the call, run the existing transcription, optional Aggregator and review,
+  and final summary pipeline over the complete recording.
+- Make live summarization opt-in and explain when text goes to a cloud provider.
+
+Update frequency, context retention, provider cost and recording performance
+need evaluation. Parked for later; no implementation started.
+
 ## Speaker export and a shared speaker database
 
 The local voice library already matches named voices across recordings and supports
@@ -112,18 +129,16 @@ open design choice.
 
 ## MCP server for agents
 
-Expose AnyRec's inference pipeline through an MCP server so agents can reuse its
-installed models and configured providers.
+Implemented as a read-only library server, started explicitly with `anyrec mcp`.
+Agents can list meetings, search saved content, and read transcripts, participants,
+summaries, decisions and action items. Results use the selected transcript
+generation and include timestamps and name provenance where available.
 
-- Transcribe supplied audio or existing recordings, separate speakers and match
-  known voices, and generate summaries with decisions and action items.
-- Return structured results with timestamps and speaker identities, plus job
-  progress and cancellation for longer runs.
-- Reuse the app's engine selection and processing pipeline so agent requests
-  produce consistent results without a separate inference implementation.
-- Make access opt-in and identify when a request will use a cloud provider.
+The server cannot record, transcribe, regenerate, edit, delete or invoke inference.
+It uses local stdio and reads only the configured recordings folder. No audio,
+video, voiceprints or provider credentials are exposed.
 
-Transport, access controls and the initial tool set remain design choices.
+See [MCP setup and tools](mcp.md).
 
 ## iPad app
 

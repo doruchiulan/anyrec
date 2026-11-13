@@ -24,7 +24,7 @@ public enum TranscriptPass {
         do {
             let job = TranscriptionService.Job(
                 tracks: TranscriptionService.tracks(in: plan), engine: engine,
-                live: MicrophoneLive.read(plan.microphoneLive)
+                live: MicrophoneLive.read(plan.microphoneLive), participants: CallParticipants.read(in: plan.directory)
             )
             if let options { return try await reviewed(job, plan: plan, options: options, progress: progress) }
             let transcribed = try await TranscriptionService.run(job, progress: progress)

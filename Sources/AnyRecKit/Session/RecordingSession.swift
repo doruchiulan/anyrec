@@ -54,6 +54,7 @@ public final class RecordingSession {
     /// The window's own app is watched alongside the known ones, so a call in
     /// something unlisted still gets its mute read.
     private let microphone: MicrophoneLive.Monitor
+    private let participants: ParticipantMonitor
 
     public var levels: LevelMonitor { recorder.levels }
     public var captureEnded: Bool { recorder.captureEnded }
@@ -88,6 +89,15 @@ public final class RecordingSession {
         self.recorder = recorder
         microphone = MicrophoneLive.Monitor(
             watching: CallApps.watchList(including: target.bundleID))
+        let isDisplay: Bool
+        if case .display? = configuration.capture?.target { isDisplay = true } else { isDisplay = false }
+        let window = isDisplay ? nil : target.filter.includedWindows.first
+        let selection = window.flatMap { window -> ParticipantAccessibility.Selection? in
+            guard let owner = window.owningApplication else { return nil }
+            return .init(processID: owner.processID, windowID: window.windowID, bundleID: owner.bundleIdentifier)
+        }
+        participants = ParticipantMonitor(selection: selection, allowDiscovery: isDisplay,
+                                          clock: { [weak recorder] in recorder?.timelineTime })
     }
 
     public static func start(
@@ -108,6 +118,7 @@ public final class RecordingSession {
         try await session.recorder.start()
         session.startedAt = Date()
         session.microphone.start()
+        session.participants.start()
         return session
     }
 
@@ -129,8 +140,12 @@ public final class RecordingSession {
     public func finishCapture() async throws -> CapturedRecording {
         stoppedAt = Date()
         let live = microphone.stop()
+        let evidence = participants.stop()
         let summary = try await recorder.stop()
         try? live?.write(to: plan.microphoneLive)
+        if evidence.observations.contains(where: { !$0.participants.isEmpty }) {
+            try? evidence.write(in: plan.directory)
+        }
         return CapturedRecording(summary: summary, microphoneLive: live)
     }
 

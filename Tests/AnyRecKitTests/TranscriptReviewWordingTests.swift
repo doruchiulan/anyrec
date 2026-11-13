@@ -37,6 +37,21 @@ struct TranscriptReviewWordingTests {
         #expect(reviewed.review.sources.first?.utterances == primary.utterances)
     }
 
+    @Test("live review combines complementary recognition evidence regardless of reference engine",
+          .enabled(if: ProcessInfo.processInfo.environment["ANYREC_LIVE_REVIEW_TEST"] == "1"),
+          arguments: ["parakeet", "whisper"])
+    func combinedWording(reference: String) async throws {
+        let first = transcript(["The cache stores API responses.", "We'll deploy the cash service on Monday."], engine: "parakeet")
+        let second = transcript(["The cache stores API responses.", "We'll deploy the cache service on money."], engine: "whisper")
+        let primary = reference == "parakeet" ? first : second
+        let candidates = TranscriptionCandidates(primary: .init(transcript: primary, voices: nil),
+                                                  transcripts: [first, second], failures: [])
+        let reviewed = try await TranscriptReviewer.review(candidates, using: .claude)
+        #expect(words(reviewed.transcript.utterances[1].text) == words("We'll deploy the cache service on Monday."))
+        #expect(reviewed.transcript.utterances.map(\.start) == primary.utterances.map(\.start))
+        #expect(reviewed.transcript.utterances.map(\.speaker) == primary.utterances.map(\.speaker))
+    }
+
     private func transcript(_ texts: [String], engine: String) -> Transcript {
         Transcript(utterances: texts.enumerated().map { index, text in
             Utterance(start: Double(index * 5), end: Double(index * 5 + 4), text: text, speaker: .me)

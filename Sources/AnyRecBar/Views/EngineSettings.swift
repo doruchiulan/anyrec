@@ -77,8 +77,8 @@ struct TranscriptReviewSettings: View {
             Text("Transcript Review")
         } footer: {
             Text(controller.transcriptionOptions.review
-                ? "Transcript text is sent to \(controller.transcriptionOptions.reviewProvider.company) to correct recognition errors and suggest speaker names. Aggregator results are compared. Originals are kept; names need your confirmation."
-                : "Optional correction and speaker-name suggestions. Choose Aggregator above to let the reviewer compare transcripts.")
+                ? "Transcript text and speaker-name evidence are sent to \(controller.transcriptionOptions.reviewProvider.company). Review corrects recognition errors and resolves conflicting speaker names automatically. Aggregator combines wording from all sources while preserving how people spoke. Originals are kept; saved voiceprints stay unchanged."
+                : "Optional transcript correction and automatic speaker conflict resolution. Choose Aggregator above to let the reviewer compare transcripts.")
                 .settingsFooter()
         }
     }

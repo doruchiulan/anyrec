@@ -71,10 +71,19 @@ public final class Recorder: NSObject {
     private var stream: SCStream?
     private var writers: [SCStreamOutputType: TrackWriter] = [:]
     private var sessionStart: CMTime?
+    private var timelineAnchor: (seconds: TimeInterval, uptime: TimeInterval)?
     private var failure: Error?
     private var streamFailure: Error?
 
     public var captureEnded: Bool { queue.sync { streamFailure != nil } }
+
+    var timelineTime: TimeInterval? {
+        queue.sync {
+            guard let anchor = timelineAnchor else { return nil }
+            let age = ProcessInfo.processInfo.systemUptime - anchor.uptime
+            return age <= 1.5 ? anchor.seconds + age : nil
+        }
+    }
 
     public init(options: CaptureOptions, target: ResolvedTarget, plan: OutputPlan) {
         self.options = options
@@ -225,6 +234,10 @@ extension Recorder: SCStreamOutput {
             let presentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             let start = sessionStart ?? presentation
             sessionStart = start
+            let seconds = CMTimeGetSeconds(presentation - start)
+            if seconds.isFinite, seconds >= (timelineAnchor?.seconds ?? 0) {
+                timelineAnchor = (seconds, ProcessInfo.processInfo.systemUptime)
+            }
             track.append(sampleBuffer, sessionStart: start)
         } catch {
             failure = failure ?? error

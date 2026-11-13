@@ -33,6 +33,7 @@ public enum TranscriptReviewer {
     public struct Reviewed: Sendable {
         public let transcript: Transcript
         public let review: TranscriptReview
+        public var voices: RecordingVoices? = nil
     }
 
     typealias Completion = @Sendable (String, String, SummaryProvider) async throws -> String
@@ -65,18 +66,23 @@ public enum TranscriptReviewer {
             suggestions += reply.suggestions
             changes += reply.speakerChanges.compactMap { $0.validated(in: original, range: range) }
         }
-        let unnamed = Set(candidates.primary.voices?.unnamed.map(\.letter) ?? [])
+        if candidates.primary.voices?.voices.contains(where: { $0.identityEvidence?.conflict == true }) == true {
+            progress("Resolving speaker identities with \(provider.name)…")
+        }
+        let transcript = Transcript(utterances: lines, language: original.language, engine: "reviewed",
+                                    notes: original.notes + ["Reviewed with \(provider.name); original transcripts retained."])
+        let voices = try await SpeakerIdentityReview.resolve(candidates.primary.voices, transcript: transcript,
+            suggestions: suggestions, using: provider, complete: complete)
+        let unnamed = Set(voices?.unnamed.map(\.letter) ?? [])
         let unambiguous = suggestions.filter { suggestion in
             unnamed.contains(suggestion.letter)
                 && Set(suggestions.filter { $0.letter == suggestion.letter }.map(\.name)).count == 1
         }
         var seen = Set<String>()
         let accepted = unambiguous.filter { seen.insert($0.letter).inserted }
-        let transcript = Transcript(utterances: lines, language: original.language, engine: "reviewed",
-                                    notes: original.notes + ["Reviewed with \(provider.name); original transcripts retained."])
         return Reviewed(transcript: transcript, review: TranscriptReview(provider: provider,
             sources: [original] + candidates.transcripts.filter { $0.engine != original.engine },
-            suggestions: accepted, failures: candidates.failures, speakerChanges: uniqueChanges(changes)))
+            suggestions: accepted, failures: candidates.failures, speakerChanges: uniqueChanges(changes)), voices: voices)
     }
 
     private static func uniqueChanges(_ changes: [SpeakerCorrection]) -> [SpeakerCorrection] {

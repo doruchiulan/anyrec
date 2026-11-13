@@ -40,7 +40,7 @@ private struct TranscriptSourcesView: View {
             Text("Source Transcripts").font(.title2.bold())
             Picker("Engine", selection: $selected) {
                 ForEach(Array(review.sources.enumerated()), id: \.offset) { index, source in
-                    Text(source.engine.capitalized + (index == 0 ? " · Original" : "")).tag(index)
+                    Text(source.engine.capitalized + (index == 0 ? " · Timing reference" : "")).tag(index)
                 }
             }
             ScrollView {
@@ -73,6 +73,14 @@ struct SpeakerNamingCard: View {
                 Text("“\(voice.sample)”").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 TextField("Name speaker \(voice.letter)…", text: $name)
                     .textFieldStyle(.roundedBorder).controlSize(.small)
+                if let evidence = voice.identityEvidence, evidence.conflict {
+                    Text("Speaker identity is uncertain").font(.caption.bold())
+                    if let saved = evidence.voiceprintName {
+                        Text("Saved voice: \(saved)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("Call indicator: \(evidence.callNames.joined(separator: ", "))")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let suggestion {
                     Text("Suggested: \(suggestion.name)").font(.caption.bold())
                     Text("“\(suggestion.quote)”").font(.caption).foregroundStyle(.secondary)

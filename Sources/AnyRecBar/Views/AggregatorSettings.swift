@@ -19,7 +19,7 @@ struct AggregatorSettings: View {
         } header: {
             Text("Aggregator engines")
         } footer: {
-            Text("Selected engines run together. Unchecked engines remain available individually. Transcript review can combine the results.")
+            Text("Selected engines run together; unchecked engines remain available individually. Review combines all sources. Without review, fallback order is Parakeet, Apple, Whisper, then OpenAI, using only selected, available engines.")
                 .settingsFooter()
         }
     }

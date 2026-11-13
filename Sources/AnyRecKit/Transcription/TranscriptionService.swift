@@ -22,10 +22,12 @@ public enum TranscriptionService {
         /// When the call could hear the microphone, if anything watched. Nil leaves
         /// the microphone alone.
         public var live: MicrophoneLive?
+        public var participants: CallParticipants?
 
         public init(
             tracks: [Track], engine: TranscriptionEngine = .auto, language: String? = nil,
-            model: URL? = nil, diarize: Bool = true, live: MicrophoneLive? = nil
+            model: URL? = nil, diarize: Bool = true, live: MicrophoneLive? = nil,
+            participants: CallParticipants? = nil
         ) {
             self.tracks = tracks
             self.engine = engine
@@ -33,6 +35,7 @@ public enum TranscriptionService {
             self.model = model
             self.diarize = diarize
             self.live = live
+            self.participants = participants
         }
     }
 
@@ -90,7 +93,8 @@ public enum TranscriptionService {
         let transcript = try await recognize(job, source: source, progress: progress)
         let (lines, voices) = await separate(transcript, in: source, useDiarization: job.diarize, progress: progress)
         return Transcribed(transcript: Transcript(utterances: lines, language: transcript.language,
-                           engine: transcript.engine, notes: transcript.notes), voices: voices)
+                           engine: transcript.engine, notes: transcript.notes),
+                           voices: ParticipantAttribution.apply(voices, lines: lines, evidence: job.participants))
     }
 
     static func recognize(_ job: Job, source: Source, progress: @Sendable (String) -> Void) async throws -> Transcript {

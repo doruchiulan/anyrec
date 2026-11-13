@@ -233,6 +233,7 @@ truncated `.mov`.
 | `speakers` | Put names to the voices in a transcript. They are remembered for the next call. |
 | `sources` | Everything capturable — windows, displays, microphones — with the ids the flags take. |
 | `doctor` | Permissions, ffmpeg, transcription engines, call apps with a window open. |
+| `mcp` | Read-only MCP access to saved meetings, transcripts, participants and summaries. [Setup and tools](docs/mcp.md). |
 
 | Flag | Default | |
 |---|---|---|

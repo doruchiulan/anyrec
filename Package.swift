@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "AnyRecKit", targets: ["AnyRecKit"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", exact: "0.12.1"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         /// On-device speaker diarization (pyannote community-1 on CoreML) and the
         /// voiceprints that let a voice be named across calls. Nothing it does leaves
@@ -38,6 +39,7 @@ let package = Package(
             dependencies: [
                 "AnyRecKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "MCP", package: "swift-sdk"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

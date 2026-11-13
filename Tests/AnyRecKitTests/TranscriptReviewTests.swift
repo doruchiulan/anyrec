@@ -22,6 +22,23 @@ struct TranscriptReviewTests {
         #expect(candidates.primary.voices?.names.isEmpty == true)
     }
 
+    @Test("Every engine is supplied as a peer alongside a separate speaker timeline")
+    func allSources() throws {
+        let fixture = fixture()
+        let apple = Transcript(utterances: [Utterance(start: 0, end: 6, text: "A third recognition")],
+                               language: "en", engine: "apple")
+        let candidates = TranscriptionCandidates(primary: fixture.primary,
+            transcripts: fixture.transcripts + [apple], failures: [])
+        let input = try ReviewPrompt.input(candidates, range: 0..<2)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: Any])
+        let sources = try #require(object["sources"] as? [[String: Any]])
+        #expect(Set(sources.compactMap { $0["engine"] as? String }) == ["parakeet", "whisper", "apple"])
+        #expect(sources.allSatisfy { !($0["lines"] as? [[String: Any]] ?? []).isEmpty })
+        let timeline = try #require(object["timeline"] as? [[String: Any]])
+        #expect(timeline.compactMap { $0["speaker"] as? String } == ["Speaker A", "Speaker B"])
+        #expect(object["primary"] == nil && object["alternatives"] == nil)
+    }
+
     @Test("missing, duplicate, unknown or empty line IDs reject the whole review")
     func invalidStructure() {
         let original = fixture().primary.transcript
@@ -51,9 +68,9 @@ struct TranscriptReviewTests {
         let candidates = TranscriptionCandidates(primary: .init(transcript: transcript, voices: nil), transcripts: [transcript], failures: [])
         let result = try await TranscriptReviewer.review(candidates, using: .claude, progress: { _ in }) { _, input, _ in
             let object = try #require(JSONSerialization.jsonObject(with: Data(input.utf8)) as? [String: Any])
-            let primary = try #require(object["primary"] as? [[String: Any]])
-            #expect(primary.count <= 30)
-            let lines = primary.map { ["id": $0["id"]!, "text": $0["text"]!] }
+            let timeline = try #require(object["timeline"] as? [[String: Any]])
+            #expect(timeline.count <= 30)
+            let lines = timeline.map { ["id": $0["id"]!, "text": $0["text"]!] }
             return String(decoding: try JSONSerialization.data(withJSONObject: ["lines": lines, "suggestions": [], "speakerChanges": []]), as: UTF8.self)
         }
         #expect(result.transcript.utterances == lines)

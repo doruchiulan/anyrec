@@ -1,5 +1,11 @@
 # Third-party notices
 
+## MCP server
+
+The read-only CLI server uses the [official Swift MCP SDK](https://github.com/modelcontextprotocol/swift-sdk),
+pinned to 0.12.1. Its [license](https://github.com/modelcontextprotocol/swift-sdk/blob/0.12.1/LICENSE)
+covers Apache-2.0 contributions and contributions that remain under MIT.
+
 ## Speaker models
 
 Telling the far end's voices apart uses [FluidAudio](https://github.com/FluidInference/FluidAudio)

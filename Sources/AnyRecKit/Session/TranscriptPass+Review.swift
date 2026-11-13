@@ -34,12 +34,15 @@ extension TranscriptPass {
             suggestions: [], failures: candidates.failures)
         var files = try TranscriptStore.publish(primary.transcript, voices: primary.voices, in: directory, review: source)
         var notes = primary.transcript.notes
+        var voices = primary.voices
         if options.review {
             do {
                 let reviewed = try await review(candidates, options.reviewProvider)
                 try Task.checkCancellation()
-                files = try TranscriptStore.publish(reviewed.transcript, voices: primary.voices,
+                let resolvedVoices = reviewed.voices ?? primary.voices
+                files = try TranscriptStore.publish(reviewed.transcript, voices: resolvedVoices,
                                                     in: directory, review: reviewed.review)
+                voices = resolvedVoices
                 notes = reviewed.transcript.notes
             } catch {
                 let message = "Transcript review failed; original kept. \(error)"
@@ -53,6 +56,6 @@ extension TranscriptPass {
                 progress(message)
             }
         }
-        return .written(files: files, notes: notes, voices: primary.voices)
+        return .written(files: files, notes: notes, voices: voices)
     }
 }

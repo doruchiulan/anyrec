@@ -10,6 +10,7 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
         public let end: TimeInterval
         /// Nil until someone says, or a voiceprint in the library matches.
         public var name: String?
+        public var identityEvidence: SpeakerIdentityEvidence?
 
         public init(
             letter: String, print: Voiceprint, sample: String, start: TimeInterval,
@@ -45,6 +46,7 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
         guard let index = voices.firstIndex(where: { $0.letter == letter }) else { return }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         voices[index].name = name.isEmpty ? nil : name
+        voices[index].identityEvidence = nil
     }
 
     public static func read(_ url: URL) -> RecordingVoices? {

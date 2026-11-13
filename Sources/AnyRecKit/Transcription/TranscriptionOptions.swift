@@ -28,7 +28,7 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
 
     public func engines(preferred: TranscriptionEngine, available: Set<TranscriptionEngine>) -> [TranscriptionEngine] {
         let enabled = enabledEngines.intersection(available).subtracting([.auto])
-        let order = [preferred] + [.parakeet, .apple, .whisper, .openai].filter { $0 != preferred }
+        let order: [TranscriptionEngine] = [.parakeet, .apple, .whisper, .openai]
         if parallel { return order.filter { enabled.contains($0) && aggregatorEngines.contains($0) } }
         if preferred != .auto { return enabled.contains(preferred) ? [preferred] : [] }
         return Array(order.filter { enabled.contains($0) && !$0.isRemote }.prefix(1))

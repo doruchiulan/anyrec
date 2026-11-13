@@ -14,9 +14,9 @@ enum TranscriptionMode: Hashable, CaseIterable {
         }
     }
 
-    func preferredEngine(_ fallback: TranscriptionEngine) -> TranscriptionEngine {
+    var preferredEngine: TranscriptionEngine {
         if case .engine(let engine) = self { return engine }
-        return fallback
+        return .auto
     }
 
     func options(from defaults: TranscriptionOptions) -> TranscriptionOptions {
@@ -42,8 +42,9 @@ enum TranscriptionMode: Hashable, CaseIterable {
             let names = engines.map(Wording.engineName).joined(separator: ", ")
             let run = engines.count > 1 ? "Runs \(names) together." : "Runs \(names), the only selected engine currently available."
             let location = engines.contains(.openai) ? " Audio is sent to OpenAI." : " Audio stays on this Mac."
-            let primary = !review ? " Uses \(engines.first.map(Wording.engineName) ?? "the first engine") for the final transcript." : ""
-            return run + location + primary
+            let result = review ? " Review combines the best-supported wording from all sources."
+                : " Without review, uses the first successful, nonempty transcript in this order."
+            return run + location + result
         }
     }
 

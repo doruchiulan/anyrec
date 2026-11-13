@@ -14,7 +14,7 @@ struct TranscriptionModeTests {
         defaults.aggregatorEngines = [.parakeet, .apple]
         let mode = TranscriptionMode.engine(.whisper)
         let options = mode.options(from: defaults)
-        #expect(options.engines(preferred: mode.preferredEngine(.parakeet),
+        #expect(options.engines(preferred: mode.preferredEngine,
                                 available: [.parakeet, .whisper]) == [.whisper])
         #expect(defaults.parallel)
         #expect(options.review && options.reviewProvider == .codex && !options.identifySpeakers)
@@ -29,7 +29,7 @@ struct TranscriptionModeTests {
         defaults.enabledEngines = [.whisper, .openai]
         let mode = TranscriptionMode.engine(.auto)
         let options = mode.options(from: defaults)
-        #expect(options.engines(preferred: mode.preferredEngine(.openai),
+        #expect(options.engines(preferred: mode.preferredEngine,
                                 available: [.whisper, .openai]) == [.whisper])
         #expect(options.engines(preferred: .auto, available: [.openai]).isEmpty)
     }
@@ -41,7 +41,8 @@ struct TranscriptionModeTests {
         defaults.aggregatorEngines = [.parakeet, .apple]
         let mode = TranscriptionMode.aggregator
         let options = mode.options(from: defaults)
-        #expect(options.engines(preferred: mode.preferredEngine(.whisper),
+        #expect(mode.preferredEngine == .auto)
+        #expect(options.engines(preferred: mode.preferredEngine,
                                 available: [.apple, .parakeet, .whisper]) == [.parakeet])
         #expect(!defaults.parallel)
     }

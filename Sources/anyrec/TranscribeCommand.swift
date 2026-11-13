@@ -59,7 +59,8 @@ struct Transcribe: AsyncParsableCommand {
             language: language,
             model: model.map { URL(filePath: $0.expandingTilde) },
             diarize: diarize,
-            live: MicrophoneLive.read(OutputPlan(directory: directory).microphoneLive)
+            live: MicrophoneLive.read(OutputPlan(directory: directory).microphoneLive),
+            participants: CallParticipants.read(in: directory)
         )
 
         let started = Date()
