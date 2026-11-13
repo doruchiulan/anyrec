@@ -1,19 +1,18 @@
-# Reference copy. The live formula is in github.com/doruchiulan/homebrew-tap;
-# on each release, bump the url and paste the sha256 scripts/release.sh prints.
-# Homebrew clears the quarantine flag on formula installs, so users never see
-# the "unidentified developer" dialog.
+# Reference copy of github.com/doruchiulan/homebrew-tap/Formula/anyrec.rb.
 class Anyrec < Formula
-  desc "Record any window or display: video, system audio and microphone as separate tracks"
+  desc "Record calls with video, system audio, microphone and transcripts"
   homepage "https://github.com/doruchiulan/anyrec"
-  url "https://github.com/doruchiulan/anyrec/releases/download/v0.3.0/anyrec-0.3.0-universal.tar.gz"
-  sha256 "1377b53e61e6e5ca6ce023bc1d343a820ca187d844b99a273f0d2a557191ed24"
+  url "https://github.com/doruchiulan/anyrec/releases/download/v0.5.0/anyrec-0.5.0-universal.tar.gz"
+  sha256 "26f0186bd940a685e54be02e17e2d20110d2e2ceadc7eb841555eea92672650c"
   license "MIT"
 
   # SCStreamConfiguration.captureMicrophone is a Sequoia API with no fallback.
   depends_on macos: :sequoia
 
+  # The signed binary resolves whisper.framework relative to its executable.
   def install
-    bin.install "anyrec"
+    bin.install "bin/anyrec"
+    prefix.install "Frameworks"
   end
 
   def caveats
@@ -29,8 +28,8 @@ class Anyrec < Formula
         anyrec doctor
 
       Recordings land in ~/Desktop/AnyRec Recordings. ffmpeg is what merges the
-      three tracks into a playable call.mp4; without it you still get the tracks,
-      but screen.mov has no audio of its own:
+      three tracks into a playable call.mp4; run anyrec with no arguments and
+      ⏎ on Transcript fetches it along with Parakeet, the on-device engine, or:
 
         brew install ffmpeg
     EOS

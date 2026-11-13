@@ -1,49 +1,35 @@
-# Reference copy. The live cask is in github.com/doruchiulan/homebrew-tap;
-# on each release, bump the version and paste the zip's sha256 that
-# scripts/release.sh prints.
-#
-# The token is anyrec-app, not anyrec: a cask and a formula sharing one token in a
-# tap conflict, and installing the cask then leaves the CLI unlinked.
-#
-# Casks quarantine what they install — that is what `--no-quarantine` exists to
-# turn off — so the app this points at has to be notarised. Formulae are the ones
-# that install unquarantined, which is why anyrec's CLI never needed it.
+# Reference copy of github.com/doruchiulan/homebrew-tap/Casks/anyrec-app.rb.
 cask "anyrec-app" do
-  version "0.3.0"
-  sha256 "b49fd8d5fd6705c4eafe438f046ddeba6fa78513186686c8aaea2903c7476184"
+  version "0.5.0"
+  sha256 "6dc2f6f817e3dcc1ca5efddc6bddd3ef18f6c9dd408a4e3e1efb9306a4ea502c"
 
   url "https://github.com/doruchiulan/anyrec/releases/download/v#{version}/AnyRec-#{version}.zip"
   name "AnyRec"
-  desc "Record any window or display: video, system audio and microphone as separate tracks"
+  desc "Record calls with video, system audio, microphone and transcripts"
   homepage "https://github.com/doruchiulan/anyrec"
 
-  # SCContentFilter only reports what is in it from 15.2, which is how the picker
-  # reads a selection back.
-  depends_on macos: ">= :sequoia"
+  # Reading the capture picker selection requires macOS 15.2.
+  depends_on macos: :sequoia
 
   app "AnyRec.app"
-
-  caveats <<~EOS
-    AnyRec lives in the menu bar — it has no Dock icon and no window.
-
-    Open it once and it will ask for Screen Recording; grant that and Microphone
-    under System Settings > Privacy & Security, then quit and reopen it. The
-    grant only applies to newly launched processes.
-
-    Recordings land in ~/Desktop/AnyRec Recordings. ffmpeg is what merges the
-    three tracks into a playable call.mp4; without it you still get the tracks,
-    but screen.mov has no audio of its own:
-
-      brew install ffmpeg
-
-    Settings > Transcription installs whisper and its models, or takes an OpenAI
-    key. The terminal tool is a separate install, not a prerequisite:
-
-      brew install doruchiulan/tap/anyrec
-  EOS
 
   zap trash: [
     "~/Library/Application Support/anyrec",
     "~/Library/Preferences/com.doruchiulan.anyrec.plist",
   ]
+
+  caveats <<~EOS
+    AnyRec is a Mac app with a small helper in the menu bar.
+
+    Open it once and it will ask for Screen Recording; grant that and Microphone
+    under System Settings > Privacy & Security, then quit and reopen it. The
+    grant only applies to newly launched processes.
+
+    Recordings land in ~/Desktop/AnyRec Recordings. The first launch walks through
+    permissions and setup: transcription on this Mac is a download (Parakeet,
+    25 languages, or Whisper, 99). AnyRec also downloads ffmpeg when needed to
+    merge the tracks into call.mp4. The terminal tool is a separate install:
+
+      brew install doruchiulan/tap/anyrec
+  EOS
 end
