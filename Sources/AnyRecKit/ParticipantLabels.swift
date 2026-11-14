@@ -25,17 +25,20 @@ enum ParticipantLabels {
         var participants: [String]
         var speaking: [String]
         var hasCallControls: Bool
+        /// The recording person's own tile, when the app labels it as such.
+        var me: String? = nil
     }
 
     static func parse(_ root: Node, platform: Platform) -> Snapshot {
-        let teams = platform == .teams ? TeamsParticipantLabels.read(root) : (names: Set<String>(), speaking: Set<String>())
+        let teams = platform == .teams ? TeamsParticipantLabels.read(root)
+            : (names: Set<String>(), speaking: Set<String>(), me: nil)
         var names = teams.names, speakers = teams.speaking
         var controls = false
         func visit(_ node: Node) {
             if node.role == "AXButton", node.labels.contains(where: isMuteControl) { controls = true }
             for label in node.labels {
                 if let name = speakingName(label) { names.insert(name); speakers.insert(name) }
-                if platform == .slack, let name = profileName(label) { names.insert(name) }
+                if platform == .slack { names.formUnion(profileNames(label)) }
             }
             if platform == .slack, node.classes.contains("p-huddle_peer_tile") {
                 let tileNames = descendantNames(node)
@@ -45,11 +48,11 @@ enum ParticipantLabels {
             node.children.forEach(visit)
         }
         visit(root)
-        return Snapshot(participants: names.sorted(), speaking: speakers.sorted(), hasCallControls: controls)
+        return Snapshot(participants: names.sorted(), speaking: speakers.sorted(), hasCallControls: controls, me: teams.me)
     }
 
     private static func descendantNames(_ node: Node) -> Set<String> {
-        Set(node.labels.compactMap(profileName)).union(node.children.flatMap { descendantNames($0) })
+        Set(node.labels.flatMap(profileNames)).union(node.children.flatMap { descendantNames($0) })
     }
 
     private static func containsActiveIndicator(_ node: Node) -> Bool {
@@ -64,9 +67,52 @@ enum ParticipantLabels {
         return clean(name)
     }
 
-    private static func profileName(_ label: String) -> String? {
-        guard label.hasPrefix("View "), label.hasSuffix("'s profile") else { return nil }
-        return clean(String(label.dropFirst(5).dropLast(10)))
+    /// Slack's profile buttons read "View Alex's profile". A tile can carry two of them in
+    /// one label — "View Alex's profile View Sam's profile" — which is two people, never
+    /// one called "Alex's profile View Sam".
+    static func profileNames(_ label: String) -> [String] {
+        var names: [String] = []
+        var rest = Substring(label)
+        while let view = rest.range(of: "View "), let end = rest[view.upperBound...].range(of: "'s profile") {
+            if let name = clean(String(rest[view.upperBound..<end.lowerBound])), !name.contains("'s profile") {
+                names.append(name)
+            }
+            rest = rest[end.upperBound...]
+        }
+        return names
+    }
+
+    /// States Teams appends to a tile's label after the name, comma-separated. Only whole
+    /// trailing segments are taken off, so "Smith, Alex" keeps its comma.
+    static let teamsStates: Set<String> = [
+        "has control of production tools", "unmuted", "muted", "context menu is available", "has context menu",
+        "pinned", "spotlighted", "hand raised", "raised hand", "presenting", "speaking", "organizer",
+        "organiser", "presenter", "attendee", "video is on", "video is off", "camera is on", "camera is off",
+    ]
+
+    static func teamsName(_ value: String) -> String {
+        var segments = value.components(separatedBy: ", ")
+        while segments.count > 1, teamsStates.contains(segments.last!.trimmingCharacters(in: .whitespaces).lowercased()) {
+            segments.removeLast()
+        }
+        var name = segments.joined(separator: ", ")
+        for badge in [" External unfamiliar", " (External)"] where name.hasSuffix(badge) {
+            name = String(name.dropLast(badge.count))
+        }
+        return name
+    }
+
+    /// A name as it was stored by an older reader, made what the current one would have
+    /// read: Teams' trailing states and badge taken off, Slack's run-together profiles
+    /// split apart. Empty when nothing in it is a name.
+    static func stored(_ value: String, platform: Platform?) -> [String] {
+        let pieces: [String]
+        if value.contains("'s profile View ") {
+            pieces = profileNames("View " + value + "'s profile")
+        } else {
+            pieces = [value]
+        }
+        return pieces.compactMap { piece in clean(platform == .slack ? piece : teamsName(piece)) }
     }
 
     static func clean(_ value: String) -> String? {

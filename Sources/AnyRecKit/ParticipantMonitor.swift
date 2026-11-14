@@ -64,7 +64,7 @@ final class ParticipantMonitor {
         }
         evidence.observations.append(.init(at: (start + end) / 2,
             source: "\(selection.bundleID):\(selection.processID):\(selection.windowID)",
-            participants: snapshot.participants, speaking: snapshot.speaking))
+            participants: snapshot.participants, speaking: snapshot.speaking, me: snapshot.me))
     }
 
     private func recordGap(at time: TimeInterval) {

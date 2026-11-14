@@ -50,6 +50,8 @@ public enum TranscriptionService {
         let only: Speaker?
         /// How the tracks went into the mix. Nil when there was no mix.
         let mix: MixPlan?
+        /// The recording folder, where diarization of this exact mix can be kept.
+        var cache: URL? = nil
     }
 
     /// Audio tracks of a recording, microphone first. Empty files are skipped —
@@ -58,7 +60,7 @@ public enum TranscriptionService {
         let separate = [Track(url: plan.microphone, speaker: .me), Track(url: plan.systemAudio, speaker: .others)]
             .filter { hasAudio($0.url) }
         if !separate.isEmpty { return separate }
-        let merged = plan.directory.appendingPathComponent("call.mp4")
+        guard let merged = RecordingMedia.merged(in: plan.directory) else { return [] }
         return hasAudio(merged) ? [Track(url: merged, speaker: .others)] : []
     }
 
@@ -91,10 +93,10 @@ public enum TranscriptionService {
 
     static func transcribe(_ job: Job, source: Source, progress: @Sendable (String) -> Void) async throws -> Transcribed {
         let transcript = try await recognize(job, source: source, progress: progress)
-        let (lines, voices) = await separate(transcript, in: source, useDiarization: job.diarize, progress: progress)
+        let (lines, voices) = await separate(transcript, in: source, useDiarization: job.diarize, progress: progress,
+                                             evidence: job.participants)
         return Transcribed(transcript: Transcript(utterances: lines, language: transcript.language,
-                           engine: transcript.engine, notes: transcript.notes),
-                           voices: ParticipantAttribution.apply(voices, lines: lines, evidence: job.participants))
+                           engine: transcript.engine, notes: transcript.notes), voices: voices)
     }
 
     static func recognize(_ job: Job, source: Source, progress: @Sendable (String) -> Void) async throws -> Transcript {
@@ -126,21 +128,37 @@ public enum TranscriptionService {
         else {
             let single = job.tracks[0]
             return Source(
-                url: single.url, regions: speech(in: single.url, using: ffmpeg),
+                url: single.url, regions: AudioEnvelope.of(single.url, using: ffmpeg).map(SpeechRegions.detect) ?? [],
                 microphone: nil, systemAudio: nil, only: single.speaker, mix: nil
             )
         }
 
+        /// Each track is decoded once and read three ways — bleed, speech and who said
+        /// each line. Speech is found on the mix as the plan builds it, worked out from
+        /// the two envelopes rather than by decoding the mix a third time.
+        let envelopes = AudioEnvelope.of([microphone, systemAudio].compactMap { $0 }, using: ffmpeg)
+        let (mic, system) = (envelopes[0], envelopes[1])
+        let regions: [Range<TimeInterval>]
+        if let mic, let system {
+            regions = SpeechRegions.detect(in: mix.plan.envelope(systemAudio: system, microphone: mic))
+        } else {
+            regions = AudioEnvelope.of(mix.url, using: ffmpeg).map(SpeechRegions.detect) ?? []
+        }
         return Source(
-            url: mix.url, regions: speech(in: mix.url, using: ffmpeg),
-            microphone: microphone.flatMap { AudioEnvelope.of($0, using: ffmpeg) },
-            systemAudio: systemAudio.flatMap { AudioEnvelope.of($0, using: ffmpeg) },
-            only: nil, mix: mix.plan
+            url: mix.url, regions: regions, microphone: mic, systemAudio: system,
+            only: nil, mix: mix.plan, cache: cacheDirectory(for: job)
         )
     }
 
-    private static func speech(in url: URL, using ffmpeg: String) -> [Range<TimeInterval>] {
-        AudioEnvelope.of(url, using: ffmpeg).map(SpeechRegions.detect) ?? []
+    /// Where a recording's derived analysis is kept: its own folder, when the tracks are
+    /// that folder's. Nil for loose audio files, which keep nothing.
+    static func cacheDirectory(for job: Job) -> URL? {
+        guard let microphone = job.tracks.first(where: { $0.speaker == .me })?.url,
+              let system = job.tracks.first(where: { $0.speaker == .others })?.url else { return nil }
+        let plan = OutputPlan(directory: microphone.deletingLastPathComponent())
+        guard plan.microphone == microphone.standardizedFileURL.resolvingSymlinksInPath(),
+              plan.systemAudio == system.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
+        return plan.directory
     }
 
     static func attribute(

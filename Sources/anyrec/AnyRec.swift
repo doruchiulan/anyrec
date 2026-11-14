@@ -3,6 +3,7 @@ import AnyRecKit
 
 extension VideoCodec: ExpressibleByArgument {}
 extension TranscriptionEngine: ExpressibleByArgument {}
+extension SummaryProvider: ExpressibleByArgument {}
 
 @main
 struct AnyRec: AsyncParsableCommand {

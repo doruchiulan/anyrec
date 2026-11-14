@@ -42,8 +42,8 @@ The published 0.4.0 CLI predates this feature; it needs a new build.
 | `search_meetings` | Matches in titles, transcripts, participant names and summaries, including decisions and action items |
 | `get_meeting` | Metadata for one meeting |
 | `get_transcript` | Transcript passages with timestamps, original speaker labels and resolved names |
-| `get_participants` | Names observed in the call, transcript speakers and available identity evidence |
-| `get_summary` | Overview, decisions and actions with owners, timestamps and completion state; legacy Markdown when applicable |
+| `get_participants` | Names observed in the call, how many seconds the call window was readable, transcript speakers and available identity evidence |
+| `get_summary` | Overview, decisions and actions with owners, timestamps and completion state, speaker labels filled with current names, and `stale` when it no longer matches; legacy Markdown when applicable |
 
 Use a `meeting_id` returned by listing or search. IDs are recording folder names,
 not paths. The server rejects traversal and symlinked meetings or artifact files.
@@ -63,9 +63,19 @@ filter overlapping passages before pagination. Follow `nextOffset` until absent.
 Results are capped at 1 MiB and individual source files at 64 MiB; oversized
 results return an error rather than silently dropping text.
 
-The server reads each meeting's selected generation afresh. Old transcripts and
-summaries superseded by regeneration are not searched. Transcript pages include
-`generation`; if it changes between pages, restart pagination. Other pagination
+The server reads each meeting's selected transcript afresh, rendered the way the app
+renders it: the selected source with its speakers layer (who said each line, voice
+names) and wording layer (review corrections), each read through the same confined
+file reader. Generations written before layers and recordings without a selection
+are read as they are. Old transcripts and summaries superseded by regeneration are
+not searched. Transcript pages include `generation` (the source, plus the wording
+layer when there is one); if it changes between pages, restart pagination. Naming a
+voice changes names but never line indices.
+
+A summary refers to speakers that had no name when it was written by their label;
+`get_summary` fills in the names voices have now. `stale` is `transcriptChanged` when
+the words or who said them changed since, and `nameChanged` when a name it was written
+with has changed. Other pagination
 is a live view too, so newly added meetings can shift offsets.
 
 Missing transcripts produce a tool error. Missing summaries have no `summary` or

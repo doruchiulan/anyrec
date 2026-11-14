@@ -61,13 +61,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if controller.isRecording {
             menu.addItem(withTitle: "Stop Recording", action: #selector(stopRecording), keyEquivalent: "")
         } else {
-            menu.addItem(withTitle: "New Recording…", action: #selector(newRecording), keyEquivalent: "")
+            menu.addItem(withTitle: Wording.newRecording(video: true), action: #selector(newRecording), keyEquivalent: "")
+            menu.addItem(withTitle: Wording.newRecording(video: false), action: #selector(newAudioRecording), keyEquivalent: "")
         }
         menu.items.forEach { $0.target = self }
         return menu
     }
 
     @objc private func newRecording() { controller.pickAndStart() }
+    @objc private func newAudioRecording() { controller.pickAndStart(video: false) }
     @objc private func stopRecording() { Task { await controller.stop() } }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

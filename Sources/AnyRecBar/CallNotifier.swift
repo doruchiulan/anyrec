@@ -2,9 +2,10 @@ import AppKit
 import UserNotifications
 import AnyRecKit
 
-/// The offer to record, as a notification with a Record button. Pressing it — or the
-/// notification itself — is the same as pressing the panel's button: the picker opens
-/// and the next click starts the recording. One offer per call, withdrawn when the
+/// The offer to record, as a notification with Record and Record Audio Only buttons.
+/// Pressing one — or the notification itself, which is Record — is the same as pressing
+/// the panel's button of that name: the picker opens and the next click starts the
+/// recording. One offer per call, withdrawn when the
 /// call ends.
 ///
 /// Notifications need their own grant, asked for the first time there is something
@@ -13,22 +14,26 @@ import AnyRecKit
 final class CallNotifier: NSObject, UNUserNotificationCenterDelegate {
     nonisolated static let category = "call"
     nonisolated static let record = "record"
+    nonisolated static let recordAudioOnly = "record-audio-only"
 
-    private let onRecord: () -> Void
+    /// Whether to keep the picture: false for Record Audio Only.
+    private let onRecord: (Bool) -> Void
     /// `UNUserNotificationCenter` aborts outside a bundle, and `swift run` is outside one.
     private let center: UNUserNotificationCenter? =
         Bundle.main.bundleURL.pathExtension == "app" ? .current() : nil
 
-    init(onRecord: @escaping () -> Void) {
+    init(onRecord: @escaping (Bool) -> Void) {
         self.onRecord = onRecord
         super.init()
         guard let center else { return }
         center.delegate = self
-        let action = UNNotificationAction(
+        let record = UNNotificationAction(
             identifier: Self.record, title: "Record", options: [.foreground])
+        let audioOnly = UNNotificationAction(
+            identifier: Self.recordAudioOnly, title: "Record Audio Only", options: [.foreground])
         center.setNotificationCategories([
             UNNotificationCategory(
-                identifier: Self.category, actions: [action], intentIdentifiers: [])
+                identifier: Self.category, actions: [record, audioOnly], intentIdentifiers: [])
         ])
     }
 
@@ -55,12 +60,15 @@ final class CallNotifier: NSObject, UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse
     ) async {
-        guard response.actionIdentifier == Self.record
-            || response.actionIdentifier == UNNotificationDefaultActionIdentifier
-        else { return }
+        let video: Bool
+        switch response.actionIdentifier {
+        case Self.record, UNNotificationDefaultActionIdentifier: video = true
+        case Self.recordAudioOnly: video = false
+        default: return
+        }
         await MainActor.run {
             NSApplication.shared.activate(ignoringOtherApps: true)
-            onRecord()
+            onRecord(video)
         }
     }
 

@@ -22,8 +22,17 @@ extension MeetingReader {
 
     public func summary(_ id: String) throws -> MeetingSummary {
         let data = try snapshot(id)
-        return MeetingSummary(meetingID: id, generation: data.generation, summary: data.summary,
-                              markdown: data.summaryMarkdown, warnings: data.warnings)
+        let names = data.voices?.names ?? [:]
+        var result = MeetingSummary(meetingID: id, generation: data.generation, summary: data.summary?.named(names),
+                                    markdown: data.summaryMarkdown, warnings: data.warnings)
+        if let summary = data.summary, let transcript = data.transcript {
+            switch summary.staleness(of: transcript, names: names) {
+            case .current: break
+            case .transcriptChanged: result.stale = "transcriptChanged"
+            case .nameChanged: result.stale = "nameChanged"
+            }
+        }
+        return result
     }
 
     public func transcript(
@@ -97,7 +106,7 @@ extension MeetingSnapshot {
         var hits: [MeetingSearchHit] = []
         let meeting = details
         let fields = [("title", meeting.title), ("participants", participants.names.joined(separator: ", ")),
-                      ("summary", summary?.markdown ?? summaryMarkdown ?? "")]
+                      ("summary", summary?.named(voices?.names ?? [:]).markdown ?? summaryMarkdown ?? "")]
         for (field, text) in fields where scope == "all" || scope == field {
             if text.meetingContains(query) {
                 hits.append(MeetingSearchHit(meetingID: meeting.id, title: meeting.title, field: field,

@@ -9,7 +9,7 @@ import Foundation
 public enum SpeakerBleed {
     public static let warning =
         "The microphone is picking up the speakers, so it is held down whenever the "
-        + "call is talking, in call.mp4 and in the transcript. Every word survives "
+        + "call is talking, in the merged recording and in the transcript. Every word survives "
         + "once; anything you said over the other side does not. The separate tracks "
         + "are untouched. Headphones are the fix."
 

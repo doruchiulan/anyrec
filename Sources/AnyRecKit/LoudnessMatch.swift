@@ -1,7 +1,7 @@
 import Foundation
 
-/// What ffmpeg's loudnorm analyser reports about one track.
-public struct Loudness: Sendable, Equatable {
+/// What ffmpeg's EBU R128 meter reports about one track: integrated loudness and true peak.
+public struct Loudness: Sendable, Equatable, Codable {
     public let integrated: Double
     public let truePeak: Double
 
@@ -10,12 +10,12 @@ public struct Loudness: Sendable, Equatable {
         self.truePeak = truePeak
     }
 
-    /// loudnorm bottoms out around -70 LUFS, and nothing that quiet holds speech.
+    /// The meter bottoms out at -70 LUFS, and nothing that quiet holds speech.
     public var isSilent: Bool { integrated < -60 }
 }
 
 /// dB applied to each track on its way into the mix. The recorded files are never rewritten.
-public struct TrackGains: Sendable, Equatable {
+public struct TrackGains: Sendable, Equatable, Codable {
     public var systemAudio: Double
     public var microphone: Double
 
@@ -55,27 +55,35 @@ public enum LoudnessMatch {
             : TrackGains(systemAudio: boost, microphone: -cut)
     }
 
+    /// `ebur128` reports the same integrated loudness and true peak as `loudnorm`'s
+    /// analysis pass in a fraction of the time — measured on a 76-minute call, 12 s and
+    /// 17 s against 63 s and 123 s — because it does not resample to 192 kHz to do it.
     public static func measure(_ url: URL, using ffmpeg: String) -> Loudness? {
         let arguments = [
-            "-nostdin", "-i", url.path, "-af", "loudnorm=print_format=json", "-f", "null", "-",
+            "-nostdin", "-hide_banner", "-nostats", "-i", url.path,
+            "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-",
         ]
         guard let result = try? Shell.run(ffmpeg, arguments) else { return nil }
         return parse(result.combined)
     }
 
+    /// The summary ebur128 prints when the stream ends: `I:` under "Integrated loudness"
+    /// and `Peak:` under "True peak". Silence reads as -70 LUFS and a peak of -inf.
     static func parse(_ log: String) -> Loudness? {
-        guard let integrated = value("input_i", in: log), let peak = value("input_tp", in: log)
-        else { return nil }
+        guard let summary = log.range(of: "Summary:", options: .backwards) else { return nil }
+        let tail = log[summary.upperBound...]
+        guard let integrated = value(after: "I:", in: tail, following: "Integrated loudness:"),
+              let peak = value(after: "Peak:", in: tail, following: "True peak:") else { return nil }
         return Loudness(integrated: integrated, truePeak: peak)
     }
 
-    /// loudnorm quotes its numbers, so the value is whatever sits between the next two quotes.
-    private static func value(_ key: String, in log: String) -> Double? {
-        guard let key = log.range(of: "\"\(key)\"") else { return nil }
-        let tail = log[key.upperBound...]
-        guard let open = tail.firstIndex(of: "\"") else { return nil }
-        let rest = tail[tail.index(after: open)...]
-        guard let close = rest.firstIndex(of: "\"") else { return nil }
-        return Double(rest[..<close])
+    private static func value(after key: String, in text: Substring, following section: String) -> Double? {
+        guard let heading = text.range(of: section) else { return nil }
+        let rest = text[heading.upperBound...]
+        guard let label = rest.range(of: key) else { return nil }
+        let number = rest[label.upperBound...].drop { $0 == " " || $0 == "\t" }
+            .prefix { !$0.isWhitespace }
+        if number == "-inf" { return -.infinity }
+        return Double(number)
     }
 }

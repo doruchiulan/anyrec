@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A call's summary as data, so an interface can lay it out: the overview, what was
@@ -18,17 +19,94 @@ public struct Summary: Sendable, Equatable, Codable {
         }
     }
 
+    /// What a summary was written from: the transcript's words and who said each, and
+    /// the names voices had at the time. Speakers that had no name were written by their
+    /// label ("Speaker B"), and those labels are filled in when the summary is shown, so
+    /// naming someone later needs no second call to the model. Nil for a summary written
+    /// before this existed, which is shown as it is and never called stale.
+    public struct Basis: Codable, Equatable, Sendable {
+        /// SHA-256 of every line's speaker label (unnamed) and text.
+        public let text: String
+        /// Letter → name, for the voices that had a name when it was written.
+        public let names: [String: String]
+
+        public init(text: String, names: [String: String]) {
+            self.text = text
+            self.names = names
+        }
+
+        public init(transcript: Transcript, names: [String: String]) {
+            self.init(text: Self.digest(transcript), names: names)
+        }
+
+        static func digest(_ transcript: Transcript) -> String {
+            var hash = SHA256()
+            for line in transcript.utterances {
+                hash.update(data: Data((line.speaker.label + "\u{1F}" + line.text + "\u{1E}").utf8))
+            }
+            return hash.finalize().map { String(format: "%02x", $0) }.joined()
+        }
+    }
+
+    /// Why a summary no longer describes the transcript, as a fact for an interface.
+    public enum Staleness: Sendable, Equatable {
+        case current
+        /// The words, or who said them, changed since it was written.
+        case transcriptChanged
+        /// A voice named when it was written now has another name, or none.
+        case nameChanged
+    }
+
     public var overview: String
     public var decisions: [String]
     public var actions: [Action]
     /// Who wrote it, by the name the settings show.
     public var provider: String
+    public var basis: Basis?
 
-    public init(overview: String, decisions: [String], actions: [Action], provider: String) {
+    public init(overview: String, decisions: [String], actions: [Action], provider: String, basis: Basis? = nil) {
         self.overview = overview
         self.decisions = decisions
         self.actions = actions
         self.provider = provider
+        self.basis = basis
+    }
+
+    public func staleness(of transcript: Transcript, names: [String: String]) -> Staleness {
+        guard let basis else { return .current }
+        if basis.text != Basis.digest(transcript) { return .transcriptChanged }
+        if basis.names.contains(where: { names[$0.key] != $0.value }) { return .nameChanged }
+        return .current
+    }
+
+    /// The summary as it reads now: every "Speaker X" label whose voice has since been
+    /// named carries the name, in the prose and in the owners.
+    public func named(_ names: [String: String]) -> Summary {
+        guard !names.isEmpty else { return self }
+        let fill = { (text: String) in Self.fill(text, names) }
+        var result = self
+        result.overview = fill(overview)
+        result.decisions = decisions.map(fill)
+        result.actions = actions.map { action in
+            var action = action
+            action.task = fill(action.task)
+            action.owner = action.owner.map(fill)
+            return action
+        }
+        return result
+    }
+
+    private static let label = try! NSRegularExpression(pattern: #"\bSpeaker ([A-Z]|[0-9]+)\b"#)
+
+    static func fill(_ text: String, _ names: [String: String]) -> String {
+        let range = NSRange(text.startIndex..., in: text)
+        var result = text
+        for match in label.matches(in: text, range: range).reversed() {
+            guard let whole = Range(match.range, in: text), let letter = Range(match.range(at: 1), in: text),
+                  let name = names[String(text[letter])] else { continue }
+            result.replaceSubrange(whole, with: name)
+        }
+        return result
     }
 
     /// The summary beside the transcript it came from. Written next to a Markdown copy
@@ -40,9 +118,14 @@ public struct Summary: Sendable, Equatable, Codable {
         return try? JSONDecoder().decode(Summary.self, from: data)
     }
 
-    public func write(to url: URL) throws {
+    /// The JSON keeps the labels; the Markdown beside it reads with `names` filled in.
+    public func write(to url: URL, names: [String: String] = [:]) throws {
         try JSONEncoder().encode(self).write(to: url, options: .atomic)
-        try markdown.write(
+        try renderMarkdown(beside: url, names: names)
+    }
+
+    public func renderMarkdown(beside url: URL, names: [String: String]) throws {
+        try named(names).markdown.write(
             to: url.deletingPathExtension().appendingPathExtension("md"),
             atomically: true, encoding: .utf8)
     }
@@ -181,13 +264,17 @@ extension Summarizer {
     static func structuredPrompt(for transcript: Transcript, language: String?) -> String {
         """
         Below is a transcript of a call, produced by speech recognition, so expect \
-        misheard words. Each line starts with its recording offset in seconds, such as [754.25s].
+        misheard words. Each line starts with its recording offset in seconds, such as [754.25s]. \
+        "Me" is the person who recorded the call; "Call" is someone on the far end who was not told apart. \
+        A speaker nobody has named yet appears by a label such as "Speaker B": refer to that speaker by \
+        exactly that label, in the overview, the decisions and the owners, and never guess a name for them. \
+        Use other speakers' names exactly as they appear.
 
         Write the summary in \(language ?? transcript.languageName ?? "the language the call was in"). \
         Answer with one JSON object and nothing else, shaped exactly like this:
         {"overview": "2-3 sentences on what the call covered and where it landed",
          "decisions": ["a decision taken in the call"],
-         "actions": [{"task": "what has to be done", "owner": "who, as named in the transcript", \
+         "actions": [{"task": "what has to be done", "owner": "who, as labelled in the transcript", \
         "at": 754}]}
         "at" is the numeric timestamp of the transcript line where the action was agreed. \
         Copy that offset in seconds; omit "at" if no supporting line can be located. \

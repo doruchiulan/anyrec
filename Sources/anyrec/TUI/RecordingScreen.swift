@@ -36,7 +36,9 @@ struct RecordingScreen {
             "  " + styled(clip(target.describing, to: 60), .bold),
             "  "
                 + styled(
-                    "\(target.width)×\(target.height) · \(session.configuration.fps) fps · \(progress.screenFrames) frames",
+                    session.configuration.video
+                        ? "\(target.width)×\(target.height) · \(session.configuration.fps) fps · \(progress.screenFrames) frames"
+                        : "Audio only — no video is being saved",
                     .dim),
             "",
         ]
@@ -49,7 +51,9 @@ struct RecordingScreen {
                     clip(session.plan.directory.path, to: Terminal.size().columns - 4), .dim),
         ]
 
-        if DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames) {
+        if session.configuration.video,
+            DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames)
+        {
             lines.append(
                 "  " + styled("\(progress.droppedSamples) buffers dropped — try --fps 24", .yellow)
             )

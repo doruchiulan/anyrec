@@ -8,8 +8,13 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public let started: Date
     public let duration: TimeInterval
     public let bytes: Int64
-    /// The merged file, else the screen track; nil when neither was kept.
-    public let video: URL?
+    /// What plays: the merged file, else the screen track; nil when neither was kept.
+    /// Resolved by `RecordingMedia.playable`. For an audio-only recording this is the
+    /// merged `.m4a` (or an older `call.mp4`) holding the mixed audio alone.
+    public let media: URL?
+    /// Recorded without video, as `recording.json` says. Read from the file rather than
+    /// probed, so the list and the player know before opening anything.
+    public let audioOnly: Bool
     public let tracks: Int
     public let transcript: URL?
     public let summary: URL?
@@ -27,6 +32,8 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public var name: String { directory.lastPathComponent }
     /// The window's title when there is one, else the folder's name.
     public var title: String { info?.title ?? name }
+    /// A file with a picture in it; nil for an audio-only recording.
+    public var video: URL? { audioOnly ? nil : media }
 }
 
 /// Every recording under the output root, newest first. The terminal's `transcribe` and
@@ -56,32 +63,32 @@ public enum RecordingLibrary {
         let bytes = files.reduce(Int64(0)) {
             $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         }
-        let merged = directory.appendingPathComponent("call.mp4")
-        let video = [merged, plan.screen].first { exists($0) }
-        let tracks = [plan.screen, plan.systemAudio, plan.microphone].filter(exists).count
+        let info = RecordingInfo.read(directory)
+        let media = RecordingMedia.playable(in: directory, info: info)
+        let video = RecordingMedia.video(in: directory, info: info)
+        let tracks = [video, plan.systemAudio, plan.microphone].compactMap { $0 }.filter(exists).count
 
-        let transcript = TranscriptStore.activeTranscript(in: directory)
+        let current = RecordingTranscript.read(in: directory)
+        let transcript = current?.url ?? TranscriptStore.activeTranscript(in: directory)
         let summary = TranscriptStore.activeSummary(in: directory)
-        let voicesURL = TranscriptStore.voicesURL(in: directory)
-        let voices = voicesURL.flatMap { RecordingVoices.read($0) }
 
         return LibraryEntry(
             directory: directory, started: started(directory),
-            duration: duration(of: [video, plan.systemAudio, plan.microphone]),
-            bytes: bytes, video: video, tracks: tracks, transcript: transcript,
-            summary: summary, unnamedVoices: voices?.unnamed.count ?? 0,
-            info: RecordingInfo.read(directory), preview: preview(summary: summary, transcript: transcript),
-            revision: TranscriptStore.revision(of: [transcript, summary, voicesURL]),
+            duration: duration(of: [media, plan.systemAudio, plan.microphone]),
+            bytes: bytes, media: media, audioOnly: info?.audioOnly ?? false, tracks: tracks,
+            transcript: transcript,
+            summary: summary, unnamedVoices: current?.voices?.unnamed.count ?? 0,
+            info: info, preview: preview(summary: summary, transcript: current?.named),
+            revision: TranscriptStore.revision(of: TranscriptStore.layerFiles(in: directory)),
             noSpeechDetected: TranscriptStore.noSpeechDetected(in: directory))
     }
 
     /// Short enough to read in one glance; a list row truncates whatever is left.
-    static func preview(summary: URL?, transcript: URL?) -> String? {
+    static func preview(summary: URL?, transcript: Transcript?) -> String? {
         if let summary, summary.pathExtension == "json", let overview = Summary.read(summary)?.overview {
             return firstSentence(of: overview)
         }
-        guard let transcript, let lines = Transcript.read(transcript)?.utterances, !lines.isEmpty
-        else { return nil }
+        guard let lines = transcript?.utterances, !lines.isEmpty else { return nil }
         var text = ""
         for line in lines where text.count < 160 {
             text += (text.isEmpty ? "" : " ") + line.text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1,56 +1,65 @@
 import AnyRecKit
 import SwiftUI
 
+/// How the selected transcript was reviewed, what could not be, and the way into every
+/// version an engine wrote for this recording.
 struct TranscriptReviewDetails: View {
     let directory: URL
-    @State private var review: TranscriptReview?
+    @State private var current: RecordingTranscript?
+    @State private var sources: [TranscriptStore.SourceVersion] = []
     @State private var showsSources = false
 
     var body: some View {
         Group {
-            if let review, review.provider != nil || review.sources.count > 1 || !review.failures.isEmpty {
+            if let current, current.reviewProvider != nil || sources.count > 1 || !current.reviewFailures.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(review.provider.map { "Reviewed with \($0.name)" } ?? (review.failures.isEmpty ? "Aggregator transcription" : "Original transcript retained"))
-                            .font(.callout.bold())
-                        Text("\(review.sources.count) source transcript\(review.sources.count == 1 ? "" : "s") retained")
-                            .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(Wording.reviewTitle(current)).font(.callout.bold())
+                            Text(Wording.versions(sources)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("View Sources…") { showsSources = true }
                     }
-                    Spacer()
-                    Button("View Sources…") { showsSources = true }
-                }
-                ForEach(review.failures, id: \.self) { Notice($0, level: .advisory) }
+                    ForEach(current.reviewFailures, id: \.self) { Notice($0, level: .advisory) }
                 }
                 .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                .sheet(isPresented: $showsSources) { TranscriptSourcesView(review: review) }
+                .sheet(isPresented: $showsSources) { TranscriptSourcesView(sources: sources, failures: current.reviewFailures) }
             }
         }
-        .task { review = TranscriptReview.read(in: directory) }
+        .task {
+            current = RecordingTranscript.read(in: directory)
+            sources = TranscriptStore.sources(in: directory)
+        }
     }
 }
 
 private struct TranscriptSourcesView: View {
-    let review: TranscriptReview
+    let sources: [TranscriptStore.SourceVersion]
+    let failures: [String]
     @State private var selected = 0
+    @State private var text = ""
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Source Transcripts").font(.title2.bold())
-            Picker("Engine", selection: $selected) {
-                ForEach(Array(review.sources.enumerated()), id: \.offset) { index, source in
-                    Text(source.engine.capitalized + (index == 0 ? " · Timing reference" : "")).tag(index)
+            Picker("Version", selection: $selected) {
+                ForEach(Array(sources.enumerated()), id: \.offset) { index, source in
+                    Text(Wording.version(source)).tag(index)
                 }
             }
             ScrollView {
-                Text(review.sources[selected].plainText).textSelection(.enabled)
+                Text(text).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(8)
             }
-            ForEach(review.failures, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+            ForEach(failures, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
             HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }
         }
         .padding(24).frame(width: 650, height: 550)
+        .task(id: selected) {
+            text = sources.indices.contains(selected) ? (Transcript.read(sources[selected].url)?.plainText ?? "") : ""
+        }
     }
 }
 

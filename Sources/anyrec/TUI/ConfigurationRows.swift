@@ -6,6 +6,11 @@ import AnyRecKit
 extension RecordingConfiguration {
     var captureLabel: String { capture?.label ?? "Nothing picked yet" }
 
+    /// Off still records the picked window's sound, names and mute; only the picture goes.
+    var videoLabel: String {
+        video ? "On — screen.mov" : "Off — audio only, the window is still used for names and mute"
+    }
+
     var microphoneLabel: String {
         microphone.map { "\($0.name)\($0.isDefault ? " (system default)" : "")" } ?? "Off"
     }
@@ -18,7 +23,7 @@ extension RecordingConfiguration {
 
     var muxLabel: String {
         guard mux else { return "Off — separate tracks only" }
-        return Readiness.ffmpegInstalled ? "On — call.mp4" : "On — but ffmpeg is missing"
+        return Readiness.ffmpegInstalled ? "On — one file named after the call" : "On — but ffmpeg is missing"
     }
 
     func transcribeLabel(_ readiness: Readiness) -> String {
@@ -62,7 +67,7 @@ extension RecordingConfiguration {
 }
 
 /// The advisory in the terminal's words: ⏎ and named rows are what this screen has.
-func phrase(_ advisory: Advisory) -> String {
+func phrase(_ advisory: Advisory, video: Bool = true) -> String {
     switch advisory {
     case .parakeetNotSetUp:
         "No engine is set up yet — pick Parakeet on Transcript and ⏎ downloads it (\(ParakeetSetup.downloadSize))."
@@ -73,13 +78,15 @@ func phrase(_ advisory: Advisory) -> String {
     case .appleUnavailable:
         "Apple's engine needs macOS 26 — pick whisper or OpenAI instead."
     case .ffmpegMissing:
-        "ffmpeg is missing, so there will be no call.mp4: brew install ffmpeg"
+        "ffmpeg is missing, so the tracks will not be merged into one file: brew install ffmpeg"
     case .openAIUploadsAudio:
         "OpenAI transcribes off your machine — both audio tracks are uploaded."
     case .appleCoversSomeLanguages(let count):
         "Apple has models for \(count) languages — ⏎ lists them, whisper covers the rest."
     case .bothAudioTracksOff:
-        "Both audio tracks are off — this will be a silent video."
+        video
+            ? "Both audio tracks are off — this will be a silent video."
+            : "Video and both audio tracks are off — there is nothing to record."
     case .speakersNotSetUp:
         "The far end will be one voice — ⏎ on Speakers fetches the model that tells them apart."
     case .accessibilityMissing:

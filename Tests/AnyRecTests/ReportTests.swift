@@ -26,4 +26,17 @@ struct ReportTests {
     func stoppedNormally() {
         #expect(!Report.render(summary(endedEarly: nil)).contains("closed"))
     }
+
+    @Test("an audio-only summary says the screen was not asked for, rather than not captured")
+    func audioOnly() {
+        var summary = summary(endedEarly: nil)
+        summary.audioOnly = true
+
+        let text = Report.render(summary)
+
+        #expect(text.contains("not recorded — audio only"))
+        #expect(!text.contains("--fps"))
+        #expect(!SummaryReport.merge(.ffmpegMissing, audioOnly: true).contains("screen.mov"))
+        #expect(SummaryReport.merge(.ffmpegMissing).contains("screen.mov"))
+    }
 }

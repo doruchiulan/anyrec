@@ -1,25 +1,27 @@
 import AnyRecKit
 import SwiftUI
 
-struct AggregatorSettings: View {
+/// "Review with a second engine": which other engines a review compares the transcript
+/// against. They run only when review is on; the chosen engine always writes the
+/// transcript.
+struct ComparisonSettings: View {
     @Bindable var controller: RecordingController
 
     var body: some View {
         Section {
-            ForEach(TranscriptionEngine.allCases.filter { $0 != .auto }, id: \.self) { engine in
-                Toggle(Wording.engineName(engine), isOn: selection(engine))
-                    .toggleStyle(.checkbox)
-                    .disabled(!controller.transcriptionOptions.enabledEngines.contains(engine))
-                    .accessibilityLabel("Include \(Wording.engineName(engine)) in Aggregator")
+            Toggle("Review with a second engine", isOn: $controller.transcriptionOptions.compareEngines)
+                .disabled(!controller.transcriptionOptions.review)
+            if controller.transcriptionOptions.compareEngines {
+                ForEach(TranscriptionEngine.allCases.filter { $0 != .auto }, id: \.self) { engine in
+                    Toggle(Wording.engineName(engine), isOn: selection(engine))
+                        .toggleStyle(.checkbox)
+                        .disabled(!controller.transcriptionOptions.enabledEngines.contains(engine)
+                                  || !controller.transcriptionOptions.review)
+                        .accessibilityLabel("Compare with \(Wording.engineName(engine))")
+                }
             }
-            if controller.transcriptionEngines(using: .aggregator).isEmpty {
-                Text("Select at least one enabled, available engine to use Aggregator.")
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Aggregator engines")
         } footer: {
-            Text("Selected engines run together; unchecked engines remain available individually. Review combines all sources. Without review, fallback order is Parakeet, Apple, Whisper, then OpenAI, using only selected, available engines.")
+            Text(Wording.comparison(controller.transcriptionOptions))
                 .settingsFooter()
         }
     }
@@ -28,11 +30,11 @@ struct AggregatorSettings: View {
         Binding(
             get: {
                 controller.transcriptionOptions.enabledEngines.contains(engine)
-                    && controller.transcriptionOptions.aggregatorEngines.contains(engine)
+                    && controller.transcriptionOptions.comparisonEngines.contains(engine)
             },
             set: { included in
-                if included { controller.transcriptionOptions.aggregatorEngines.insert(engine) }
-                else { controller.transcriptionOptions.aggregatorEngines.remove(engine) }
+                if included { controller.transcriptionOptions.comparisonEngines.insert(engine) }
+                else { controller.transcriptionOptions.comparisonEngines.remove(engine) }
             })
     }
 }

@@ -189,14 +189,14 @@ final class RecordingController {
         if let completedSetup { self.completedSetup = completedSetup }
         self.processing.onCompletion = { [weak self] request, result in
             guard let self else { return }
-            if case .written? = result.transcript { summaryFailures[request.directory] = nil }
+            if case .written(_, _, _, let summary)? = result.transcript {
+                /// A summary that failed is the Summary card's to retry, not the job's:
+                /// retrying the job would transcribe again.
+                if case .failed(let reason) = summary { summaryFailures[request.directory] = Wording.summaryFailure(reason) }
+                else { summaryFailures[request.directory] = nil }
+            }
             reloadPeople()
             await reloadLibrary()
-            if case .written? = result.transcript, let provider = request.summaryProvider,
-                let entry = library.first(where: { $0.directory == request.directory })
-            {
-                summarize(entry, using: provider, language: request.summaryLanguage)
-            }
         }
     }
 
@@ -234,6 +234,14 @@ final class RecordingController {
         let library = VoiceLibrary.load()
         people = library.people
         knownVoices = library.names
+    }
+
+    /// Who is recording: their voice heard on the far end goes back to "Me".
+    func setOwner(_ name: String?) {
+        var library = VoiceLibrary.load()
+        library.setOwner(name)
+        try? library.save()
+        reloadPeople()
     }
 
     func forget(_ name: String) {
@@ -280,22 +288,16 @@ final class RecordingController {
         summarize(entry, using: provider, language: summaryLanguage)
     }
 
+    /// The same step the Kit's pass runs after a transcript, started from the Summary
+    /// card or a menu: written for the transcript as it reads now.
     private func summarize(_ entry: LibraryEntry, using provider: SummaryProvider, language: String?) {
         let folder = entry.directory
-        guard !summarizing.contains(folder), !processing.working.contains(folder),
-            let url = entry.transcript else { return }
+        guard !summarizing.contains(folder), !processing.working.contains(folder), entry.transcript != nil else { return }
         summarizing.insert(folder)
         summaryFailures[folder] = nil
         summaryTasks[folder] = Task {
             do {
-                if let transcript = Transcript.read(url) {
-                    let names = RecordingVoices.read(in: folder)?.names ?? [:]
-                    let summary = try await Summarizer.summary(
-                        of: transcript.named(names), using: provider, language: language)
-                    let destination = TranscriptStore.summaryDestination(for: url)
-                    try summary.write(to: destination)
-                    try TranscriptStore.selectSummary(destination, for: url)
-                } else { summaryFailures[folder] = "The transcript could not be read." }
+                _ = try await SummaryPass.write(in: folder, request: SummaryRequest(provider: provider, language: language))
             } catch {
                 summaryFailures[folder] = "\(error)"
             }
@@ -338,7 +340,7 @@ final class RecordingController {
     }
 
     func reveal(_ entry: LibraryEntry) {
-        NSWorkspace.shared.activateFileViewerSelecting([entry.video ?? entry.directory])
+        NSWorkspace.shared.activateFileViewerSelecting([entry.media ?? entry.directory])
     }
 
     /// Free space on the volume the recordings are on, read with the library.
@@ -364,8 +366,8 @@ final class RecordingController {
     /// offer. The watch runs for the life of the app; what it finds mid-recording only
     /// keeps the icon honest.
     private func watchForCalls() {
-        reminder = CallReminder(onRecord: { [weak self] choice in self?.recordCallWindow(choice) },
-                                onChooseWindow: { [weak self] in self?.pickAndStart() })
+        reminder = CallReminder(onRecord: { [weak self] choice, video in self?.recordCallWindow(choice, video: video) },
+                                onChooseWindow: { [weak self] video in self?.pickAndStart(video: video) })
         calls.start { [weak self] event in
             Task { @MainActor in self?.callChanged(event) }
         }
@@ -539,16 +541,26 @@ final class RecordingController {
     /// two decisions to reach one recording, and left a pick to go stale between them;
     /// this way what is recorded is whatever was pointed at a moment ago. Closing the
     /// picker without choosing records nothing, which is what closing it means.
-    func pickAndStart() {
-        guard canStart else { return }
+    ///
+    /// `video` is which of the two Record commands was pressed. Audio only still picks a
+    /// window: its filter carries the sound, and its title, participants and mute button
+    /// are read as usual. Only the picture is not kept.
+    func pickAndStart(video: Bool = true) {
+        guard canStart, video || audioOnlyRecordsAnything else { return }
         picker.present { [weak self] choice in
             guard let self, let choice else { return }
             configuration.capture = choice
-            Task { await self.start() }
+            Task { await self.start(video: video) }
         }
     }
 
-    func recordCallWindow(_ choice: CaptureChoice?) {
+    /// Audio only with both audio tracks switched off in Settings would record nothing,
+    /// so the command is dimmed rather than offered.
+    var audioOnlyRecordsAnything: Bool { configuration.systemAudio || configuration.microphone != nil }
+
+    var canStartAudioOnly: Bool { canStart && audioOnlyRecordsAnything }
+
+    func recordCallWindow(_ choice: CaptureChoice?, video: Bool = true) {
         guard canStart else { return }
         guard let choice else {
             configuration.capture = nil
@@ -559,11 +571,14 @@ final class RecordingController {
             return
         }
         configuration.capture = choice
-        Task { await start() }
+        Task { await start(video: video) }
     }
 
-    func start() async {
+    /// The one start path. Both Record commands, the banner, the notification and the
+    /// shortcut end here, and only `video` differs between them.
+    private func start(video: Bool) async {
         guard canStart, configuration.capture != nil else { return }
+        configuration.video = video
         phase = .starting
         failure = nil
         saved = nil
@@ -609,7 +624,7 @@ final class RecordingController {
         phase = .finished
         processing.enqueue(RecordingJobs.Request(
             capture: recording.capture, merge: configuration.mux, engine: configuration.transcribe, options: transcriptionOptions,
-            summaryProvider: summarizes ? activeSummaryProvider : nil, summaryLanguage: summaryLanguage))
+            summary: summaryRequest))
     }
 
     /// Back to the setup panel, keeping the settings that produced the last recording.

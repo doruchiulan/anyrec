@@ -39,9 +39,18 @@ public struct RecordingConfiguration: Sendable {
     public var mux = true
     /// Nil means no transcript is produced.
     public var transcribe: TranscriptionEngine?
+    /// Review and comparison for the transcript; nil runs the chosen engine alone.
+    public var transcription: TranscriptionOptions?
+    /// A summary after the transcript; nil writes none. Sends the transcript's text to
+    /// the provider.
+    public var summary: SummaryRequest?
     public var fps = 30
     public var codec: VideoCodec = .h264
     public var showsCursor = true
+    /// Off, the recording is audio only: a window or display is still picked — its filter
+    /// carries the audio, and its title, call participants and mute button are read as
+    /// usual — but no `screen.mov` is written. A choice made per recording, never kept.
+    public var video = true
     public var outputRoot: String
 
     /// What each interface offers for the two settings that are a choice from a list
@@ -62,9 +71,14 @@ public struct RecordingConfiguration: Sendable {
             captureSystemAudio: systemAudio,
             captureMicrophone: microphone != nil,
             microphoneDeviceID: microphone?.id,
-            showsCursor: showsCursor
+            showsCursor: showsCursor,
+            recordsVideo: video
         )
     }
+
+    /// False only for an audio-only recording with both audio tracks off, which would
+    /// write nothing at all.
+    public var recordsAnything: Bool { video || systemAudio || microphone != nil }
 
     public var outputDirectory: URL { URL(filePath: outputRoot.expandingTilde) }
 

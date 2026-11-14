@@ -56,9 +56,10 @@ enum SpeakerIdentityReview {
                   let index = result.voices.firstIndex(where: { $0.letter == decision.letter }),
                   let evidence = result.voices[index].identityEvidence else { continue }
             result.voices[index].name = name
-            result.voices[index].identityEvidence = SpeakerIdentityEvidence(
-                callNames: evidence.callNames, voiceprintName: evidence.voiceprintName, conflict: false,
-                resolution: .init(name: name, reason: decision.reason, provider: provider))
+            var resolved = evidence
+            resolved.conflict = false
+            resolved.resolution = .init(name: name, reason: decision.reason, provider: provider)
+            result.voices[index].identityEvidence = resolved
         }
         return result
     }

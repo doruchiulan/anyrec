@@ -32,14 +32,26 @@ struct Record: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Record your microphone.")
     var microphone = true
 
+    @Flag(inversion: .prefixedNo, help: "Record the window's picture. --no-video keeps the audio, the call's names and mute, and no screen.mov.")
+    var video = true
+
     @Flag(name: .long, help: "Leave the mouse cursor out of the video.")
     var hideCursor = false
 
-    @Flag(inversion: .prefixedNo, help: "Merge the tracks into call.mp4 with ffmpeg afterwards.")
+    @Flag(inversion: .prefixedNo, help: "Merge the tracks with ffmpeg afterwards into one file named after the call, which replaces screen.mov once checked.")
     var mux = true
 
-    @Option(name: .long, help: "Transcribe afterwards: auto, apple, whisper or openai.")
+    @Option(name: .long, help: "Transcribe afterwards: auto, parakeet, apple, whisper or openai.")
     var transcribe: TranscriptionEngine?
+
+    @Flag(name: .long, help: "With --transcribe, write a summary. Sends the transcript text (never the audio) to --provider.")
+    var summarize = false
+
+    @Flag(name: .long, help: "With --transcribe, review the wording. Sends the transcript text to --provider.")
+    var review = false
+
+    @Option(name: .long, help: "Who reviews and summarises: claude, codex, openai or gemini.")
+    var provider: SummaryProvider = .claude
 
     func validate() throws {
         switch (window, display) {
@@ -50,6 +62,12 @@ struct Record: AsyncParsableCommand {
         case (.some, .some):
             throw ValidationError("Pass either --window or --display, not both.")
         default: break
+        }
+        if !video && !systemAudio && !microphone {
+            throw ValidationError("--no-video with both audio tracks off records nothing.")
+        }
+        if (summarize || review) && transcribe == nil {
+            throw ValidationError("--summarize and --review need --transcribe.")
         }
     }
 
@@ -72,9 +90,18 @@ struct Record: AsyncParsableCommand {
         recording.systemAudio = systemAudio
         recording.mux = mux
         recording.transcribe = transcribe
+        if review {
+            var options = TranscriptionOptions()
+            options.enabledEngines = Set(TranscriptionEngine.allCases)
+            options.review = true
+            options.reviewProvider = provider
+            recording.transcription = options
+        }
+        if summarize { recording.summary = SummaryRequest(provider: provider) }
         recording.fps = fps
         recording.codec = codec
         recording.showsCursor = !hideCursor
+        recording.video = video
 
         guard microphone else { return recording }
         if let mic {
@@ -97,17 +124,17 @@ struct Record: AsyncParsableCommand {
         let recording = session.configuration
         let target = session.target
         let tracks = [
-            "video",
+            video ? "video" : nil,
             recording.systemAudio ? "system audio" : nil,
             recording.microphone.map { "microphone (\($0.name))" },
         ].compactMap { $0 }.joined(separator: " + ")
 
         return """
-        Recording \(target.describing) at \(target.width)×\(target.height), \(fps) fps
+        Recording \(target.describing) \(video ? "at \(target.width)×\(target.height), \(fps) fps" : "— audio only, no video")
         Tracks:    \(tracks)
         Folder:    \(session.plan.directory.path)
         Stops:     on Ctrl-C or when the recorded window closes
-        Then:      \(mux ? "merges into call.mp4 (--no-mux to skip)" : "leaves the tracks separate")
+        Then:      \(mux ? "merges into one file named after the call (--no-mux to skip)" : "leaves the tracks separate")
 
         Everyone on this call should know it is being recorded.
         """
@@ -117,9 +144,9 @@ struct Record: AsyncParsableCommand {
         guard mux, !Readiness.ffmpegInstalled else { return nil }
         return """
 
-        Warning: ffmpeg is not on PATH, so there will be no combined call.mp4 —
-        only the separate tracks, and screen.mov carries no audio. Stop now and
-        run `brew install ffmpeg` if you want one playable file.
+        Warning: ffmpeg is not on PATH, so the tracks will not be merged into one file —
+        only the separate tracks\(video ? ", and screen.mov carries no audio" : ""). Stop now
+        and run `brew install ffmpeg` if you want one playable file.
         """
     }
 }

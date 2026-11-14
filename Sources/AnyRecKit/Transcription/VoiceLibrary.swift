@@ -13,13 +13,39 @@ public typealias Voiceprint = [Float]
 ///
 /// Nothing in here ever leaves the machine. Twenty people is twenty files.
 public struct VoiceLibrary: Sendable, Equatable {
+    /// One person: the name the owner gave, the display names call windows showed for
+    /// them, their prints, and whether this is the person recording. Files written before
+    /// aliases and the owner flag existed read with neither.
     public struct Person: Sendable, Equatable, Codable {
         public let name: String
         public var prints: [Voiceprint]
+        /// Display names seen in call windows for this person ("Alex Smith" for "Alex").
+        /// Learned when a call window and a voiceprint agree; never a source of prints.
+        public var aliases: [String]
+        public var isOwner: Bool
 
-        public init(name: String, prints: [Voiceprint]) {
+        public init(name: String, prints: [Voiceprint], aliases: [String] = [], isOwner: Bool = false) {
             self.name = name
             self.prints = prints
+            self.aliases = aliases
+            self.isOwner = isOwner
+        }
+
+        private enum CodingKeys: String, CodingKey { case name, prints, aliases, isOwner }
+
+        public init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            name = try values.decode(String.self, forKey: .name)
+            prints = try values.decodeIfPresent([Voiceprint].self, forKey: .prints) ?? []
+            aliases = try values.decodeIfPresent([String].self, forKey: .aliases) ?? []
+            isOwner = try values.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+        }
+
+        /// Whether `display` is this person: their saved name or one of their aliases,
+        /// compared without case or repeated spaces.
+        public func answers(to display: String) -> Bool {
+            let key = VoiceLibrary.normalized(display)
+            return VoiceLibrary.normalized(name) == key || aliases.contains { VoiceLibrary.normalized($0) == key }
         }
     }
 
@@ -30,8 +56,14 @@ public struct VoiceLibrary: Sendable, Equatable {
     /// number only ever moves up until it is measured on real calls.
     public static let threshold: Float = 0.5
 
-    public static let directory = URL(filePath: NSHomeDirectory())
-        .appendingPathComponent("Library/Application Support/anyrec/voices")
+    /// `ANYREC_VOICE_LIBRARY` points it elsewhere, so a replay against copies of real
+    /// recordings can run without writing into the owner's library.
+    public static let directory: URL = {
+        if let override = ProcessInfo.processInfo.environment["ANYREC_VOICE_LIBRARY"], !override.isEmpty {
+            return URL(filePath: override.expandingTilde)
+        }
+        return URL(filePath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/anyrec/voices")
+    }()
 
     public private(set) var people: [Person]
 
@@ -41,13 +73,46 @@ public struct VoiceLibrary: Sendable, Equatable {
 
     public var names: [String] { people.map(\.name) }
     public var isEmpty: Bool { people.isEmpty }
+    public var owner: Person? { people.first(where: \.isOwner) }
+
+    /// The person a call window's display name belongs to, by saved name or alias. Nil when
+    /// nobody, or more than one person, answers to it.
+    public func person(answering display: String) -> Person? {
+        let matches = people.filter { $0.answers(to: display) }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    /// Records a display name a call window showed for `name`. Nothing is added when the
+    /// display name already belongs to someone else, and no print is ever added here.
+    @discardableResult
+    public mutating func addAlias(_ display: String, to name: String) -> Bool {
+        let display = display.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !display.isEmpty, let index = people.firstIndex(where: { $0.name == name }),
+              !people.contains(where: { $0.name != name && $0.answers(to: display) }) else { return false }
+        guard !people[index].answers(to: display) else { return false }
+        people[index].aliases.append(display)
+        return true
+    }
+
+    /// Marks who is recording. One owner at most; nil clears it.
+    public mutating func setOwner(_ name: String?) {
+        for index in people.indices { people[index].isOwner = people[index].name == name }
+    }
+
+    static func normalized(_ name: String) -> String {
+        name.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
 
     /// The closest person, when close enough. Nil leaves the voice a letter.
     public func match(_ print: Voiceprint) -> (name: String, similarity: Float)? {
-        let best = people.compactMap { person -> (String, Float)? in
+        matchPerson(print).map { ($0.person.name, $0.similarity) }
+    }
+
+    public func matchPerson(_ print: Voiceprint) -> (person: Person, similarity: Float)? {
+        let best = people.compactMap { person -> (Person, Float)? in
             guard let nearest = person.prints.map({ Self.similarity($0, print) }).max()
             else { return nil }
-            return (person.name, nearest)
+            return (person, nearest)
         }
         .max { $0.1 < $1.1 }
         guard let best, best.1 >= Self.threshold else { return nil }
@@ -92,8 +157,9 @@ public struct VoiceLibrary: Sendable, Equatable {
         UTType(filenameExtension: fileExtension, conformingTo: .json) ?? .json
     }
 
+    /// Who is recording is this library's fact, not the colleague's, so it stays behind.
     public func exported() throws -> Data {
-        try JSONEncoder().encode(people)
+        try JSONEncoder().encode(people.map { Person(name: $0.name, prints: $0.prints, aliases: $0.aliases) })
     }
 
     /// Takes a colleague's file in: a name already here gains the prints it did not
@@ -112,12 +178,15 @@ public struct VoiceLibrary: Sendable, Equatable {
                     people[index].prints.append(print)
                     newPrints += 1
                 }
+                for alias in person.aliases { addAlias(alias, to: name) }
             } else {
                 let prints = person.prints.filter { !$0.isEmpty }
                 guard !prints.isEmpty else { continue }
+                /// Whoever exported the file was its owner, not this library's.
                 people.append(Person(name: name, prints: prints))
                 newPeople += 1
                 newPrints += prints.count
+                for alias in person.aliases { addAlias(alias, to: name) }
             }
         }
         people.sort { $0.name < $1.name }

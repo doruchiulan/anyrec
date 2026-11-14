@@ -21,7 +21,7 @@ anyrec
   Microphone  MacBook Pro Microphone (system default)
   Call audio  On
   Stop        when I press q
-  Merge       On — call.mp4
+  Merge       On — one file named after the call
   Transcript  On — pick the engine by language
 
     Start recording
@@ -46,35 +46,49 @@ is over rather than after:
 
 ```
 ~/Desktop/AnyRec Recordings/rec-2026-07-25-131411
-  screen.mov          81043 frames, 1.4 GB     video only, no audio
+  Huddle with Costi – Slack – 2026-07-25 13.14.mp4   everything together — play this one
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
-  call.mp4            everything together — play this one
   transcript-apple-<id>.md  who said what, in order
-  transcript-apple-<id>.srt subtitles for call.mp4
+  transcript-apple-<id>.srt subtitles for the merged file
 ```
 
 Separate tracks mean you can drop your own microphone, duck one side against the
 other, or — see below — get a transcript that already knows who was talking.
-`call.mp4` is the one you double-click; ffmpeg produces it after the recording,
-unless you pass `--no-mux`.
+The merged file is the one you double-click. ffmpeg makes it after the recording
+(unless you pass `--no-mux`) and names it after the call: the window's title
+without its unread counters or trailing app name, the app, and when it started.
+
+The picture is recorded as `screen.mov`, and exists only until the merge is checked.
+The merge copies the video stream as it is (nothing is re-encoded) beside the mixed
+audio; once the merged file is confirmed to hold every frame of `screen.mov` and the
+whole mix, `screen.mov` is deleted, so the video is stored once, not twice. If the
+merge fails, or ffmpeg is missing, `screen.mov` stays and plays as before.
+Recordings made before this keep their `call.mp4` beside `screen.mov`, untouched.
 
 Before mixing, both audio tracks are measured and balanced to the same loudness.
 Your voice pauses and varies while call audio runs dense and continuous, so the
 two peak alike but average around 13 dB apart — a raw sum leaves you inaudible
 under whoever else is talking. The gain is static, so nothing is compressed, and
-it is applied only to `call.mp4`: the three recorded tracks are never rewritten.
+it is applied only to the merged file: the two audio tracks are never rewritten.
 
 Wear headphones. On speakers, your microphone records the call as well, so
-`call.mp4` carries the far end twice — once cleanly and once through the room a
+the merged file carries the far end twice — once cleanly and once through the room a
 few milliseconds later, which sounds hollow and phasey. anyrec detects this
 and leaves the microphone gain alone rather than amplifying the echo, but it
 cannot undo it. The transcript is unaffected: an echo is always quieter than
 what caused it, so an echoed line still scores for the caller. Only headphones
 fix the audio.
 
-`screen.mov` deliberately carries no audio track. On its own it plays silent —
-that is the design, not a fault.
+`screen.mov`, while it exists, deliberately carries no audio track. On its own it
+plays silent — that is the design, not a fault.
+
+The picture is optional. An audio-only recording (`--no-video`, or Record Audio
+Only in the app) still asks you to pick the call's window, because the window is
+where the call's sound, its title, the names of who is speaking and its mute
+button come from — but no `screen.mov` is written. Everything else is the same:
+both audio tracks, the merged file (here an `.m4a` of the mixed audio alone), the transcript,
+speakers and the library.
 
 ## Install
 
@@ -113,9 +127,11 @@ open /Applications/AnyRec.app
 
 It is a regular Mac app — a Dock icon and a library window of every recording — with
 a small helper in the menu bar for starting one from anywhere. The helper shows
-Record Window and recent recordings; microphone, transcription and stop-time
-preferences live in Settings. Record Window opens macOS's own picker: point at
-the window or display you want and recording starts on selection. The meters and the elapsed time take the
+Record Window, Record Audio Only and recent recordings; microphone, transcription
+and stop-time preferences live in Settings. Both open macOS's own picker: point at
+the window or display you want and recording starts on selection. Record Audio
+Only keeps the sound, the window's title, the call's names and its mute, and no
+picture. File › New Audio-Only Recording (⌥⌘N) and the Dock menu offer it too. The meters and the elapsed time take the
 panel's place while it runs, and the time also shows beside the menu bar icon, so
 a recording is visible with the panel shut.
 
@@ -128,8 +144,10 @@ the background, so another recording can start immediately. Each recording shows
 its progress in the library and its detail page; In Progress lists pending work.
 Local processing runs one recording at a time. Quitting waits for pending work.
 
-The reminder above a detected Slack or Teams call has a Record button that starts
-that window directly. Record Window in the menu bar still opens the window picker.
+The reminder above a detected Slack or Teams call has Record and Audio Only buttons
+that start that window directly; the notification shown for other call apps has
+Record and Record Audio Only, which open the window picker. Record Window in the
+menu bar still opens the window picker.
 
 The first launch opens a two-step welcome window: grant Screen Recording,
 Microphone, Accessibility and Notifications, then download an on-device
@@ -177,7 +195,8 @@ anyrec record --window 24619       # one window, both audio sides, until Ctrl-C
 anyrec record --display 0          # a whole display instead
 anyrec record --no-microphone      # capture only what the call plays back
 anyrec record --mic BuiltInMicrophoneDevice
-anyrec record --no-mux             # keep the tracks separate, skip call.mp4
+anyrec record --no-mux             # keep the tracks separate, and keep screen.mov
+anyrec record --window 24619 --no-video   # audio only: no screen.mov
 ```
 
 `record` needs `--window` or `--display`; there is no default, because recording
@@ -213,8 +232,8 @@ A window recording ends when its window does. Resize or move it as much as you
 like — the frame follows — but close it and capture stops there, with everything
 up to that point written, merged and ready to transcribe.
 
-ffmpeg is what merges the tracks. Without it you still get all three, but no
-`call.mp4` — `anyrec doctor` and the recording banner both say so. The app and
+ffmpeg is what merges the tracks. Without it you still get all three, `screen.mov`
+included, but no merged file — `anyrec doctor` and the recording banner both say so. The app and
 the setup screen fetch a static build when there is none (no Homebrew needed),
 or install your own:
 
@@ -242,12 +261,16 @@ truncated `.mov`.
 | `--display` | — | The display to capture instead. |
 | `--fps` | `30` | 1–60. |
 | `--codec` | `h264` | `hevc` gives smaller files and costs more CPU. |
-| `--[no-]mux` | on | Merge into `call.mp4` with ffmpeg afterwards. |
+| `--[no-]mux` | on | Merge with ffmpeg afterwards into one file named after the call, which replaces `screen.mov` once it is verified. |
+| `--[no-]video` | on | Record the picture. `--no-video` still needs `--window` or `--display`, for the sound, title, names and mute, and writes no `screen.mov`. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
 | `--mic` | system default | The input device id, from `anyrec sources`. |
 | `--transcribe` | off | `auto`, `parakeet`, `apple`, `whisper` or `openai`, run once the tracks are closed. |
+| `--summarize` | off | With `--transcribe`, write a summary. Sends the transcript text to `--provider`. |
+| `--review` | off | With `--transcribe`, review the wording. Sends the transcript text to `--provider`. |
+| `--provider` | `claude` | Who reviews and summarises: `claude`, `codex`, `openai` or `gemini`. |
 
 ## Transcripts
 
@@ -260,6 +283,8 @@ you record another call.
 Regenerating keeps the current transcript visible until the replacement succeeds.
 Each version has its own speaker names and summary; a replacement starts without
 the previous summary. Automatic summaries run again when enabled in Settings.
+Naming a voice or accepting a speaker correction changes only who said what: the
+summary stays, with the new names filled in, and says when it is out of date.
 The engine chosen for one recording does not change your default engine.
 
 The engine transcribes both tracks mixed together, so the turns come back in the
@@ -309,7 +334,7 @@ Zigbee sensors or move everything to KNX.
 ```
 
 You get `transcript-<engine>-<id>.md`, a matching `.srt` you can drop onto
-`call.mp4`, and `.json` data. `.transcription.json` selects the active version;
+the merged file, and `.json` data. `.transcription.json` selects the active version;
 previous files remain in the recording folder. Older unversioned recordings still
 open normally. [The processing pipeline](docs/pipeline.md) shows the full flow.
 
@@ -393,15 +418,21 @@ API's 25 MB limit is split and stitched back onto one clock.
 
 ### Summaries
 
-`--summarize` hands the finished transcript to `claude -p`, which cleans up
-mishearings and pulls out decisions and action items in the language of the call:
+`--summarize` hands the finished transcript to the provider chosen with
+`--provider` (Claude Code by default), which pulls out an overview, decisions and
+action items with the second each was said, in the language of the call. It is the
+same structured summary the app writes, as JSON with a Markdown copy. Speakers
+nobody has named are written as "Speaker B" and get their name when one is given.
+`--review` corrects the wording first, and `--compare-engines` lets the review
+compare the other on-device engines:
 
 ```
 anyrec transcribe --summarize
+anyrec transcribe --review --compare-engines --summarize --provider codex
 ```
 
 Like `--engine openai`, this leaves your machine — the transcript text is sent
-to Anthropic. Claude has no audio input, so it never sees the recording itself.
+to the provider's company (Anthropic for Claude Code). Claude has no audio input, so it never sees the recording itself.
 Everything else is local, and nothing is sent anywhere unless you ask for it by
 name.
 

@@ -128,3 +128,39 @@ struct RecordingVoicesTests {
         #expect(RecordingVoices.read(url) == voices)
     }
 }
+
+@Suite("VoiceLibrary people")
+struct VoiceLibraryPeopleTests {
+    @Test("files written before aliases and the owner flag read with neither")
+    func oldFiles() throws {
+        let person = try JSONDecoder().decode(VoiceLibrary.Person.self, from: Data(#"{"name":"Alex","prints":[[1,0]]}"#.utf8))
+        #expect(person.aliases.isEmpty && !person.isOwner)
+        var library = VoiceLibrary()
+        try library.merge(Data(#"[{"name":"Alex","prints":[[1,0]]}]"#.utf8))
+        #expect(library.names == ["Alex"])
+    }
+
+    @Test("an alias belongs to one person; a display name already someone else's is refused")
+    func aliases() {
+        var library = VoiceLibrary(people: [.init(name: "Alex", prints: [[1, 0]]), .init(name: "Maria", prints: [[0, 1]])])
+        let added = library.addAlias("Alex Ionescu", to: "Alex")
+        let repeated = library.addAlias("alex  ionescu", to: "Alex")
+        let taken = library.addAlias("Alex Ionescu", to: "Maria")
+        #expect(added && !repeated && !taken)
+        #expect(library.person(answering: "ALEX IONESCU")?.name == "Alex")
+        #expect(library.person(answering: "Maria")?.name == "Maria")
+        #expect(library.person(answering: "Nobody") == nil)
+        #expect(library.people[0].prints == [[1, 0]])
+    }
+
+    @Test("the owner flag is this library's; exports carry aliases but not who owns them")
+    func owner() throws {
+        var library = VoiceLibrary(people: [.init(name: "Alex", prints: [[1, 0]], aliases: ["Alex Ionescu"])])
+        library.setOwner("Alex")
+        #expect(library.owner?.name == "Alex")
+        var colleague = VoiceLibrary()
+        try colleague.merge(try library.exported())
+        #expect(colleague.owner == nil)
+        #expect(colleague.people[0].aliases == ["Alex Ionescu"])
+    }
+}

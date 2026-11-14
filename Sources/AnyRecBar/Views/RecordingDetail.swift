@@ -25,7 +25,7 @@ struct RecordingDetail: View {
                 Color.clear
             }
         }
-        .task(id: entry.video ?? entry.directory) {
+        .task(id: entry.media ?? entry.directory) {
             playback?.stop()
             let opened = Playback(entry)
             playback = opened
@@ -56,6 +56,8 @@ private struct RecordingPage: View {
 
     @State private var transcript: Transcript?
     @State private var voices: RecordingVoices?
+    @State private var observed: CallParticipants?
+    @State private var nameSuggestions: [SpeakerSuggestion] = []
     @State private var summary: Summary?
     @State private var legacySummary: String?
     @State private var names: [String: String] = [:]
@@ -105,10 +107,13 @@ private struct RecordingPage: View {
                 header
                 ProcessingStatusView(controller: controller, directory: entry.directory)
                 if entry.video != nil || !playback.available.isEmpty { playerCard }
-                TranscriptReviewDetails(directory: entry.directory).id(entry.transcript)
-                SpeakerReviewSuggestions(controller: controller, entry: entry).id(entry.transcript)
+                TranscriptReviewDetails(directory: entry.directory).id(entry.revision)
+                SpeakerReviewSuggestions(controller: controller, entry: entry).id(entry.revision)
                 if transcript != nil { summaryCard.disabled(controller.processing.working.contains(entry.directory)) }
                 if let voices, !voices.unnamed.isEmpty { naming(voices).disabled(controller.working.contains(entry.directory)) }
+                if let observed, !observed.roster.isEmpty {
+                    ObservedParticipants(participants: observed, voices: voices, duration: entry.duration)
+                }
             }
             .padding(.horizontal, 28).padding(.vertical, 22)
             .frame(maxWidth: 820, alignment: .leading)
@@ -161,8 +166,8 @@ private struct RecordingPage: View {
                 Label("Show in Finder", systemImage: "folder")
             }
             .help("Show in Finder")
-            if let video = entry.video {
-                ShareLink(item: video).help("Share")
+            if let media = entry.media {
+                ShareLink(item: media).help("Share")
             }
         }
         if #available(macOS 26, *) {
@@ -219,6 +224,8 @@ private struct RecordingPage: View {
                     .help("Open in its own window, with Picture in Picture")
                     .accessibilityLabel("Open in its own window")
                 }
+            } else if entry.audioOnly {
+                AudioSurface(entry: entry)
             }
             WaveformBar(playback: playback).frame(height: 44)
             controls
@@ -299,7 +306,7 @@ private struct RecordingPage: View {
                 }
                 Spacer()
                 if summary != nil || legacySummary != nil {
-                    Button { copy(summary?.markdown ?? legacySummary ?? "") } label: { Image(systemName: "doc.on.doc") }
+                    Button { copy(summary?.named(voices?.names ?? [:]).markdown ?? legacySummary ?? "") } label: { Image(systemName: "doc.on.doc") }
                         .help("Copy summary").accessibilityLabel("Copy summary")
                     providerMenu
                     Button { controller.summarize(entry) } label: { Image(systemName: "arrow.clockwise") }
@@ -315,7 +322,13 @@ private struct RecordingPage: View {
                     Text("Summarising…").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             } else if let summary {
-                structured(summary)
+                structured(summary.named(voices?.names ?? [:]))
+                if let transcript, let stale = Wording.summaryStale(summary.staleness(of: transcript, names: voices?.names ?? [:])) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Notice(stale, level: .advisory)
+                        Button("Refresh Summary") { controller.summarize(entry) }.disabled(busy || provider == nil)
+                    }
+                }
             } else if let legacySummary {
                 Text(legacySummary).font(.system(size: 13)).lineSpacing(3).textSelection(.enabled)
             } else if let provider {
@@ -400,7 +413,7 @@ private struct RecordingPage: View {
     private func tick(_ index: Int, _ done: Bool) {
         guard var summary, let url = entry.summary, url.pathExtension == "json" else { return }
         summary.actions[index].done = done
-        try? summary.write(to: url)
+        try? summary.write(to: url, names: voices?.names ?? [:])
         self.summary = summary
     }
 
@@ -421,7 +434,7 @@ private struct RecordingPage: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 10)], spacing: 10) {
                 ForEach(voices.unnamed, id: \.letter) { voice in
                     SpeakerNamingCard(voice: voice, name: binding(voice.letter),
-                                      suggestion: TranscriptReview.read(in: entry.directory)?.suggestions.first { $0.letter == voice.letter },
+                                      suggestion: nameSuggestions.first { $0.letter == voice.letter },
                                       colour: Self.colour(.voice(voice.letter))) {
                         playback.play(from: voice.start)
                     }
@@ -511,12 +524,14 @@ private struct RecordingPage: View {
         }
     }
 
-    /// The three masters, each with what it is, how big, and a switch for hearing it.
+    /// The three masters, each with what it is, how big, and a switch for hearing it. The
+    /// picture's master is `screen.mov` until a verified merge replaces it, then the merged file.
     private var tracks: some View {
         let plan = OutputPlan(directory: entry.directory)
+        let video = RecordingMedia.video(in: entry.directory, info: entry.info)
         let rows: [(Playback.Track, URL)] = [
-            (.video, plan.screen), (.callAudio, plan.systemAudio), (.microphone, plan.microphone),
-        ]
+            video.map { (.video, $0) }, (.callAudio, plan.systemAudio), (.microphone, plan.microphone),
+        ].compactMap { $0 }
         return VStack(spacing: 0) {
             ForEach(rows.filter { FileManager.default.fileExists(atPath: $0.1.path) }, id: \.1) { track, url in
                 HStack {
@@ -562,8 +577,11 @@ private struct RecordingPage: View {
     // MARK: Loading
 
     private func load() {
-        transcript = entry.transcript.flatMap(Transcript.read)
-        voices = RecordingVoices.read(in: entry.directory)
+        let current = RecordingTranscript.read(in: entry.directory)
+        transcript = current?.transcript
+        voices = current?.voices
+        nameSuggestions = current?.nameSuggestions ?? []
+        observed = CallParticipants.read(in: entry.directory)
         named()
         summary = nil
         legacySummary = nil
@@ -760,6 +778,42 @@ private struct VideoSurface: NSViewRepresentable {
 
     func updateNSView(_ view: AVPlayerView, context: Context) {
         if view.player !== player { view.player = player }
+    }
+}
+
+/// Where the picture would be, for a recording that kept none: the recorded app's icon,
+/// the window's title and that it is audio only, above the waveform and transport the
+/// page already has. No black rectangle standing in for a video that does not exist.
+private struct AudioSurface: View {
+    let entry: LibraryEntry
+    /// Looked up once per recording, not on each redraw of the page.
+    @State private var icon: NSImage?
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let icon {
+                    Image(nsImage: icon).resizable().aspectRatio(contentMode: .fit)
+                } else {
+                    Image(systemName: "waveform").font(.largeTitle).foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Wording.title(of: entry)).font(.headline).lineLimit(2)
+                Text(Wording.audioSurface(of: entry)).font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .task(id: entry.info?.bundleID) {
+            icon = entry.info?.bundleID
+                .flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+                .map { NSWorkspace.shared.icon(forFile: $0.path) }
+        }
     }
 }
 

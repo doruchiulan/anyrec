@@ -2,22 +2,24 @@ import Foundation
 
 public enum SessionError: Error, LocalizedError, CustomStringConvertible {
     case nothingToRecord
+    case noTracks
 
     public var description: String {
         switch self {
         case .nothingToRecord: "Nothing was picked to record."
+        case .noTracks: "Video and both audio tracks are off, so there is nothing to record."
         }
     }
 
     public var errorDescription: String? { description }
 }
 
-/// How the merge into `call.mp4` went, when it was asked for at all.
+/// How the merge into the named, playable file went, when it was asked for at all.
 public enum MergeOutcome: Sendable {
     case merged(MuxOutcome)
     case notRequested
     case ffmpegMissing
-    /// The three tracks are the masters and are untouched; only the merge failed.
+    /// The tracks, `screen.mov` included, are untouched; only the merge failed.
     case failed(String)
 }
 
@@ -104,6 +106,7 @@ public final class RecordingSession {
         _ configuration: RecordingConfiguration
     ) async throws -> RecordingSession {
         guard let capture = configuration.capture else { throw SessionError.nothingToRecord }
+        guard configuration.recordsAnything else { throw SessionError.noTracks }
 
         let target = try await TargetResolver.resolve(capture.target, ownerPID: capture.ownerPID)
         let plan = try OutputPlan.create(in: configuration.outputDirectory)
@@ -113,7 +116,7 @@ public final class RecordingSession {
         )
         try? RecordingInfo(
             title: target.describing, bundleID: target.bundleID, width: target.width,
-            height: target.height, fps: configuration.fps
+            height: target.height, fps: configuration.fps, audioOnly: !configuration.video
         ).write(to: plan.directory)
         try await session.recorder.start()
         session.startedAt = Date()
@@ -154,6 +157,7 @@ public final class RecordingSession {
         progress: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> TranscriptOutcome? {
         guard let engine = configuration.transcribe else { return nil }
-        return await TranscriptPass.run(plan, engine: engine, progress: progress)
+        return await TranscriptPass.run(plan, engine: engine, options: configuration.transcription,
+                                        summary: configuration.summary, progress: progress)
     }
 }

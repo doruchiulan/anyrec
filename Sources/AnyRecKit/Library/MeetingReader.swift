@@ -54,7 +54,11 @@ struct MeetingSnapshot {
         let selectionURL = directory.appendingPathComponent(".transcription.json")
         if FileManager.default.fileExists(atPath: selectionURL.path) {
             if let selection = read(TranscriptStore.Selection.self, file: ".transcription.json") {
-                load(transcript: selection.transcript, voices: selection.voices, summary: selection.summary)
+                if selection.speakers != nil {
+                    loadLayers(selection)
+                } else {
+                    load(transcript: selection.transcript, voices: selection.voices, summary: selection.summary)
+                }
             } else {
                 warnings.append("The selected generation is unavailable; older generations were not substituted.")
             }
@@ -65,6 +69,24 @@ struct MeetingSnapshot {
             load(transcript: file?.lastPathComponent, voices: RecordingVoices.fileName, summary: summaryFile)
         }
         observed = read(CallParticipants.self, file: CallParticipants.fileName)
+            .map { CallParticipants(observations: $0.observations.map { $0.cleaned() }) }
+    }
+
+    /// A layered selection, rendered the way the app renders it: the source with its
+    /// speakers and wording layers, each read through this snapshot's confined reader.
+    private mutating func loadLayers(_ selection: TranscriptStore.Selection) {
+        generation = ([selection.transcript] + [selection.wording].compactMap { $0 }).joined(separator: "+")
+        guard let source = read(Transcript.self, file: selection.transcript) else { return }
+        let speakers = selection.speakers.flatMap { read(SpeakerLayer.self, file: $0) }
+            .flatMap { $0.source == selection.transcript && $0.lineCount == source.utterances.count ? $0 : nil }
+        let wording = selection.wording.flatMap { read(WordingLayer.self, file: $0) }
+            .flatMap { $0.source == selection.transcript && $0.lineCount == source.utterances.count ? $0 : nil }
+        transcript = RecordingTranscript.render(source, speakers: speakers, wording: wording)
+        voices = speakers?.voices
+        if let file = selection.summary {
+            if file.hasSuffix(".json") { summary = read(Summary.self, file: file) }
+            else if file.hasSuffix(".md"), let data = data(file) { summaryMarkdown = String(data: data, encoding: .utf8) }
+        }
     }
 
     private mutating func load(transcript file: String?, voices voiceFile: String?, summary summaryFile: String?) {
@@ -131,9 +153,11 @@ struct MeetingSnapshot {
             let name: String? = if case .named(let value) = speaker { value } else { nil }
             return MeetingParticipants.Voice(label: speaker.label, name: name, identityEvidence: nil)
         }
-        return MeetingParticipants(meetingID: directory.lastPathComponent,
+        var result = MeetingParticipants(meetingID: directory.lastPathComponent,
             observedInCall: Array(Set(observed?.observations.flatMap(\.participants) ?? [])).sorted(),
             transcriptSpeakers: (saved + extra).sorted { $0.label < $1.label }, warnings: warnings)
+        result.observedReadableSeconds = observed?.readable
+        return result
     }
 
     var details: MeetingDetails {

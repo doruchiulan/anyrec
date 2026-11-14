@@ -3,16 +3,19 @@ import Foundation
 
 extension RecordingController {
     var transcriptionMode: TranscriptionMode {
-        get { transcriptionOptions.parallel ? .aggregator : .engine(engine) }
-        set {
-            engine = newValue.preferredEngine
-            transcriptionOptions = newValue.options(from: transcriptionOptions)
-        }
+        get { .engine(engine) }
+        set { engine = newValue.preferredEngine }
     }
 
     func transcriptionEngines(using mode: TranscriptionMode) -> [TranscriptionEngine] {
         mode.options(from: transcriptionOptions).engines(preferred: mode.preferredEngine,
             available: Set(TranscriptionEngine.allCases.filter { readiness.of($0).isReady }))
+    }
+
+    /// What a summary after a transcript is asked for with, when one is.
+    var summaryRequest: SummaryRequest? {
+        guard summarizes, let provider = activeSummaryProvider else { return nil }
+        return SummaryRequest(provider: provider, language: summaryLanguage)
     }
 
     func enableEngine(_ engine: TranscriptionEngine, enabled: Bool) {
@@ -30,7 +33,6 @@ extension RecordingController {
         guard canTranscribe(entry), !transcriptionEngines(using: mode).isEmpty else { return }
         processing.enqueue(RecordingJobs.Request(
             transcribing: entry.directory, engine: mode.preferredEngine,
-            options: mode.options(from: transcriptionOptions),
-            summaryProvider: summarizes ? activeSummaryProvider : nil, summaryLanguage: summaryLanguage))
+            options: mode.options(from: transcriptionOptions), summary: summaryRequest))
     }
 }

@@ -11,8 +11,10 @@ public enum Thumbnail {
     public static let fileName = "thumbnail.jpg"
 
     /// The still's file, made the first time it is asked for. Nil when there is no video
-    /// or no frame could be read.
+    /// or no frame could be read. An audio-only recording is answered from
+    /// `recording.json` alone: there is no picture to try for, now or on the next look.
     public static func of(_ entry: LibraryEntry) async -> URL? {
+        guard wanted(for: entry) else { return nil }
         let cache = entry.directory.appendingPathComponent(fileName)
         if FileManager.default.fileExists(atPath: cache.path) { return cache }
         guard let video = entry.video else { return nil }
@@ -29,4 +31,7 @@ public enum Thumbnail {
             destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
         return CGImageDestinationFinalize(destination) ? cache : nil
     }
+
+    /// Whether a still is worth having for this recording at all.
+    public static func wanted(for entry: LibraryEntry) -> Bool { !entry.audioOnly }
 }

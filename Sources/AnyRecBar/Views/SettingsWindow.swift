@@ -91,11 +91,11 @@ struct RecordingSettings: View {
                         }
                     } label: {
                         Text("ffmpeg")
-                        Text("Makes call.mp4 and the mix the transcript is made from.")
+                        Text("Merges the tracks into one playable file and makes the mix the transcript is made from.")
                     }
                 }
             } footer: {
-                Text("The three tracks are kept as recorded; call.mp4 is one playable file made from them.")
+                Text("The tracks are merged into one playable file named after the call, which replaces the separate video once it is checked. The two audio tracks are kept as recorded.")
                     .settingsFooter()
             }
             Section("Storage") {
@@ -130,8 +130,8 @@ struct TranscriptionSettings: View {
                 .disabled(!controller.transcribesOnStop)
             }
             EngineSettings(controller: controller)
-            AggregatorSettings(controller: controller)
             TranscriptReviewSettings(controller: controller)
+            ComparisonSettings(controller: controller)
             SpeakerSettings(controller: controller)
             if let failure = controller.setupFailure { Notice(failure, level: .error) }
         }

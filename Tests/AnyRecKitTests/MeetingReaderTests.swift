@@ -143,6 +143,57 @@ struct MeetingReaderTests {
         #expect(try reader.participants(fixture.id).transcriptSpeakers.first?.name == nil)
     }
 
+    @Test("A generation written before layers is read as it was")
+    func legacyGeneration() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let directory = fixture.directory
+        let name = "transcript-parakeet-\(UUID())"
+        try TranscriptionService.write(Transcript(utterances: [.init(start: 0, end: 4, text: "Generation text", speaker: .voice("A"))],
+                                                  language: "en", engine: "parakeet"), into: directory, named: name)
+        try RecordingVoices(voices: [.init(letter: "A", print: [], sample: "", start: 0, end: 4, name: "Maria")])
+            .write(to: directory.appendingPathComponent("voices-g.json"))
+        try Data(#"{"transcript":"\#(name).json","voices":"voices-g.json"}"#.utf8)
+            .write(to: directory.appendingPathComponent(".transcription.json"))
+        let reader = try MeetingReader(root: fixture.root)
+        let transcript = try reader.transcript(fixture.id)
+        #expect(transcript.lines.map(\.text) == ["Generation text"])
+        #expect(transcript.lines.first?.speakerName == "Maria")
+        #expect(try reader.summary(fixture.id).summary == nil)
+    }
+
+    @Test("Layers render for agents as for the app: wording applied, labels in the summary filled, staleness said")
+    func layers() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let directory = fixture.directory
+        let source = Transcript(utterances: [.init(start: 0, end: 4, text: "We ship on fry day", speaker: .voice("A")),
+                                             .init(start: 4, end: 8, text: "Agreed", speaker: .voice("B"))],
+                                language: "en", engine: "parakeet")
+        let voices = RecordingVoices(voices: [.init(letter: "A", print: [], sample: "", start: 0, end: 4, name: "Alex"),
+                                              .init(letter: "B", print: [], sample: "", start: 4, end: 8)])
+        let candidates = TranscriptionCandidates(primary: .init(transcript: source, voices: voices), transcripts: [source], failures: [])
+        var options = TranscriptionOptions()
+        options.review = true
+        _ = try await TranscriptPass.publish(candidates, in: directory, options: options, summary: SummaryRequest(provider: .claude),
+                                             progress: { _ in }) { instructions, _, _ in
+            if instructions.contains("summary") {
+                return #"{"overview":"Speaker B agreed with Alex.","decisions":[],"actions":[{"task":"Ship","owner":"Speaker B"}]}"#
+            }
+            return #"{"changes":[{"id":0,"text":"We ship on Friday."}],"suggestions":[]}"#
+        }
+        let reader = try MeetingReader(root: fixture.root)
+        #expect(try reader.transcript(fixture.id).lines.map(\.text) == ["We ship on Friday.", "Agreed"])
+        #expect(try reader.summary(fixture.id).summary?.overview == "Speaker B agreed with Alex.")
+        try VoiceNaming.apply(["B": "Maria"], in: directory, library: directory.appendingPathComponent("library"))
+        let named = try reader.summary(fixture.id)
+        #expect(named.summary?.overview == "Maria agreed with Alex." && named.summary?.actions.first?.owner == "Maria")
+        #expect(named.stale == nil)
+        #expect(try reader.transcript(fixture.id).lines.last?.speakerName == "Maria")
+        try VoiceNaming.apply(["A": "Alexandra"], in: directory, library: directory.appendingPathComponent("library"))
+        #expect(try reader.summary(fixture.id).stale == "nameChanged")
+    }
+
     private struct Fixture {
         let root: URL
         let id = "rec-2026-11-01-120000"

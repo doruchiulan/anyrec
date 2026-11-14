@@ -12,7 +12,8 @@ struct RecordingPanel: View {
         if let session = controller.session {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Label("Recording", systemImage: "record.circle.fill")
+                    Label(session.configuration.video ? "Recording" : "Recording Audio Only",
+                          systemImage: session.configuration.video ? "record.circle.fill" : "waveform.circle.fill")
                         .font(.headline).foregroundStyle(.red)
                     Spacer()
                     if let left = session.remaining {
@@ -43,10 +44,11 @@ struct RecordingPanel: View {
 
     private func detail(_ session: RecordingSession) -> String {
         let progress = session.progress()
-        let size = "\(session.target.width)×\(session.target.height)"
         let dropped = DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames)
-        return "\(size) · \(session.configuration.fps) fps"
-            + (dropped ? " · \(progress.droppedSamples) frames dropped" : "")
+        return Wording.live(
+            video: session.configuration.video, width: session.target.width,
+            height: session.target.height, fps: session.configuration.fps,
+            droppedFrames: dropped ? progress.droppedSamples : nil)
     }
 
     private func tracks(of session: RecordingSession) -> [AudioTrack] {

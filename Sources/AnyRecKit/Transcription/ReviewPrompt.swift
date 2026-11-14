@@ -22,23 +22,25 @@ enum ReviewPrompt {
     A supported recognition correction such as "launch on fry day" to "launch on Friday" is allowed.
     Do not summarize, invent speech, or resolve uncertain facts by guessing. Use the reference text only as
     a fallback where comparison leaves a disagreement unresolved, never as the default winner.
-    If no correction is needed, return the reference text unchanged. Sources may have different segment boundaries;
+    If a line needs no correction, leave it out of changes. Sources may have different segment boundaries;
     use their timestamps to align words to the timeline and do not repeat words across output lines.
     Speaker labels in different sources are independent; Speaker A in one engine need not be A in another.
     Return exactly one JSON object:
-    {"lines":[{"id":0,"text":"corrected words"}],
+    {"changes":[{"id":0,"text":"corrected words"}],
      "suggestions":[{"letter":"A","name":"Alex","quote":"I'm Alex","line":0}],
      "speakerChanges":[{"line":1,"target":"Speaker B","reason":"explain the conversational evidence",
      "quote":"exact original evidence","evidenceLine":0}]}
     context contains introductions and neighboring timeline lines; knownSpeakers contains the currently resolved names.
-    Do not return context lines in the lines array. Return every timeline ID exactly once, with nonempty text. Never change IDs, timestamps or speaker
+    changes lists only the timeline lines whose text you corrected, each ID at most once, with the full corrected
+    text of that line. A timeline line you leave out stays exactly as it is; an empty changes array means no
+    correction was needed. Never include context lines in changes. Never change IDs, timestamps or speaker
     assignments. Suggest names only for lettered speakers, from clear self-introductions in their own
     reference lines. quote must be copied verbatim from that original line, and line is its ID.
     A person being addressed or mentioned is not evidence that the speaker has that name.
     Suggest speakerChanges separately when conversational context strongly indicates a timeline line
     belongs to a different existing speaker. target must exactly match an existing timeline speaker label.
     quote must occur verbatim in the original timeline or context line identified by evidenceLine. Do not invent
-    new speakers, change the lines array's speaker assignments, or assume alternating turns.
+    new speakers, change speaker assignments in changes, or assume alternating turns.
     Leave suggestions and speakerChanges empty if uncertain. The user will confirm all speaker changes.
     """
 

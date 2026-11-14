@@ -46,20 +46,31 @@ struct LoudnessMatchTests {
         #expect(LoudnessMatch.gains(systemAudio: system, microphone: nil) == .none)
     }
 
-    @Test("reads loudness and true peak out of loudnorm's json")
-    func parsesLoudnorm() {
+    @Test("reads integrated loudness and true peak out of ebur128's summary")
+    func parsesEBUR128() {
         let log = """
-            [Parsed_loudnorm_0 @ 0x600000] \n{
-                    "input_i" : "-29.10",
-                    "input_tp" : "-16.20",
-                    "input_lra" : "9.20",
-                    "normalization_type" : "dynamic"
-            }
+            [Parsed_ebur128_0 @ 0x600000] t: 12.3   TARGET:-23 LUFS    M: -30.1 S: -31.0     I: -40.2 LUFS
+            [Parsed_ebur128_0 @ 0x600000] Summary:
+
+              Integrated loudness:
+                I:         -29.1 LUFS
+                Threshold: -39.6 LUFS
+
+              Loudness range:
+                LRA:         9.2 LU
+                Threshold:  -49.8 LUFS
+                LRA low:   -35.4 LUFS
+                LRA high:  -26.2 LUFS
+
+              True peak:
+                Peak:      -16.2 dBFS
             """
 
-        let loudness = LoudnessMatch.parse(log)
-
-        #expect(loudness == Loudness(integrated: -29.1, truePeak: -16.2))
-        #expect(LoudnessMatch.parse("no json here") == nil)
+        #expect(LoudnessMatch.parse(log) == Loudness(integrated: -29.1, truePeak: -16.2))
+        #expect(LoudnessMatch.parse("no summary here") == nil)
+        let silent = log.replacingOccurrences(of: "-29.1 LUFS", with: "-70.0 LUFS")
+            .replacingOccurrences(of: "-16.2 dBFS", with: "-inf dBFS")
+        #expect(LoudnessMatch.parse(silent)?.isSilent == true)
+        #expect(LoudnessMatch.parse(silent)?.truePeak == -.infinity)
     }
 }

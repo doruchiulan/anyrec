@@ -10,7 +10,7 @@ public struct SpeakerCorrection: Codable, Equatable, Sendable, Identifiable {
     public let evidenceLine: Int
 }
 
-struct ProposedSpeakerChange: Decodable {
+struct ProposedSpeakerChange: Decodable, Sendable {
     let line: Int
     let target: String
     let reason: String
@@ -28,24 +28,25 @@ struct ProposedSpeakerChange: Decodable {
 }
 
 public enum TranscriptSpeakerReview {
+    /// Accepts one proposed speaker correction: that line's speaker changes in the speakers
+    /// layer, and nothing else does — the wording and the summary stay, and the summary
+    /// says it is stale because who said what changed.
     @discardableResult
-    public static func apply(_ correction: SpeakerCorrection, to file: URL) throws -> [URL] {
-        let directory = file.deletingLastPathComponent()
-        guard TranscriptStore.activeTranscript(in: directory) == file,
-              let transcript = Transcript.read(file), var review = TranscriptReview.read(in: directory),
-              review.speakerChanges.contains(correction), transcript.utterances.indices.contains(correction.line),
-              transcript.utterances[correction.line].speaker == correction.from else {
-            throw TranscriptionError.engineFailed(engine: "review", log: "The transcript changed. Reopen this recording to review its current suggestions.")
+    public static func apply(_ correction: SpeakerCorrection, in directory: URL) throws -> [URL] {
+        try TranscriptStore.updateSpeakers(in: directory) { layer, current in
+            guard current.pendingSpeakerChanges.contains(correction) else {
+                throw TranscriptionError.engineFailed(engine: "review", log: "The transcript changed. Reopen this recording to review its current suggestions.")
+            }
+            var speakers = layer.speakers ?? current.transcript.utterances.map(\.speaker)
+            speakers[correction.line] = correction.to
+            layer.speakers = speakers
+            layer.decided.append(correction.line)
         }
-        var lines = transcript.utterances
-        lines[correction.line].speaker = correction.to
-        review.speakerChanges.removeAll { $0.line == correction.line }
-        let updated = TranscriptReview(provider: review.provider, sources: review.sources,
-            suggestions: review.suggestions.filter { $0.line != correction.line }, failures: review.failures,
-            speakerChanges: review.speakerChanges)
-        let corrected = Transcript(utterances: lines, language: transcript.language, engine: transcript.engine,
-                                   notes: transcript.notes)
-        return try TranscriptStore.publish(corrected, voices: RecordingVoices.read(in: directory),
-                                           in: directory, review: updated)
+    }
+
+    /// Leaves a proposed correction as it is and stops offering it.
+    @discardableResult
+    public static func dismiss(_ correction: SpeakerCorrection, in directory: URL) throws -> [URL] {
+        try TranscriptStore.updateSpeakers(in: directory) { layer, _ in layer.decided.append(correction.line) }
     }
 }

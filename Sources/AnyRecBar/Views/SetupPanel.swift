@@ -19,14 +19,32 @@ struct SetupPanel: View {
         }
     }
 
+    /// Two commands, not a switch and a button: which one is pressed is the whole choice,
+    /// and pressing either opens the picker straight away.
     private var start: some View {
-        Button { controller.pickAndStart() } label: {
-            Label(controller.phase == .starting ? "Starting…" : "Record Window…", systemImage: "record.circle")
-                .frame(maxWidth: .infinity)
+        VStack(spacing: 6) {
+            Button { controller.pickAndStart() } label: {
+                Label(title(video: true), systemImage: "record.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!controller.canStart)
+            .help(Wording.recordHelp(video: true))
+            Button { controller.pickAndStart(video: false) } label: {
+                Label(title(video: false), systemImage: "waveform")
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .disabled(!controller.canStartAudioOnly)
+            .help(Wording.recordHelp(video: false))
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(!controller.canStart)
+    }
+
+    /// "Starting…" on whichever of the two was pressed.
+    private func title(video: Bool) -> String {
+        controller.phase == .starting && controller.configuration.video == video
+            ? "Starting…" : Wording.record(video: video)
     }
 
     @ViewBuilder private var advisory: some View {

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AnyRecKit
 
@@ -83,5 +84,68 @@ struct TeamsParticipantLabelsTests {
         root.children.append(.init(classes: ["vdi-frame-occlusion"]))
         root.children[1].children[1].children[0].children.append(.init(classes: ["vdi-frame-occlusion"]))
         #expect(ParticipantLabels.parse(root, platform: .teams).speaking.isEmpty)
+    }
+}
+
+@Suite("Participant label shapes seen in real calls")
+struct ParticipantLabelShapesTests {
+    @Test("Teams states after the name are removed, so one person is one participant")
+    func teamsStates() {
+        let root = ParticipantLabels.Node(labels: ["Shared content view"], children: [
+            .init(labels: ["Alex Ionescu, Has control of production tools, Context menu is available"]),
+            .init(labels: ["Alex Ionescu, Has control of production tools, Unmuted, Context menu is available"]),
+            .init(labels: ["Maria Pop External unfamiliar, Has control of production tools, Context menu is available"]),
+            .init(labels: ["Smith, Alex, muted, Context menu is available"]),
+        ])
+        #expect(ParticipantLabels.parse(root, platform: .teams).participants == ["Alex Ionescu", "Maria Pop", "Smith, Alex"])
+    }
+
+    @Test("Teams names the recording person's own tile")
+    func ownTile() {
+        let root = ParticipantLabels.Node(labels: ["Shared content view"], children: [
+            .init(role: "AXImage", labels: ["Myself video, Local Person, Muted, Has context menu"]),
+        ])
+        #expect(ParticipantLabels.parse(root, platform: .teams).me == "Local Person")
+    }
+
+    @Test("Slack labels carrying two profiles are two people")
+    func slackRunTogether() {
+        let tile = ParticipantLabels.Node(classes: ["p-huddle_peer_tile"], children: [
+            .init(role: "AXButton", labels: ["View Alex Ionescu's profile View Maria Pop's profile"]),
+        ])
+        let root = ParticipantLabels.Node(children: [.init(role: "AXButton", labels: ["Mute microphone"]), tile])
+        #expect(ParticipantLabels.parse(root, platform: .slack).participants == ["Alex Ionescu", "Maria Pop"])
+        #expect(ParticipantLabels.parse(root, platform: .slack).speaking.isEmpty)
+    }
+
+    @Test("Names stored by the older parser are cleaned when read")
+    func storedNames() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-participants-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let old = CallParticipants(observations: [
+            .init(at: 0, source: "com.microsoft.teams2:1:2",
+                  participants: ["Alex Ionescu, Has control of production tools",
+                                 "Alex Ionescu, Has control of production tools, Unmuted",
+                                 "Maria Pop External unfamiliar, Has control of production tools"],
+                  speaking: ["Maria Pop External unfamiliar, Has control of production tools"]),
+            .init(at: 1, source: "com.tinyspeck.slackmacgap:1:2",
+                  participants: ["Alex Ionescu", "Alex Ionescu's profile View Maria Pop", "Maria Pop"], speaking: ["Maria Pop"]),
+        ])
+        try old.write(in: directory)
+        let read = try #require(CallParticipants.read(in: directory))
+        #expect(read.observations[0].participants == ["Alex Ionescu", "Maria Pop"])
+        #expect(read.observations[0].speaking == ["Maria Pop"])
+        #expect(read.observations[1].participants == ["Alex Ionescu", "Maria Pop"])
+    }
+
+    @Test("The roster says who was seen, how long each spoke alone, and how long the window could be read")
+    func roster() {
+        let polls = CallParticipants(observations: (0..<10).map {
+            .init(at: Double($0), source: "slack:1:2", participants: ["Alex", "Maria"], speaking: $0 < 6 ? ["Maria"] : [])
+        } + [.init(at: 10, source: "", participants: [], speaking: [])])
+        #expect(polls.readable == 9)
+        #expect(polls.roster.map(\.name) == ["Maria", "Alex"])
+        #expect(polls.roster.map(\.speaking) == [5, 0])
     }
 }

@@ -3,7 +3,8 @@
 ## Overview
 
 macOS tool that records a call as three separate tracks: one window or display,
-system audio output, and microphone input. Built on ScreenCaptureKit, so no
+system audio output, and microphone input — or, audio only, the two audio tracks
+with the window still picked but no picture kept. Built on ScreenCaptureKit, so no
 virtual audio driver is required. Windows belonging to Slack, Teams, Zoom, Meet,
 Discord and browsers are listed first; everything else follows.
 
@@ -26,7 +27,8 @@ rather bring a key than a model — with OpenAI's API.
 - swift-argument-parser — CLI
 - SwiftUI `MenuBarExtra` — the menu bar app
 - swift-testing — tests
-- ffmpeg (runtime) — merges the tracks into `call.mp4` and makes the mix the engines
+- ffmpeg (runtime) — merges the tracks into one file named after the call, which
+  replaces `screen.mov` once verified, and makes the mix the engines
   hear; on by default, degrades to a warning plus the separate tracks when absent.
   Found on `PATH`, or fetched as a static build into
   `~/Library/Application Support/anyrec/bin` by `FFmpegSetup`, so Homebrew is not needed
@@ -70,16 +72,18 @@ second one for "UI-common" code.
 |---|---|
 | `Session/RecordingConfiguration.swift` | What a recording is before it starts. Every interface edits one of these. |
 | `Session/RecordingSession.swift` | One recording, start to finish: stream, folder, merge, transcript. |
-| `Session/TranscriptPass.swift` | The optional pass over closed files. Returns an outcome; never throws. |
+| `Session/TranscriptPass.swift`, `TranscriptPass+Review.swift` | The optional pass over closed files and the one sequence every interface runs: engines, voices and names, publish, review, name conflicts, summary. Returns an outcome; never throws. |
+| `Session/SummaryPass.swift` | The summary step: written by label for unnamed speakers, with the basis it was written from, selected beside the transcript. |
 | `Readiness/Readiness.swift` | What is installed and available here, and the single `Advisory` worth showing for a configuration. |
 | `Capture/CaptureCatalogue.swift` | Every recordable window and display, in the order worth offering them. What the terminal picks from. |
 | `Capture/PickedContent.swift` | What macOS's content picker handed back, read as a `CaptureTarget`. The inverse of `TargetResolver`. |
-| `Session/RecordingLibrary.swift` | Every finished recording under the output folder, newest first, and which artefacts each has left. What the app's library window lists. |
-| `Session/RecordingInfo.swift` | `recording.json`, written when a recording starts: the window's title, its app, the picture's size. What the library titles a recording by. |
-| `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `thumbnail.jpg`, for the library's list rows. |
+| `Session/RecordingLibrary.swift` | Every finished recording under the output folder, newest first, and which artefacts each has left. What the app's library window lists. `media` is what plays (`RecordingMedia.playable`); `video` is the same but nil for an audio-only recording. |
+| `Session/RecordingMedia.swift` | Which file plays, which holds the picture, and what the merged file is called. `playable`: the name `recording.json` keeps if that file exists, else `call.mp4` (older folders), else `screen.mov`. `video`: `screen.mov` while it exists, else the merged file. `fileName`: "Design review – Slack – 2026-11-03 10.08.mp4" (`.m4a` audio only), title stripped of unread counters, a browser's "(3)" and a trailing app segment, characters Finder/zip/Windows mangle, capped. Every reader of a recording's media goes through it. |
+| `Session/RecordingInfo.swift` | `recording.json`, written when a recording starts: the window's title, its app, the picture's size, and whether it is audio only (absent in older files, which read as video); after a verified merge, `mergedFile`, the merged file's name (absent before, and in older files). What the library titles a recording by. |
+| `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `thumbnail.jpg`, for the library's list rows. None for an audio-only recording, decided from `recording.json` without trying. |
 | `Session/Waveform.swift` | A recording's loudness cut into columns for drawing, read with AVFoundation so it needs no ffmpeg. |
-| `Transcription/Summary.swift` | A summary as data (overview, decisions, actions with the second they were said), `SummaryProvider` (Claude Code, Codex, OpenAI API, Gemini CLI) and `Summarizer.summary`. |
-| `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s. |
+| `Transcription/Summary.swift` | A summary as data (overview, decisions, actions with the second they were said), its `Basis` and `Staleness`, labels filled from names at display (`named`), `SummaryProvider` (Claude Code, Codex, OpenAI API, Gemini CLI) and `Summarizer.summary`. |
+| `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s — two for audio only, whose screen frames arrive at 2×2 and 1 fps and are dropped before the clock. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
 | `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
 | `CallApps.swift` | The bundle-id registry that orders windows and puts the `*` marks in `sources`. |
@@ -87,21 +91,25 @@ second one for "UI-common" code.
 | `AudioLevel.swift`, `LevelMonitor.swift` | Peak/RMS off the raw buffers; lock-guarded hand-off to the UI. |
 | `MeterScale.swift` | Pure dBFS → bar/zone/verdict math. The tested part of the meters. |
 | `Permissions.swift` | TCC preflight and status. |
-| `Muxer.swift` | Builds and runs the optional ffmpeg merge. |
-| `LoudnessMatch.swift` | Measures both audio tracks and balances them for the merge. |
+| `Muxer.swift` | Builds and runs the optional ffmpeg merge. `job(for:)` takes the picture from `screen.mov`, or from the merged file once that has replaced it; with no picture it makes an audio-only `.m4a` from the same `MixPlan`. Writes a hidden temporary file, verifies it, moves it into place, records the name, then deletes `screen.mov` and any older merged file. |
+| `MergeVerification.swift` | `MediaFacts` (video codec, size, frame count from a sample cursor, audio lengths, read with AVFoundation) and the check a merge's result must pass before it replaces anything. |
+| `LoudnessMatch.swift` | Measures both audio tracks (ffmpeg `ebur128=peak=true`) and balances them for the merge. |
+| `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks' and `microphone-live.json`'s size and modification time; also the mix's envelope worked out from the two track envelopes. |
 | `MixPlan.swift` | How the two audio tracks go together — matched by loudness, or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it. |
 | `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
 | `MuteButton.swift` | The call app's own mute control, found in its accessibility tree and re-read four times a second. What Teams's mute is read from. |
 | `CallWatch.swift` | A call starting, read as a known call app taking the microphone. What the menu bar's offer to record comes from. |
-| `AnyRecBar/CallReminder.swift` | A persistent Record/Dismiss banner above the focused Slack or Teams call window, with native notifications as fallback. |
-| `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record opens the capture picker. |
-| `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read. |
+| `AnyRecBar/CallReminder.swift` | A persistent Record/Audio Only/Dismiss banner above the focused Slack or Teams call window, with native notifications as fallback. |
+| `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record and Record Audio Only open the capture picker. |
+| `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read; the last few decoded are remembered by path, size and modification time. |
+| `Transcription/DiarizationCache.swift` | Diarization segments and prints kept as `diarization.json`, keyed by a SHA-256 of the exact mix the diarizer heard. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
 | `OutputPlan.swift` | The recording folder and the three track paths. |
 | `Transcription/Transcript.swift` | `Utterance`, turn folding, Markdown and SRT rendering. The tested part. |
-| `Transcription/TranscriptStore.swift` | Publishes transcript generations and selects their own voices and summary atomically. |
+| `Transcription/TranscriptStore.swift` | Publishes sources and layers, selects them, migrates older generations when changed, and renders Markdown and SRT. |
+| `Transcription/TranscriptLayers.swift` | `SpeakerLayer`, `WordingLayer` and `RecordingTranscript`, the transcript as it reads now — what every interface shows. |
 | `Transcription/TranscriptionService.swift` | Builds the mix, finds the speech, picks the engine, labels the result. |
 | `Transcription/AudioMix.swift` | Sums the two tracks into the single file the engines transcribe. |
 | `Transcription/SpeechRegions.swift` | Where the talking is, so no engine is handed room tone to invent over. |
@@ -113,26 +121,33 @@ second one for "UI-common" code.
 | `Transcription/AudioSamples.swift` | A file's audio as 16 kHz mono float, read a second at a time with AVFoundation. What whisper is handed. |
 | `Transcription/OpenAITranscriber.swift` | The hosted API, behind the user's own key. Multipart upload, `diarized_json`/`verbose_json` parsing. |
 | `Transcription/AudioChunks.swift` | Cuts the speech regions out to mp3, under the API's 25 MB limit, keeping each part's offset. |
-| `Transcription/Summarizer.swift` | The `claude -p` pass over the finished text. |
+| `Transcription/Summarizer.swift` | Where the summary programs are found, and the timed transcript text they are handed. |
+| `Transcription/TranscriptionOptions.swift` | Enabled engines, speakers on/off, review, and "review with a second engine" (the comparison engines), with the migration from Aggregator. |
+| `Transcription/ParticipantAttribution.swift` | Call-window evidence over the voices: consistency scoring, agreement vs conflict, aliases, fused-voice facts, Call lines named, and the owner's voice given back to Me. |
+| `CallParticipants.swift`, `ParticipantLabels.swift`, `TeamsParticipantLabels.swift`, `ParticipantMonitor.swift` | What the call window showed, polled once a second into `call-participants.json`; label shapes cleaned on parse and on read; the roster and readable time. |
+| `Transcription/TranscriptReview.swift`, `ReviewPrompt.swift` | The optional LLM wording review: 30-line sections, three in flight, each reply a patch of the lines it changed. |
+| `Transcription/SpeakerIdentityReview.swift` | Picks between competing candidate names for a voice, as its own step after wording review. |
 | `Transcription/WhisperSetup.swift` | What is missing before whisper can run, and how to fetch it. |
 | `Transcription/AssetDownload.swift` | Downloading a model, with progress and a checksum. |
 | `Transcription/OpenAIKey.swift` | Where the user's key is read from and written to. |
 | `Transcription/VoiceSeparation.swift` | The far end told apart on-device, whatever engine wrote the words: FluidAudio's segments and per-voice prints, lettered and laid over the lines. |
-| `Transcription/VoiceLibrary.swift` | The people anyrec has been told the names of, as voiceprints on disk, and the cosine match against them. |
-| `Transcription/SpeakerNames.swift` | Per-generation speaker letters and `VoiceNaming`, which names the active generation from any interface. |
+| `Transcription/VoiceLibrary.swift` | The people anyrec has been told the names of: one record each with aliases, voiceprints and the owner flag, and the cosine match against them. |
+| `Transcription/SpeakerNames.swift` | Speaker letters and `VoiceNaming`, which names voices in the speakers layer from any interface and files prints and aliases in the library. |
 | `Transcription/SpeakerSetup.swift` | Whether the speaker models are here, and the one place FluidAudio is let on the network to fetch them. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
 | `anyrec/SpeakersCommand.swift`, `anyrec/SpeakerPrompt.swift` | `anyrec speakers`, and the plain-terminal questions that put names to letters after any transcript. |
 | `AnyRecBar/RecordingController.swift` | The menu bar's whole state: settings, the live session, and what the last one left behind. |
-| `AnyRecBar/RecordingJobs.swift` | Serial background merging and transcription, keyed by recording directory, independent of capture and the saved panel. |
+| `AnyRecBar/RecordingJobs.swift` | Serial background processing, keyed by recording directory, independent of capture and the saved panel. Within one job the mix is decided first, then the merge and the transcript run side by side. |
 | `Session/CapturedRecording.swift` | Finalized tracks and microphone timing, ready for merging after capture has been released. |
 | `AnyRecBar/SystemPicker.swift` | macOS's on-screen content picker, and the configuration that holds it to windows and displays. |
 | `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
 | `AnyRecBar/Preferences.swift` | The few settings that survive a relaunch, mapped onto `UserDefaults`. The Kit has no opinion about persistence. |
 | `AnyRecBar/Commands.swift` | The menu bar's File, View, Playback and Recording commands. The open player reaches them as a focused value. |
-| `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (call.mp4, or the three masters with a track silenced), and the ⌘⇧R shortcut. |
-| `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video, summary and voice naming, with its transcript, tracks and files in the inspector. Reads files the Kit left; writes only voice names (via `VoiceNaming`) and ticks on action items. Summaries are written by `RecordingController`, which outlives the window. |
+| `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (the merged file, or the masters with a track silenced — the picture from `screen.mov` or, once that is gone, the merged file's video stream), and the ⌘⇧R shortcut. |
+| `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video (or, audio only, the app's icon and title above the waveform), summary and voice naming, with its transcript, tracks and files in the inspector. Reads files the Kit left; writes only voice names (via `VoiceNaming`) and ticks on action items. Summaries are written by the Kit's `SummaryPass`, started by the pass or by `RecordingController`, which outlives the window. |
+| `AnyRecBar/Views/ObservedParticipants.swift` | The recording's roster from the call window, with how long it was readable and the voice facts. |
+| `AnyRecBar/Views/AggregatorSettings.swift` | `ComparisonSettings`: "Review with a second engine" and which engines it runs. |
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
 | `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: bundle id, icon, mic usage string, signature. Universal for release, native for debug. |
@@ -142,6 +157,17 @@ second one for "UI-common" code.
 
 Invariants worth preserving:
 
+- What is derived from the audio is kept beside it and keyed to what it came from:
+  `mix.json` to the tracks and the mute record, `diarization.json` to a hash of the mix,
+  `waveform.json` and `thumbnail.jpg` to the recording. (The merged file is not one of
+  these once it has replaced `screen.mov`: it then holds the only copy of the picture.) Each is deleted and made again
+  freely, and none is ever used for audio it was not computed from. A pass decodes each
+  track's envelope once and reads it for bleed, speech regions and attribution; speech
+  regions come from the mix's envelope worked out from the tracks, not from decoding the
+  mix. On the 76-minute call preparation went from 230 s to 30 s, and a regeneration with
+  the diarization kept costs 10 s of preparation plus the engine.
+- The merge and the transcript run side by side once the mix is decided; neither needs
+  the other's output.
 - Saving capture releases the recorder before merging or transcription. Done clears
   only the saved panel; starting another recording never cancels pending processing.
   Job progress and failures belong to recording directories, and stale callbacks cannot
@@ -165,9 +191,25 @@ Invariants worth preserving:
   setup screen mid-session and a cached "missing" would outlive the fix.
 - All stream outputs use one serial queue, which is why `Recorder`'s writer
   table and session clock need no locking. Don't add a second queue.
-- All three writers start their session at the *same* timestamp — the first
-  buffer seen on any output. Per-writer session starts would silently destroy
+- All writers start their session at the *same* timestamp — the first
+  buffer written on any output. Per-writer session starts would silently destroy
   A/V sync.
+- Audio only still picks a window (or a display), and still captures it. The window's
+  filter is what carries the call's sound; its title and app go into `recording.json`;
+  its accessibility tree is where the participant monitor reads names and where
+  `MuteButton` reads mute. Recording "just audio" from no window would lose all four.
+  `RecordingConfiguration.video` is off for the recording and never persisted;
+  `recording.json` carries `audioOnly` so the library and player know without probing.
+  ScreenCaptureKit needs a screen output even then — leave it out and every frame is
+  logged as "stream output NOT found. Dropping frame" — so the screen output is added
+  at 2×2 pixels and one frame a second, and `Recorder.accepts` refuses those frames
+  before the session clock or the timeline anchor is touched, and before any screen
+  `TrackWriter` could be made. The clock therefore starts at the first audio buffer
+  written, and the audio tracks and the participant times share it exactly as they
+  share it with video. The merge makes a named `.m4a` from the mixed audio alone, found
+  through `RecordingMedia` like any merged file; no thumbnail is made or retried. Video off with
+  both audio tracks off is refused (`SessionError.noTracks`), because it would record
+  nothing.
 - Non-`.complete` screen frames are discarded. Writing idle frames pads the
   video and drifts it against the audio.
 - `scalesToFit` is on. Left off, ScreenCaptureKit only ever scales a window's
@@ -246,9 +288,15 @@ Invariants worth preserving:
   Spaces and `desktopIndependentWindow` follows one there, so refusing to resolve an
   id would be the one place that did not. It is also what lets `--window <id>` record
   a window on another desktop.
-- The idle panel offers Record Window and recent recordings. Microphone, transcript,
-  stop time and system audio live in Settings. The app always merges the tracks into
-  `call.mp4`; merging is not a user option. `anyrec record` keeps the flags.
+- The idle panel offers Record Window, Record Audio Only and recent recordings. The two
+  Record commands are the whole choice — there is no video switch or sheet before the
+  picker — and both are also in File (New Recording… ⌘N, New Audio-Only Recording…
+  ⌥⌘N), the Dock menu and the call banner; ⌘⇧R is Record Window. Both go through the
+  one `RecordingController.pickAndStart(video:)` / `start(video:)` path. Microphone,
+  transcript, stop time and system audio live in Settings. The app always merges the tracks,
+  so `screen.mov` is always replaced by the named merged file once it is verified;
+  merging is not a user option. `anyrec record` keeps the flags (`--no-mux` keeps
+  `screen.mov` and makes no merged file).
 - Setting an engine up must be possible without a terminal. The app installs on its
   own through a cask, so "run anyrec in a terminal" was a way out that a whole class
   of user could not take — `Settings › Transcription` is `EngineSetup`'s counterpart,
@@ -285,7 +333,7 @@ Invariants worth preserving:
 - A recording's waveform is decoded once and kept as `waveform.json` beside the tracks;
   its list thumbnail likewise as `thumbnail.jpg`.
   Decoding is the cost — about 4 s of CPU for a 100-minute call, however the samples are
-  summed — and like `call.mp4` it is derived: delete it and it is made again.
+  summed — and like `mix.json` it is derived: delete it and it is made again.
 - The app is built from the system's components and follows the macOS HIG, not a
   mockup. Text uses text styles (`.headline`, `.subheadline`, `.callout`), never point
   sizes; colours are system colours; containers are `GroupBox`, grouped `Form`s and
@@ -382,8 +430,34 @@ Invariants worth preserving:
   buys nothing.
 - There is no output-device setting to add: ScreenCaptureKit taps app audio
   before any output device.
-- The loudness match applies only to `call.mp4`. The three tracks are the masters
-  and are never rewritten — the mix is the disposable, regenerable artefact.
+- The two audio tracks are masters and are never rewritten; the loudness match and the
+  mix exist only in the merged file. The video is stored once. `screen.mov` is the
+  picture's master only until a merge is verified: the merge stream-copies its video
+  (never re-encodes it) beside the mix into a hidden temporary file, and checks with
+  AVFoundation that the result has exactly one video stream with `screen.mov`'s codec,
+  size and frame count (or its duration within a frame) and one audio stream as long as
+  the longest track (±0.5 s). Only then is the file moved into place under its name,
+  the name written to `recording.json`, and `screen.mov` deleted — in that order, so
+  an interruption leaves at worst a stray `.merge-*` file and a playable folder. From
+  then the merged file is the video master. A re-merge (a retried job, a new mix
+  decision, a changed `microphone-live.json`) copies the video from it, verifies against
+  it, and replaces it atomically: there is always one verified file holding the picture.
+  A failed merge, missing ffmpeg or `--no-mux` leaves `screen.mov` as it was. Older
+  folders with `call.mp4` beside `screen.mov` are read unchanged and never migrated; one
+  merged again follows the new rule, and both are replaced by the named file. Verification
+  uses AVFoundation, not ffprobe, because the static ffmpeg anyrec fetches comes without
+  ffprobe; a sample cursor counts frames from the sample table without decoding.
+  Copied HEVC is tagged `hvc1`, because AVFoundation will not play `hev1`.
+- The merged file is named from `recording.json` — the title without unread counters
+  or a trailing app segment, the app, and the start from the folder name, as
+  "Design review – Slack – 2026-11-03 10.08.mp4" — and the name is kept in
+  `recording.json`, which every reader resolves through `RecordingMedia`, never by
+  naming a file. A later merge keeps the stored name. A folder without `recording.json`
+  has nowhere to keep one, so its merge is `call.mp4`. Recording folders keep their
+  `rec-YYYY-MM-DD-HHMMSS` names. Slack's workspace segment stays in the name: nothing in
+  the title marks which segment it is.
+- Loudness is measured with `ebur128=peak=true`, not `loudnorm`'s analysis pass: the same
+  integrated loudness and true peak in about a seventh of the time.
 - Balance by loudness, never by peak: speech peaks as high as continuous call
   audio and averages ~13 dB below it, so peak-matching leaves the mic buried.
 - Speaker bleed is checked before the mic is boosted, and a bleeding mic is held
@@ -394,8 +468,10 @@ Invariants worth preserving:
   duck is a sidechain compressor keyed on the system track, so it needs no estimate
   of how loud or how late the echo is; measured at −39 dB under the far end and
   0 dB where the call is silent. What it costs is anything said over the other
-  side. Both mixes decide this once, through `MixPlan` — `mix.wav` used to skip the
-  bleed check and boost the echo by the loudness difference. Bleed is detected as
+  side. Both mixes decide this once, through `MixPlan.decided(for:)`, which keeps the
+  answer as `mix.json` beside the tracks — `mix.wav` used to skip the bleed check and
+  boost the echo by the loudness difference, and later the two each measured the tracks
+  with `loudnorm`, 186 s apiece on a 76-minute call. Bleed is detected as
   the microphone running *louder* while the call speaks — turn-taking makes that
   figure negative, so the sign alone separates the cases.
 - Mute is read from the app, never from the audio. Two ways, both polled four times
@@ -436,10 +512,10 @@ Invariants worth preserving:
   the focused call window, found through its mute control. It follows the window
   and hides when another window is focused. If there is no room above, it sits just
   inside the top edge. Other apps or an unidentified call window use a notification.
-  The banner's Record button starts its call window directly, matched by process,
-  bounds and title, with ownership checked again before capture. Missing or ambiguous
-  windows are rejected. Notification fallbacks still open the picker; Dismiss
-  suppresses the offer for that call.
+  The banner's Record and Audio Only buttons start its call window directly, matched by
+  process, bounds and title, with ownership checked again before capture. Missing or
+  ambiguous windows are rejected. Notification fallbacks (Record, Record Audio Only)
+  still open the picker; Dismiss suppresses the offer for that call.
   Starting a recording or ending the call removes the reminder. An
   app testing its microphone looks like a call, which is why nothing records until
   the button is pressed. One offer per call, withdrawn when it ends, only while
@@ -482,7 +558,7 @@ Invariants worth preserving:
   Short, overlapping or inconsistent samples remain unnamed. Missing models or
   extraction failures retain nameable labels with no reusable print.
 - A voice named once is found on the next call. The diarizer's centroid per voice
-  is its print, the generation's voices file keeps each letter's print and longest line beside the
+  is its print, the speakers layer keeps each letter's print and longest line beside the
   tracks, and naming a letter — `anyrec speakers`, the prompt after a transcript,
   the outcome panel — files the print under the name in
   `~/Library/Application Support/anyrec/voices/`. The next recording matches every
@@ -491,12 +567,37 @@ Invariants worth preserving:
   is why they are not used — a meeting here can be twenty people. The 0.5 match
   threshold is provisional, set from FluidAudio's own table, and only ever moves
   up until it has been measured on real calls: the wrong name is the worse mistake.
-- Each generation is kept as `transcript-<engine>-<UUID>.json` plus Markdown and
-  SRT. `TranscriptStore` writes all files before atomically selecting the generation
-  in `.transcription.json`, which also binds its voices and summary. Legacy files
-  remain readable. Regeneration uses the background queue without capturing or
-  merging again, preserves the previous version on failure, and never changes the
-  default engine. Naming renders only the active generation.
+- A person is one library record: saved name, aliases, prints, owner flag. A call
+  window's display name that corroborates a voiceprint match is agreement, filed as an
+  alias (names only — call evidence never enrols a print); it is a conflict only when
+  the display name belongs to someone else or two compete. Old library files and
+  `.anyrecvoices` read without aliases or owner; exports never carry the owner flag.
+  Call evidence is scored by consistency where it exists, not by coverage: the Slack
+  windows in real calls were readable for 13 s and 106 s, and a coverage rule threw
+  away evidence that pointed at exactly one person per voice. Polls marking several
+  people agree with a name but never supply one.
+- The owner is never two speakers. A diarized voice that is the microphone's speaker
+  (mostly inside measured "Me" lines, the library owner's print, or the owner's display
+  name in the call window) gives its lines back: to "Me" only where the microphone was
+  live and carrying speech and the window shows nobody else, otherwise to the person
+  shown or to the call. A real 1:1 had 16 lines as "Me" and 11 under the owner's own
+  nickname.
+- A transcript is layers, each a file recording what it was built from: sources
+  (`transcript-<engine>-<UUID>.json`, one per engine run, never rewritten), speakers
+  (`speakers-<UUID>.json`: per-line speakers when they differ from the source, voices,
+  decided suggestions), wording (`wording-<UUID>.json`: review changes to specific
+  lines, what was compared, suggestions, failures) and the summary (with its basis).
+  `.transcription.json` selects one of each; files are complete before they are
+  selected and nothing selected is deleted, so older versions stay viewable ("View
+  Sources" lists every source). Naming a voice, accepting one speaker correction or
+  re-running review changes one layer — the summary is no longer dropped by a
+  correction. Markdown, SRT, the app and MCP render from `RecordingTranscript`.
+  Generations from before layers and recordings without a selection read unchanged and
+  are migrated (their transcript becomes the source, their summary stays selected) only
+  when the owner changes something. Regeneration uses the background queue without
+  capturing or merging again, leaves the previous selection on failure, and never
+  changes the default engine. A review used to embed every engine's transcript in each
+  review file and republish a whole generation per correction.
 - The speaker models are the documented exception to the checksum rule: they are
   several files each, fetched by FluidAudio from a pinned revision over HTTPS with
   a size check, and only from `SpeakerSetup.fetch` — the setup screen's Speakers
@@ -557,9 +658,28 @@ Invariants worth preserving:
   not have under names it does, so a team names each person once. File › Import and
   Export Voices, the People list and the welcome window all go through the same two
   panels on `RecordingController`.
-- Nothing leaves the machine unless it was asked for by name. `--engine openai`
-  and `--summarize` are the only two that do, and both say so wherever they are
-  offered. `auto` must stay local-only: falling back to an upload because a model
+- Review cannot fail structurally. A reply is a patch (`changes`: id and text of the lines
+  the model changed); a missing line is unchanged and an id outside the section is
+  ignored. A section with no usable reply keeps its lines and is recorded by range; the
+  review fails only when no section could be used. Name-conflict resolution is a
+  separate step that runs whether or not wording succeeded. Both long real calls lost
+  their whole review to one section that did not restate all thirty lines exactly.
+- Nothing leaves the machine unless it was asked for by name. `--engine openai`,
+  review and `--summarize` are the only ones that do, and each says where the text or
+  audio goes wherever it is offered. A comparison engine is OpenAI only when it is both
+  enabled and checked.
+- There is one pass. The app, `anyrec transcribe`, `anyrec record` and the TUI all run
+  `TranscriptPass`: engines, voices, publish, review, name conflicts, then the summary
+  through `SummaryPass`. Before this, `transcribe` bypassed the pass and used a
+  Markdown prompt that forbade naming speakers, and the app summarised from the
+  controller once, before anyone was named, so owners read "Speaker A" for good.
+- A summary refers to unnamed speakers by label and is shown with the current names
+  filled in; it records the transcript digest and the names it was written with, and is
+  stale — said, with an offer to refresh — when either changes. A summary without that
+  basis is shown as it is and never called stale.
+- Other engines run only for a review that compares them ("Review with a second
+  engine"). The chosen engine always writes the transcript; Aggregator, which picked a
+  primary by fixed order before anything was compared, is migrated to this. `auto` must stay local-only: falling back to an upload because a model
   was missing would ship a call off the machine by accident.
 - `openai` may only use a model that returns timestamps: `gpt-4o-transcribe-diarize`
   or `whisper-1`. Everything else answers in prose, which cannot be placed on a
@@ -603,3 +723,6 @@ relaunched. `anyrec doctor` reports the current state.
 - No secrets in the repo and no `.env`. The one key the tool reads is the user's
   own, from `OPENAI_API_KEY` or `~/Library/Application Support/anyrec/openai-key`.
 - Never commit captures; `*.mov`, `*.mp4`, `*.m4a` are gitignored.
+- `ANYREC_VOICE_LIBRARY` points the voice library at another folder. It exists so a replay
+  against copies of real recordings can run without writing aliases into the owner's
+  library; tests pass a library folder explicitly instead.

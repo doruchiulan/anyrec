@@ -4,16 +4,18 @@ import SwiftUI
 
 @MainActor
 final class CallReminder {
-    private let onRecord: (CaptureChoice?) -> Void
-    private let onChooseWindow: () -> Void
+    /// The call window, and whether to keep its picture: the banner offers Record and
+    /// Audio Only side by side.
+    private let onRecord: (CaptureChoice?, Bool) -> Void
+    private let onChooseWindow: (Bool) -> Void
     private var task: Task<Void, Never>?
     private var panel: NSPanel?
     private var generation = UUID()
     private var anchor: CallWindowAnchor?
     private var window: MuteButton.Window?
-    private lazy var notifier = CallNotifier { [weak self] in self?.chooseWindow() }
+    private lazy var notifier = CallNotifier { [weak self] video in self?.chooseWindow(video: video) }
 
-    init(onRecord: @escaping (CaptureChoice?) -> Void, onChooseWindow: @escaping () -> Void) {
+    init(onRecord: @escaping (CaptureChoice?, Bool) -> Void, onChooseWindow: @escaping (Bool) -> Void) {
         self.onRecord = onRecord
         self.onChooseWindow = onChooseWindow
     }
@@ -70,7 +72,7 @@ final class CallReminder {
         else { panel?.orderOut(nil); return }
         let window = CGRect(x: bounds.minX, y: top - bounds.maxY, width: bounds.width, height: bounds.height)
         guard let frame = CallReminderPlacement.frame(
-            above: window, size: CGSize(width: 390, height: 54), screens: NSScreen.screens.map(\.visibleFrame))
+            above: window, size: CallReminderView.size, screens: NSScreen.screens.map(\.visibleFrame))
         else { panel?.orderOut(nil); return }
         if panel == nil { panel = makePanel(app) }
         panel?.setFrame(frame, display: true)
@@ -88,26 +90,26 @@ final class CallReminder {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.contentView = NSHostingView(rootView: CallReminderView(
-            appName: app.name, record: { [weak self] in self?.record() },
+            appName: app.name, record: { [weak self] video in self?.record(video: video) },
             dismiss: { [weak self] in self?.withdraw() }))
         return panel
     }
 
-    private func record() {
+    private func record(video: Bool) {
         guard let anchor, let window else { return }
         withdraw()
         let generation = generation
         Task { [weak self] in
             let choice = await anchor.capture(window.identity)
             guard let self, self.generation == generation else { return }
-            onRecord(choice)
+            onRecord(choice, video)
         }
     }
 
-    private func chooseWindow() {
+    private func chooseWindow(video: Bool) {
         withdraw()
         NSApplication.shared.activate(ignoringOtherApps: true)
-        onChooseWindow()
+        onChooseWindow(video)
     }
 }
 

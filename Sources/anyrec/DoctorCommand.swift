@@ -24,7 +24,7 @@ struct Doctor: AsyncParsableCommand {
         if let ffmpeg = Muxer.ffmpegPath() {
             print("\(mark(true)) ffmpeg at \(ffmpeg)")
         } else {
-            print("\(mark(false)) ffmpeg not found — no call.mp4 will be produced")
+            print("\(mark(false)) ffmpeg not found — the tracks will not be merged into one playable file")
             print("    brew install ffmpeg")
         }
 

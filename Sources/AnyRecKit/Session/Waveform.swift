@@ -7,8 +7,8 @@ import Foundation
 ///
 /// Decoding is the cost, not the arithmetic: a 100-minute call is two AAC tracks and four
 /// seconds of CPU however the samples are summed. So it is worked out once per recording
-/// and kept beside the tracks as `waveform.json` — a derived file, like `call.mp4`, that
-/// can be deleted and is simply made again.
+/// and kept beside the tracks as `waveform.json` — a derived file, like `thumbnail.jpg`,
+/// that can be deleted and is simply made again.
 public enum Waveform {
     public static let fileName = "waveform.json"
     public static let columns = 120

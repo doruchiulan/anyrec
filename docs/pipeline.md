@@ -1,125 +1,113 @@
 # Recording, transcription and summary
 
-Stopping a recording, or closing its captured window, saves its tracks and frees the recorder. Merging and
-transcription run in a background queue; the library shows each recording's
-progress. Summaries run separately after a transcript is saved.
+Stopping a recording, or closing its captured window, finalises its three tracks and
+frees the recorder. Everything after that runs in a background queue, one recording at
+a time, keyed by its folder; the next call can be recorded meanwhile. The app,
+`anyrec transcribe`, `anyrec record --transcribe` and the terminal UI all run the same
+Kit pass, `TranscriptPass`.
 
 ```mermaid
 flowchart TD
-    Pick["Choose a window, or click Record on a detected call"] --> Capture["Record video, call audio and microphone"]
-    Capture --> Stop["Stop or close window: finalize tracks and save recording"]
-    Stop --> Next["Ready to record the next call"]
-    Stop --> Merge["Background queue: make call.mp4"]
-    Merge --> Enabled{"Automatic transcription enabled?"}
-    Enabled -->|No| Saved["Recording available in library"]
-    Enabled -->|Yes| Audio
-    Manual["Generate / Regenerate Transcript: choose engine"] --> Audio
+    Stop["Stop or window closed: finalise tracks, write microphone-live.json and call-participants.json, release capture"] --> Decide
+    Manual["Generate / Regenerate Transcript"] --> Prepare
 
-    subgraph Transcription["Transcription · one queued recording at a time"]
-        Audio["Select available audio tracks; use call.mp4 if separate tracks are missing"]
-        Audio --> Prepare["Prepare one timeline: balance and mix tracks; apply microphone mute and bleed handling"]
-        Prepare --> Speech["Find speech regions"]
-        Speech --> Engine["Resolve enabled, available engines and language"]
-        Engine --> Parallel{"Parallel transcription enabled?"}
-        Parallel -->|No| Single["Run one enabled engine"]
-        Parallel -->|Yes| Multiple["Run enabled engines concurrently: Parakeet / Apple / Whisper / OpenAI"]
-        Single --> Words["Keep source transcripts with timestamps"]
-        Multiple --> Words
-        Words --> Diarized{"Primary source is OpenAI diarization?"}
-        Diarized -->|Yes| Recognise["Keep speaker labels and times; extract local voiceprints and match saved people"]
-        Diarized -->|No| Attribute["Attribute lines to microphone or call using track levels"]
-        Attribute --> Voices["With both tracks and speaker models: separate remote voices and match known speakers"]
-        Recognise --> Original
-        Voices --> Original["Save original transcript and all engine sources"]
-        Original --> Review{"LLM review enabled?"}
-        Review -->|No| Publish
-        Review -->|Yes| Compare["Compare time-aligned source text; propose corrections and speaker changes"]
-        Compare --> Validate["Validate line IDs, evidence and structure; retain original on failure"]
-        Validate --> Publish["Select completed JSON, Markdown, SRT and voices atomically"]
+    Decide["Decide the mix once: envelopes for bleed, ebur128 loudness → mix.json"] --> Merge["Merge into the named file, verify, delete screen.mov (reads mix.json)"]
+    Decide --> Prepare
+
+    subgraph Pass["TranscriptPass · runs alongside the merge"]
+        Prepare["Prepare: mix.wav from mix.json; speech regions from the track envelopes"] --> Engines["Chosen engine; with review + second engine, the comparison engines too, in parallel"]
+        Engines --> Attribute["Me vs call from the two track envelopes"]
+        Attribute --> Diarize["Diarize the mix (diarization.json, keyed by the mix's hash)"]
+        Diarize --> Identity["Voiceprints vs library; call-window evidence; owner's voice back to Me; Call lines named"]
+        Identity --> Sources["Publish: one source per engine run + speakers layer → selected"]
+        Sources --> Review{"Review on?"}
+        Review -->|Yes| Wording["Wording review: 30-line patches, 3 at a time"]
+        Wording --> Names["Resolve competing names"]
+        Names --> Layer["Wording layer + new speakers layer → selected"]
+        Review -->|No| Summary
+        Layer --> Summary{"Summary on?"}
+        Summary -->|Yes| Write["Summary by label, with its basis → selected"]
     end
 
-    Publish --> Transcript["Transcript available in library"]
-    Transcript --> Confirm["User confirms suggested speaker names or reassignments"]
-    Confirm --> Updated["Update transcript; clear stale summary after reassignment"]
-    Updated --> Summary
-    Publish --> Summaries{"Automatic summary enabled and provider available?"}
-    Summaries -->|Yes| Summary["Send named transcript text to configured summary provider"]
-    Summary --> Output["Save overview, decisions and action items as JSON and Markdown"]
-    Summaries -->|No| Later["Summary can be generated later"]
-    Later --> Summary
+    Write --> Shown["Shown: Markdown, SRT, app, MCP — rendered from the layers"]
+    Summary -->|No| Shown
+    Shown --> Owner["Owner names a voice / accepts a correction → speakers layer only"]
 ```
 
-## Transcription details
+## Stages, in order
 
-- Local transcription uses separate tracks for microphone-versus-call attribution.
-  A single remaining track, including a merged-only recording, lacks that distinction.
-  OpenAI diarization keeps its own speaker labels and segment times, including for
-  your voice; track-based attribution does not split or relabel those segments.
-- Audio preparation balances both tracks and handles microphone muting and bleed
-  when the necessary timing and measurements are available. A single track bypasses
-  the mix. Speech detection identifies the useful regions before recognition.
-- **Automatic** tries Parakeet, then Apple for the detected language, then Whisper.
-  It chooses a local engine; OpenAI requires explicit selection and uploads audio.
-  Language detection depends on the engine and installed models, with English as
-  the fallback when it cannot be detected.
-- Local engines use optional on-device speaker separation after recognition.
-  OpenAI diarization skips local separation. Its labelled passages supply up to
-  three non-overlapping speech samples per speaker for local voiceprint extraction
-  and comparison with saved people. Samples are 2–10 seconds long; uncertain,
-  conflicting or failed matches leave the speaker unnamed. Missing models never
-  discard OpenAI's labels, and names can still be assigned manually.
-- Generation and regeneration use the same transcription path. Regeneration skips
-  capture and merging, keeps the previous transcript visible while working, and
-  selects a replacement only after saving it successfully. Failure leaves the
-  previous version selected. Older generations remain on disk.
+1. **Capture ends** (`RecordingSession.finishCapture`). Writes `screen.mov`,
+   `system-audio.m4a`, `microphone.m4a`, `microphone-live.json` (when the call could
+   hear the microphone) and `call-participants.json` (what the call window showed).
+   The recorder is released before anything below starts.
+2. **Mix decision** (`MixPlan.decided(for:)`). Decodes both track envelopes (shared,
+   and remembered for the rest of the pass), checks bleed, measures each track with
+   ffmpeg `ebur128=peak=true` (both at once, and only when the microphone does not
+   bleed), and writes `mix.json`, keyed to the tracks' and `microphone-live.json`'s
+   size and modification time. A later run reads it instead.
+3. **Merge and transcript, side by side** (`RecordingJobs`).
+   - **Merge** (`Muxer`): reads `mix.json`, copies the video from `screen.mov` (or, on a
+     re-merge, from the merged file) and writes the merged file named from `recording.json`;
+     once AVFoundation confirms every frame and the whole mix are there, it is moved into
+     place, its name recorded in `recording.json`, and `screen.mov` deleted.
+   - **Transcript** (`TranscriptPass`):
+     1. *Prepare*: builds `mix.wav` (16 kHz mono, scratch) from the same plan; speech
+        regions come from the mix's envelope worked out from the two track envelopes.
+     2. *Recognise*: the chosen engine. With review and "Review with a second engine",
+        the comparison engines run on the same mix concurrently.
+     3. *Attribute*: each line to "Me" or the call from which track was louder.
+     4. *Diarize*: FluidAudio over the mix, or `diarization.json` when its SHA-256 of
+        the mix matches.
+     5. *Identity*: voiceprints against the library; call-window evidence per voice
+        (agreement, alias, conflict, fused voice); the owner's own voice given back to
+        "Me" where the microphone spoke; "Call" lines named from the window.
+     6. *Publish*: one `transcript-<engine>-<UUID>.json` per engine run (never
+        rewritten) and a `speakers-<UUID>.json`, selected in `.transcription.json`.
+        The transcript is usable from here.
+     7. *Review* (opt-in): wording patches in sections, three in flight; then competing
+        names resolved. Writes `wording-<UUID>.json` and a new speakers layer, selected
+        together. A failure is recorded in the wording layer; the source stays.
+     8. *Summary* (opt-in): written from the transcript as it reads now, unnamed
+        speakers by label, with the digest and names it was written from, as
+        `summary-<…>.json` and `.md`, selected.
+4. **Afterwards**. Naming a voice or accepting a speaker correction rewrites the
+   speakers layer and nothing else, then re-renders the Markdown, SRT and the summary's
+   Markdown. The summary is never dropped; it is marked stale when the words, who said
+   them, or a name it used changed, and can be refreshed.
 
-## Review and speaker controls
+What reads what: Markdown, SRT, the app's transcript and MCP results are all rendered
+from the selected source + speakers layer + wording layer (`RecordingTranscript`).
+Generations written before layers (`transcript-…`, `voices-…`, `review-…` selected
+together) and older recordings without a selection read the same way and are moved
+into layers only when the owner changes something.
 
-Settings › Transcription contains engine enable switches, **Run enabled engines in
-parallel**, **Review transcripts with an LLM**, the review provider and the Speakers
-section. Parallel mode and review are independent and off by default. Installed
-engines can be disabled without deleting their models. In single mode, Automatic
-only considers enabled local engines. Parallel mode includes OpenAI only when its
-engine is explicitly enabled; that engine uploads audio.
+## Timings
 
-The audio mix is prepared once. Parallel recognition jobs share that file and run
-concurrently; a failed engine does not discard successful alternatives. The preferred
-engine supplies the initial timeline, or the first successful nonempty source does.
-Speaker processing runs once on that timeline when enabled: voice matching for
-OpenAI diarization, or local separation and matching for other engines. Alternative
-transcripts cannot replace the primary source's speaker assignments automatically.
-The speaker model can also be downloaded from onboarding.
+Measured on a 76-minute Slack call (M3 Pro, Parakeet, no review): preparation went
+from 230 s to 30 s, the whole transcript from 331 s to 138 s, and a regeneration with
+the mix decision and diarization kept from 331 s to 36 s. In the app the merge used to
+measure the tracks again (another ~186 s) and ran before the transcript; it now reads
+`mix.json` and runs beside it.
 
-Review sends transcript text to the selected provider. It works on bounded batches
-with time-aligned alternative lines. Code preserves each primary line's timestamps
-and speaker assignment while accepting corrected text. Review cannot recover a new
-timestamped segment absent from the primary timeline. It suggests speaker names and
-reassignments separately, with quoted evidence; the user confirms them in the recording.
-Confirming a reassignment creates a new transcript generation and clears its old
-summary. The summary can then be regenerated from the confirmed attribution.
+## Review and speakers
 
-Original source transcripts are kept in each generation's review metadata and can
-be read with **View Sources**. Invalid or failed reviews leave an original selected
-and show a failure note. Disagreement between engines can still produce a wrong
-correction, so the source transcripts remain available for comparison.
-
-## Summary details
-
-The app sends transcript text, including known speaker names, to Claude Code,
-Codex, OpenAI API or Gemini CLI according to Settings. Audio is not sent for
-summarization. The result belongs to the transcript version that produced it;
-regeneration does not reuse an older summary. A failed summary leaves the recording
-and transcript available, and can be retried from the app.
-
-The merge/transcription queue does not block another recording. A summary for an
-earlier call can also run while the next call is recording or transcribing.
+Settings › Transcription has the engine switches, **Review transcripts with an LLM**,
+the review provider, **Review with a second engine** with the engines it runs, and the
+Speakers section. Review sends transcript text to the chosen provider; a checked OpenAI
+comparison engine uploads audio. Details are in
+[transcript-aggregation.md](transcript-aggregation.md) and
+[participant-identification.md](participant-identification.md).
 
 ## Implementation
 
-[RecordingSession](../Sources/AnyRecKit/Session/RecordingSession.swift) finalizes
-capture. [RecordingJobs](../Sources/AnyRecBar/RecordingJobs.swift) queues merge and
-transcription. [TranscriptionService](../Sources/AnyRecKit/Transcription/TranscriptionService.swift)
-prepares audio and recognizes speech.
-[TranscriptStore](../Sources/AnyRecKit/Transcription/TranscriptStore.swift) selects
-the saved generation. [Summary](../Sources/AnyRecKit/Transcription/Summary.swift)
-implements summary providers.
+[RecordingSession](../Sources/AnyRecKit/Session/RecordingSession.swift) finalises
+capture. [RecordingJobs](../Sources/AnyRecBar/RecordingJobs.swift) decides the mix and
+runs the merge beside [TranscriptPass](../Sources/AnyRecKit/Session/TranscriptPass.swift).
+[MixDecision](../Sources/AnyRecKit/MixDecision.swift) keeps the mix.
+[TranscriptionService](../Sources/AnyRecKit/Transcription/TranscriptionService.swift)
+prepares audio and recognises speech.
+[ParticipantAttribution](../Sources/AnyRecKit/Transcription/ParticipantAttribution.swift)
+names voices. [TranscriptStore](../Sources/AnyRecKit/Transcription/TranscriptStore.swift)
+and [TranscriptLayers](../Sources/AnyRecKit/Transcription/TranscriptLayers.swift) keep
+and render the layers. [SummaryPass](../Sources/AnyRecKit/Session/SummaryPass.swift)
+writes the summary.

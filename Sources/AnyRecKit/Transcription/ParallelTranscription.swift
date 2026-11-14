@@ -11,6 +11,7 @@ enum ParallelTranscription {
         let engine: TranscriptionEngine
         let transcript: Transcript?
         let failure: String?
+        var error: TranscriptionError? = nil
     }
 
     static func collect(
@@ -22,7 +23,10 @@ enum ParallelTranscription {
             for engine in engines {
                 group.addTask {
                     do { return Result(engine: engine, transcript: try await recognize(engine), failure: nil) }
-                    catch { return Result(engine: engine, transcript: nil, failure: "\(engine.rawValue): \(error)") }
+                    catch {
+                        return Result(engine: engine, transcript: nil, failure: "\(engine.rawValue): \(error)",
+                                      error: error as? TranscriptionError)
+                    }
                 }
             }
             var results: [Result] = []
@@ -44,28 +48,32 @@ extension TranscriptionService {
         }
         let prepared = try prepared(job, progress: progress)
         defer { try? FileManager.default.removeItem(at: prepared.scratch) }
-        progress("Transcribing with " + engines.map(\.rawValue).joined(separator: ", ") + "…")
+        if engines.count > 1 { progress("Transcribing with " + engines.map(\.rawValue).joined(separator: ", ") + "…") }
         let results = await ParallelTranscription.collect(engines: engines, completed: { result, count in
+            guard engines.count > 1 else { return }
             progress("\(result.engine.rawValue) \(result.failure == nil ? "finished" : "failed") — \(count) of \(engines.count) engines finished…")
         }) { engine in
             var candidate = job
             candidate.engine = engine
-            return try await recognize(candidate, source: prepared.audio, progress: { _ in })
+            return try await recognize(candidate, source: prepared.audio, progress: engines.count == 1 ? progress : { _ in })
         }
         try Task.checkCancellation()
         let transcripts = results.compactMap(\.transcript)
         let failures = results.compactMap(\.failure)
         guard let primary = transcripts.first(where: { !$0.isEmpty }) ?? transcripts.first,
               !primary.isEmpty || failures.isEmpty else {
+            /// The chosen engine's own error, so its way out (a model to fetch, a key to
+            /// paste) reaches whoever asked.
+            if let error = results.first?.error, transcripts.isEmpty { throw error }
             throw TranscriptionError.engineFailed(engine: "transcription", log: failures.joined(separator: "\n"))
         }
         let (lines, voices) = identifySpeakers
-            ? await separate(primary, in: prepared.audio, useDiarization: job.diarize, progress: progress)
+            ? await separate(primary, in: prepared.audio, useDiarization: job.diarize, progress: progress,
+                             evidence: job.participants)
             : (primary.utterances, nil)
         let attributed = Transcript(utterances: lines, language: primary.language, engine: primary.engine,
                                    notes: primary.notes + failures.map { "Engine unavailable: \($0)" })
-        let named = ParticipantAttribution.apply(voices, lines: lines, evidence: job.participants)
-        return TranscriptionCandidates(primary: Transcribed(transcript: attributed, voices: named),
+        return TranscriptionCandidates(primary: Transcribed(transcript: attributed, voices: voices),
                                        transcripts: transcripts, failures: failures)
     }
 }

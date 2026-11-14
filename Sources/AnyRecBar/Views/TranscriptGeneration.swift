@@ -25,7 +25,7 @@ struct TranscriptGeneration: View {
         self.controller = controller
         self.entry = entry
         let previous = entry.transcript.flatMap(Transcript.read).flatMap { TranscriptionEngine(rawValue: $0.engine) }
-        let preferred = controller.transcriptionOptions.parallel ? TranscriptionMode.aggregator : .engine(previous ?? controller.engine)
+        let preferred = TranscriptionMode.engine(previous ?? controller.engine)
         _mode = State(initialValue: !controller.transcriptionEngines(using: preferred).isEmpty ? preferred : .engine(.auto))
     }
 
@@ -69,7 +69,7 @@ struct TranscriptGeneration: View {
         let engines = controller.transcriptionEngines(using: mode)
         guard !engines.isEmpty else { return "Enable an available engine in Settings › Transcription." }
         let summary = controller.summarizes ? controller.activeSummaryProvider : nil
-        return [mode.description(engines: engines, review: controller.transcriptionOptions.review),
+        return [mode.description(engines: engines, options: controller.transcriptionOptions),
                 TranscriptionMode.textProcessing(options: controller.transcriptionOptions, summary: summary)]
             .filter { !$0.isEmpty }.joined(separator: " ")
     }

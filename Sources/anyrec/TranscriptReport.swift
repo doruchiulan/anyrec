@@ -9,7 +9,7 @@ enum TranscriptReport {
         print("")
         if let outcome = await session.transcript(progress: { print("  \($0)") }) {
             print(render(outcome))
-            if case .written(_, _, let voices) = outcome {
+            if case .written(_, _, let voices, _) = outcome {
                 SpeakerPrompt.offer(voices, in: session.plan.directory)
             }
         }
@@ -17,14 +17,22 @@ enum TranscriptReport {
 
     static func render(_ outcome: TranscriptOutcome) -> String {
         switch outcome {
-        case .written(let files, let notes, _):
-            (files.map { "  Wrote \($0.path)" } + notes.map { "\n  \($0)" }).joined(separator: "\n")
+        case .written(let files, let notes, _, let summary):
+            (files.map { "  Wrote \($0.path)" } + notes.map { "\n  \($0)" } + summaryLines(summary)).joined(separator: "\n")
         case .nothingHeard:
             "  Nothing was heard, so there is no transcript."
         case .failed(let reason, let remedy):
             (["  No transcript: \(reason)"] + (remedy.map { [indented($0.advice)] } ?? [])
                 + ["  The recording is untouched — retry with `anyrec transcribe`."])
                 .joined(separator: "\n")
+        }
+    }
+
+    private static func summaryLines(_ summary: SummaryOutcome?) -> [String] {
+        switch summary {
+        case .written(let url): ["  Wrote \(url.path)"]
+        case .failed(let reason): ["\n  No summary: \(reason)"]
+        case nil: []
         }
     }
 
@@ -56,7 +64,7 @@ extension TranscriptionError.Remedy {
 }
 
 /// Carries an already-worded message out to the command line.
-private struct Explained: Error, LocalizedError {
+struct Explained: Error, LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }

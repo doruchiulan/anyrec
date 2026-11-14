@@ -11,17 +11,15 @@ struct SpeakerIdentityReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        let outcome = try await TranscriptPass.publish(candidates, in: directory, options: options, progress: { _ in }) { input, provider in
-            try await TranscriptReviewer.review(input, using: provider, progress: { _ in }) { _, text, _ in
-                if text.contains("\"conflicts\"") {
-                    #expect(text.contains("Costin") && text.contains("Alex") && text.contains("I'm Costin"))
-                    #expect(!text.contains("\"print\""))
-                    return self.decision("Costin")
-                }
-                return self.wording
+        let outcome = try await TranscriptPass.publish(candidates, in: directory, options: options, progress: { _ in }) { _, text, _ in
+            if text.contains("\"conflicts\"") {
+                #expect(text.contains("Costin") && text.contains("Alex") && text.contains("I'm Costin"))
+                #expect(!text.contains("\"print\""))
+                return self.decision("Costin")
             }
+            return self.wording
         }
-        guard case .written(let files, _, let voices) = outcome else { Issue.record("Expected transcript"); return }
+        guard case .written(let files, _, let voices, _) = outcome else { Issue.record("Expected transcript"); return }
         #expect(voices?.names == ["A": "Costin"])
         #expect(voices?.voices[0].print == candidates.primary.voices?.voices[0].print)
         #expect(RecordingVoices.read(in: directory) == voices)
@@ -31,11 +29,12 @@ struct SpeakerIdentityReviewTests {
         #expect(!evidence.conflict && evidence.callNames == ["Costin"] && evidence.voiceprintName == "Alex")
         #expect(evidence.resolution?.name == "Costin" && evidence.resolution?.provider == options.reviewProvider)
         #expect(evidence.resolution?.reason == "The speaker introduces himself as Costin.")
-        #expect(TranscriptReview.read(in: directory)?.suggestions.isEmpty == true)
+        #expect(RecordingTranscript.read(in: directory)?.nameSuggestions.isEmpty == true)
         let stored = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        let generations = stored.filter { $0.lastPathComponent.hasPrefix("voices-") }.compactMap { RecordingVoices.read($0) }
-        #expect(generations.count == 2)
-        #expect(generations.contains(candidates.primary.voices!))
+        let layers = stored.filter { $0.lastPathComponent.hasPrefix("speakers-") }
+            .compactMap { try? JSONDecoder().decode(SpeakerLayer.self, from: Data(contentsOf: $0)) }
+        #expect(layers.count == 2)
+        #expect(layers.contains { $0.voices == candidates.primary.voices })
     }
 
     @Test("The reviewer can keep the saved voice name instead of the call indicator")
@@ -77,27 +76,40 @@ struct SpeakerIdentityReviewTests {
     func disabled() async throws {
         let directory = try folder()
         defer { try? FileManager.default.removeItem(at: directory) }
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: TranscriptionOptions(), progress: { _ in }) { _, _ in
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: TranscriptionOptions(), progress: { _ in }) { _, _, _ in
             Issue.record("Review must remain opt-in")
             throw CancellationError()
         }
         #expect(RecordingVoices.read(in: directory) == fixture().primary.voices)
     }
 
-    @Test("An invalid identity response keeps the original generation usable")
+    @Test("An invalid identity response keeps both candidates and the reviewed wording")
     func failedResolution() async throws {
         let directory = try folder()
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { candidates, provider in
-            try await TranscriptReviewer.review(candidates, using: provider, progress: { _ in }) { _, input, _ in
-                input.contains("\"conflicts\"") ? self.decision("Invented") : self.wording
-            }
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, input, _ in
+            input.contains("\"conflicts\"") ? self.decision("Invented") : self.wording
         }
         #expect(RecordingVoices.read(in: directory) == fixture().primary.voices)
-        #expect(TranscriptReview.read(in: directory)?.failures.isEmpty == false)
-        #expect(Transcript.read(try #require(TranscriptStore.activeTranscript(in: directory)))?.engine == "parakeet")
+        #expect(RecordingTranscript.read(in: directory)?.reviewFailures.isEmpty == false)
+        #expect(RecordingTranscript.read(in: directory)?.transcript.engine == "reviewed")
+    }
+
+    @Test("Names are resolved even when no wording batch could be used")
+    func resolvesWithoutWording() async throws {
+        let directory = try folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var options = TranscriptionOptions()
+        options.review = true
+        let outcome = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, input, _ in
+            input.contains("\"conflicts\"") ? self.decision("Costin") : "not a review"
+        }
+        guard case .written(_, let notes, let voices, _) = outcome else { Issue.record("Expected transcript"); return }
+        #expect(voices?.names == ["A": "Costin"])
+        #expect(notes.contains { $0.contains("Transcript review failed") })
+        #expect(RecordingTranscript.read(in: directory)?.transcript.engine == "parakeet")
     }
 
     @Test("Already resolved voices need no extra LLM call")
@@ -137,7 +149,7 @@ struct SpeakerIdentityReviewTests {
     }
 
     private var wording: String {
-        #"{"lines":[{"id":0,"text":"I'm Costin. I'll share my screen."},{"id":1,"text":"This is the dashboard."}],"suggestions":[{"letter":"A","name":"Costin","quote":"I'm Costin","line":0}],"speakerChanges":[]}"#
+        #"{"changes":[{"id":0,"text":"I'm Costin. I'll share my screen."},{"id":1,"text":"This is the dashboard."}],"suggestions":[{"letter":"A","name":"Costin","quote":"I'm Costin","line":0}],"speakerChanges":[]}"#
     }
 
     private func decision(_ name: String) -> String {

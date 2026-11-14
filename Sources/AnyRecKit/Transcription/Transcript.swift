@@ -74,6 +74,15 @@ public struct Transcript: Sendable, Equatable, Codable {
         self.notes = notes
     }
 
+    /// Lines kept exactly as given, in the given order: for rendering a layer over a source
+    /// whose line indexes have to stay put.
+    init(keeping utterances: [Utterance], language: String?, engine: String, notes: [String]) {
+        self.utterances = utterances
+        self.language = language
+        self.engine = engine
+        self.notes = notes
+    }
+
     public var isEmpty: Bool { utterances.isEmpty }
     public var duration: TimeInterval { utterances.map(\.end).max() ?? 0 }
 

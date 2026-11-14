@@ -75,6 +75,27 @@ struct TranscriptStoreTests {
         #expect(FileManager.default.fileExists(atPath: files[2].path))
     }
 
+    @Test("naming a voice changes the speakers layer and nothing else: source, wording and summary stay")
+    func namingOneLayer() throws {
+        let folder = try directory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let lines = [Utterance(start: 0, end: 1, text: "Hello", speaker: .voice("A"))]
+        let voices = RecordingVoices(voices: [.init(letter: "A", print: [], sample: "Hello", start: 0, end: 1)])
+        let files = try TranscriptStore.publish(Transcript(utterances: lines, language: "en", engine: "parakeet"), voices: voices, in: folder)
+        let summary = try TranscriptStore.publishSummary(Summary(overview: "Speaker A said hello.", decisions: [], actions: [], provider: "t"),
+                                                         for: files[2], names: [:])
+        let source = try Data(contentsOf: files[2])
+        let summaryData = try Data(contentsOf: summary)
+        try VoiceNaming.apply(["A": "Maria"], in: folder, library: folder.appendingPathComponent("library"))
+        #expect(try Data(contentsOf: files[2]) == source)
+        #expect(try Data(contentsOf: summary) == summaryData)
+        #expect(TranscriptStore.activeSummary(in: folder) == summary)
+        #expect(RecordingVoices.read(in: folder)?.names == ["A": "Maria"])
+        #expect(try String(contentsOf: files[0], encoding: .utf8).contains("Maria"))
+        #expect(try String(contentsOf: summary.deletingPathExtension().appendingPathExtension("md"), encoding: .utf8)
+                .contains("Maria said hello."))
+    }
+
     @Test("merged audio is available to transcription when the separate tracks are absent")
     func mergedSource() throws {
         let folder = try directory()

@@ -4,7 +4,7 @@ import AnyRecKit
 /// The recording summary and what became of the merge, as one block of text.
 enum SummaryReport {
     static func render(_ outcome: RecordingOutcome) -> String {
-        Report.render(outcome.summary) + "\n\n" + merge(outcome.merge)
+        Report.render(outcome.summary) + "\n\n" + merge(outcome.merge, audioOnly: outcome.summary.audioOnly)
     }
 
     static func status(_ stage: RecordingSession.Stage) -> String {
@@ -14,24 +14,36 @@ enum SummaryReport {
         }
     }
 
-    private static func merge(_ outcome: MergeOutcome) -> String {
+    static func merge(_ outcome: MergeOutcome, audioOnly: Bool = false) -> String {
         switch outcome {
         case .merged(let mux):
-            (["  Play this one:  \(mux.output.path)"] + mux.notes.map { "  " + $0 })
+            (["  Play this one:  \(mux.output.path)"]
+                + (mux.replaced.contains { $0.lastPathComponent == "screen.mov" }
+                    ? ["  screen.mov was checked frame for frame against it and removed; the video is in this file now."]
+                    : [])
+                + mux.notes.map { "  " + $0 })
                 .joined(separator: "\n\n")
         case .notRequested:
             "  The tracks were left separate, as asked."
+        case .ffmpegMissing where audioOnly:
+            """
+              Not merged into one file: ffmpeg is not on PATH. The two audio tracks are
+              intact — install ffmpeg (brew install ffmpeg) and merge them with:
+                ffmpeg -i system-audio.m4a -i microphone.m4a \\
+                  -filter_complex "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
+                  -map "[a]" -c:a aac call.mp4
+            """
         case .ffmpegMissing:
             """
-              No call.mp4: ffmpeg is not on PATH, so screen.mov carries no audio. The
-              separate tracks are intact — install ffmpeg (brew install ffmpeg) and
-              merge them with:
+              Not merged into one file: ffmpeg is not on PATH, so screen.mov carries no
+              audio. The separate tracks are intact — install ffmpeg (brew install ffmpeg)
+              and merge them with:
                 ffmpeg -i screen.mov -i system-audio.m4a -i microphone.m4a \\
                   -filter_complex "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
                   -map 0:v -map "[a]" -c:v copy -c:a aac call.mp4
             """
         case .failed(let reason):
-            "  The three tracks are intact, but the merge failed: \(reason)"
+            "  The \(audioOnly ? "audio tracks are" : "three tracks are") intact, but the merge failed: \(reason)"
         }
     }
 }
@@ -39,7 +51,11 @@ enum SummaryReport {
 enum Report {
     static func render(_ summary: RecordingSummary) -> String {
         var lines = ["", summary.plan.directory.path]
-        lines.append(row(summary.plan.screen, count: summary.screenFrames, unit: "frames"))
+        if summary.audioOnly {
+            lines.append("  " + "screen.mov".padding(toLength: 20, withPad: " ", startingAt: 0) + "not recorded — audio only")
+        } else {
+            lines.append(row(summary.plan.screen, count: summary.screenFrames, unit: "frames"))
+        }
         lines += AudioTrack.allCases.map { audioRow($0, in: summary) }
 
         for note in notes(summary) { lines += ["", note] }
@@ -64,8 +80,8 @@ enum Report {
             summary.screenFrames + AudioTrack.allCases.reduce(0) { $0 + summary.samples(for: $1) }
         if DropRate.worthReporting(summary.droppedSamples, of: captured) {
             notes.append(
-                "\(summary.droppedSamples) buffers dropped — the encoder could not keep up. "
-                    + "Try --fps 24 or --codec hevc."
+                "\(summary.droppedSamples) buffers dropped — the encoder could not keep up."
+                    + (summary.audioOnly ? "" : " Try --fps 24 or --codec hevc.")
             )
         }
         return notes

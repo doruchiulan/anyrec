@@ -26,6 +26,8 @@ public struct RecordingSummary: Sendable {
     public let microphonePeak: Float
     /// Why capture ended by itself, when it did. Nil for an ordinary stop.
     public let endedEarly: String?
+    /// No screen track was asked for, so its absence is not a shortfall.
+    public var audioOnly = false
 
     public func peak(for track: AudioTrack) -> Float {
         switch track {
@@ -56,10 +58,17 @@ public enum DropRate {
     }
 }
 
-/// Drives one SCStream and fans its three output types into three files.
+/// Drives one SCStream and fans its three output types into three files — two when the
+/// recording is audio only.
 ///
 /// Every stream output shares a single serial queue, so the writer table and the
 /// session clock need no further locking.
+///
+/// The session clock starts at the first buffer that is *written*, whatever its output,
+/// and the timeline anchor the participant monitor reads moves only with written
+/// buffers. An audio-only recording discards its screen frames before either is touched
+/// (see `accepts`), so its clock starts at the first audio buffer and the two audio
+/// tracks and the participant times share it exactly as they share it with video.
 public final class Recorder: NSObject {
     private let options: CaptureOptions
     private let target: ResolvedTarget
@@ -95,6 +104,9 @@ public final class Recorder: NSObject {
         let stream = SCStream(
             filter: target.filter, configuration: makeConfiguration(), delegate: self
         )
+        /// Added with video off too: without a screen output ScreenCaptureKit still renders
+        /// frames and logs every one it has nowhere to send. With one, they arrive at the
+        /// configuration's two pixels and one frame a second and are dropped in `accepts`.
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         if options.captureSystemAudio {
             try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
@@ -125,7 +137,8 @@ public final class Recorder: NSObject {
             droppedSamples: tracks.values.reduce(0) { $0 + $1.samplesDropped },
             systemAudioPeak: levels.sessionPeak(for: .systemAudio),
             microphonePeak: levels.sessionPeak(for: .microphone),
-            endedEarly: ended
+            endedEarly: ended,
+            audioOnly: !options.recordsVideo
         )
     }
 
@@ -156,16 +169,26 @@ public final class Recorder: NSObject {
         }
     }
 
-    private func makeConfiguration() -> SCStreamConfiguration {
+    func makeConfiguration() -> SCStreamConfiguration {
         let config = SCStreamConfiguration()
-        config.width = target.width
-        config.height = target.height
+        if options.recordsVideo {
+            config.width = target.width
+            config.height = target.height
+            config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
+            config.queueDepth = 6
+            config.showsCursor = options.showsCursor
+        } else {
+            /// The stream needs a picture to run, so it gets the cheapest one it accepts:
+            /// a few pixels, once a second, and nothing that is never written.
+            config.width = Self.audioOnlyFrame
+            config.height = Self.audioOnlyFrame
+            config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+            config.queueDepth = 3
+            config.showsCursor = false
+        }
         // Off, the output only scales down: shrink the window mid-call and the frame
         // keeps its size with the picture in one corner and black around the rest.
         config.scalesToFit = true
-        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(options.fps))
-        config.queueDepth = 6
-        config.showsCursor = options.showsCursor
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.capturesAudio = options.captureSystemAudio
         config.excludesCurrentProcessAudio = true
@@ -176,13 +199,28 @@ public final class Recorder: NSObject {
         return config
     }
 
+    /// The side of the smallest picture an audio-only stream is given.
+    static let audioOnlyFrame = 2
+
+    /// Whether a buffer of this output is written at all. Nothing that is not written may
+    /// start the session clock or move the timeline anchor: an audio-only recording's
+    /// screen frames are refused here, before either is touched, and no screen writer
+    /// is ever made for them.
+    func accepts(_ type: SCStreamOutputType, complete: @autoclosure () -> Bool) -> Bool {
+        guard type == .screen else { return true }
+        return options.recordsVideo && complete()
+    }
+
     private func writer(for type: SCStreamOutputType, buffer: CMSampleBuffer) throws -> TrackWriter {
         if let existing = writers[type] { return existing }
 
         let format = CMSampleBufferGetFormatDescription(buffer)
-        let created: TrackWriter = switch type {
+        let created: TrackWriter
+        switch type {
         case .screen:
-            try TrackWriter(
+            /// `accepts` keeps screen buffers away when video is off; this is the backstop.
+            guard options.recordsVideo else { throw RecorderError.unsupportedOutputType }
+            created = try TrackWriter(
                 url: plan.screen,
                 kind: .video(
                     codec: options.codec.avCodecType,
@@ -192,9 +230,9 @@ public final class Recorder: NSObject {
                 formatHint: nil
             )
         case .audio:
-            try TrackWriter(url: plan.systemAudio, kind: .audio, formatHint: format)
+            created = try TrackWriter(url: plan.systemAudio, kind: .audio, formatHint: format)
         case .microphone:
-            try TrackWriter(url: plan.microphone, kind: .audio, formatHint: format)
+            created = try TrackWriter(url: plan.microphone, kind: .audio, formatHint: format)
         @unknown default:
             throw RecorderError.unsupportedOutputType
         }
@@ -223,7 +261,7 @@ extension Recorder: SCStreamOutput {
         of type: SCStreamOutputType
     ) {
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
-        if type == .screen, !isCompleteFrame(sampleBuffer) { return }
+        guard accepts(type, complete: isCompleteFrame(sampleBuffer)) else { return }
 
         if let track = AudioTrack(type), let level = AudioLevelMeter.measure(sampleBuffer) {
             levels.record(level, for: track)

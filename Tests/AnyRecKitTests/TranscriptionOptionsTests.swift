@@ -7,21 +7,22 @@ struct TranscriptionOptionsTests {
     @Test("defaults use one local engine and disable review and uploads")
     func defaults() {
         let options = TranscriptionOptions()
-        #expect(!options.parallel && !options.review)
+        #expect(!options.compareEngines && !options.review)
         #expect(!options.enabledEngines.contains(.openai))
-        #expect(options.engines(preferred: .auto, available: Set(TranscriptionEngine.allCases)) == [.parakeet])
+        #expect(options.engines(preferred: .auto, available: Set(TranscriptionEngine.allCases)) == [.auto])
     }
 
     @Test("disabled and unavailable engines never run; single Automatic never uploads")
     func enabled() throws {
         var options = TranscriptionOptions()
         options.enabledEngines = [.whisper, .openai]
-        options.aggregatorEngines = [.whisper, .openai]
+        options.comparisonEngines = [.whisper, .openai]
         let available: Set<TranscriptionEngine> = [.parakeet, .whisper, .openai]
-        #expect(options.engines(preferred: .auto, available: available) == [.whisper])
+        #expect(options.engines(preferred: .auto, available: available) == [.auto])
+        #expect(TranscriptionOptions.autoEngine(enabled: options.enabledEngines.intersection(available)) == .whisper)
         #expect(options.engines(preferred: .parakeet, available: available).isEmpty)
         #expect(options.engines(preferred: .auto, available: [.openai]).isEmpty)
-        options.parallel = true
+        options.compareEngines = true
         options.review = true
         options.reviewProvider = .codex
         #expect(options.engines(preferred: .whisper, available: available) == [.whisper, .openai])
@@ -29,18 +30,17 @@ struct TranscriptionOptionsTests {
         #expect(try JSONDecoder().decode(TranscriptionOptions.self, from: JSONEncoder().encode(options)) == options)
     }
 
-    @Test("Aggregator order ignores the previous engine", arguments: TranscriptionEngine.allCases)
+    @Test("comparison engines follow a fixed order after the chosen one, never repeating it",
+          arguments: [TranscriptionEngine.parakeet, .apple, .whisper, .openai])
     func fixedOrder(previous: TranscriptionEngine) {
         var options = TranscriptionOptions()
-        options.parallel = true
-        options.enabledEngines = [.parakeet, .apple, .whisper, .openai]
-        options.aggregatorEngines = options.enabledEngines
-        let available = options.enabledEngines
-        #expect(options.engines(preferred: previous, available: available) == [.parakeet, .apple, .whisper, .openai])
         options.review = true
-        #expect(options.engines(preferred: previous, available: available) == [.parakeet, .apple, .whisper, .openai])
-        options.aggregatorEngines = [.whisper, .openai]
-        #expect(options.engines(preferred: previous, available: available) == [.whisper, .openai])
+        options.compareEngines = true
+        options.enabledEngines = [.parakeet, .apple, .whisper, .openai]
+        options.comparisonEngines = options.enabledEngines
+        let available = options.enabledEngines
+        let order: [TranscriptionEngine] = [.parakeet, .apple, .whisper, .openai]
+        #expect(options.engines(preferred: previous, available: available) == [previous] + order.filter { $0 != previous })
     }
 
     @Test("engines overlap, retain requested order and isolate a failed engine")

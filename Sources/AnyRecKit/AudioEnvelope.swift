@@ -64,9 +64,53 @@ public struct AudioEnvelope: Sendable, Equatable {
             })
     }
 
+    /// Decoding is the cost — tens of seconds for an hour-long track — and a pass reads
+    /// the same two tracks for bleed, speech and attribution, then again for the next
+    /// regeneration. So the last few envelopes are remembered, keyed by path, size and
+    /// modification time: a track that changes is decoded again.
     public static func of(_ url: URL, using ffmpeg: String) -> AudioEnvelope? {
+        let key = Memo.key(url)
+        if let key, let cached = Memo.shared.value(for: key) { return cached }
         guard let samples = decode(url, using: ffmpeg) else { return nil }
-        return AudioEnvelope(frames: rms(of: samples))
+        let envelope = AudioEnvelope(frames: rms(of: samples))
+        if let key { Memo.shared.store(envelope, for: key) }
+        return envelope
+    }
+
+    /// Several tracks decoded side by side, in the order given.
+    public static func of(_ urls: [URL], using ffmpeg: String) -> [AudioEnvelope?] {
+        var results = [AudioEnvelope?](repeating: nil, count: urls.count)
+        results.withUnsafeMutableBufferPointer { slots in
+            DispatchQueue.concurrentPerform(iterations: urls.count) { index in
+                slots[index] = of(urls[index], using: ffmpeg)
+            }
+        }
+        return results
+    }
+
+    private final class Memo: @unchecked Sendable {
+        static let shared = Memo()
+        static let capacity = 6
+        private let lock = NSLock()
+        private var entries: [(key: String, envelope: AudioEnvelope)] = []
+
+        static func key(_ url: URL) -> String? {
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = values.fileSize, let modified = values.contentModificationDate else { return nil }
+            return "\(url.standardizedFileURL.path)|\(size)|\(modified.timeIntervalSince1970)"
+        }
+
+        func value(for key: String) -> AudioEnvelope? {
+            lock.withLock { entries.first { $0.key == key }?.envelope }
+        }
+
+        func store(_ envelope: AudioEnvelope, for key: String) {
+            lock.withLock {
+                entries.removeAll { $0.key == key }
+                entries.append((key, envelope))
+                if entries.count > Self.capacity { entries.removeFirst() }
+            }
+        }
     }
 
     static func rms(of samples: [Int16]) -> [Double] {

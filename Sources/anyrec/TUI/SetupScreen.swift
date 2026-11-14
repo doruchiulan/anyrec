@@ -4,11 +4,12 @@ import AnyRecKit
 /// The settings screen. Returns the chosen configuration, or nil if the user backed out.
 struct SetupScreen {
     enum Row: Int, CaseIterable {
-        case capture, microphone, systemAudio, stopAfter, mux, transcribe, speakers, start
+        case capture, video, microphone, systemAudio, stopAfter, mux, transcribe, speakers, start
 
         var label: String {
             switch self {
             case .capture: "Capture"
+            case .video: "Video"
             case .microphone: "Microphone"
             case .stopAfter: "Stop"
             case .systemAudio: "Call audio"
@@ -58,6 +59,7 @@ struct SetupScreen {
     private mutating func adjust(_ delta: Int) {
         switch cursor {
         case .systemAudio: configuration.systemAudio.toggle()
+        case .video: configuration.video.toggle()
         case .mux: configuration.mux.toggle()
         case .stopAfter: configuration.cycleStop(by: delta)
         case .transcribe: configuration.cycleTranscribe(by: delta)
@@ -73,7 +75,7 @@ struct SetupScreen {
         case .microphone: editMicrophone()
         case .transcribe: await editTranscribe()
         case .speakers: notice = await EngineSetup.installSpeakers()
-        case .systemAudio, .mux, .stopAfter: adjust(1)
+        case .video, .systemAudio, .mux, .stopAfter: adjust(1)
         case .start: return ready()
         }
         return false
@@ -89,9 +91,15 @@ struct SetupScreen {
     }
 
     private mutating func ready() -> Bool {
-        guard configuration.capture == nil else { return true }
-        notice = "Pick a window or a display to record first."
-        return false
+        guard configuration.capture != nil else {
+            notice = "Pick a window or a display to record first."
+            return false
+        }
+        guard configuration.recordsAnything else {
+            notice = "\(SessionError.noTracks)"
+            return false
+        }
+        return true
     }
 
     private mutating func editCapture() async {
@@ -151,6 +159,7 @@ struct SetupScreen {
     private func value(_ row: Row) -> String {
         switch row {
         case .capture: configuration.captureLabel
+        case .video: configuration.videoLabel
         case .microphone: configuration.microphoneLabel
         case .systemAudio: configuration.systemAudio ? "On" : "Off"
         case .stopAfter: configuration.stopLabel
@@ -169,6 +178,6 @@ struct SetupScreen {
     }
 
     private func warning() -> String? {
-        notice ?? readiness.advisory(for: configuration).map(phrase)
+        notice ?? readiness.advisory(for: configuration).map { phrase($0, video: configuration.video) }
     }
 }

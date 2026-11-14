@@ -57,7 +57,7 @@ public struct MicrophoneLive: Sendable, Equatable {
         return
             "The call was not listening to the microphone for \(Self.clock(muted)) of "
             + "\(Self.clock(duration)) — muted, or not yet in the call — so the microphone "
-            + "is silent in call.mp4 and in the transcript for that time. Nothing on it "
+            + "is silent in the merged recording and in the transcript for that time. Nothing on it "
             + "reached anyone."
     }
 

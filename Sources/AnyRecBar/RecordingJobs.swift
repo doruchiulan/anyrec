@@ -20,31 +20,29 @@ final class RecordingJobs {
         let merge: Bool
         let engine: TranscriptionEngine?
         let options: TranscriptionOptions?
-        var summaryProvider: SummaryProvider?
-        var summaryLanguage: String?
+        /// The summary the Kit's pass writes after the transcript, when one is wanted.
+        var summary: SummaryRequest?
 
         var directory: URL { plan.directory }
 
         init(capture: CapturedRecording, merge: Bool, engine: TranscriptionEngine?,
-             options: TranscriptionOptions? = nil, summaryProvider: SummaryProvider? = nil, summaryLanguage: String? = nil) {
+             options: TranscriptionOptions? = nil, summary: SummaryRequest? = nil) {
             self.capture = capture
             plan = capture.summary.plan
             self.merge = merge
             self.engine = engine
             self.options = options
-            self.summaryProvider = summaryProvider
-            self.summaryLanguage = summaryLanguage
+            self.summary = summary
         }
 
         init(transcribing directory: URL, engine: TranscriptionEngine,
-             options: TranscriptionOptions? = nil, summaryProvider: SummaryProvider? = nil, summaryLanguage: String? = nil) {
+             options: TranscriptionOptions? = nil, summary: SummaryRequest? = nil) {
             capture = nil
             plan = OutputPlan(directory: directory)
             merge = false
             self.engine = engine
             self.options = options
-            self.summaryProvider = summaryProvider
-            self.summaryLanguage = summaryLanguage
+            self.summary = summary
         }
     }
 
@@ -142,19 +140,33 @@ final class RecordingJobs {
         items[directory]?.message = update.message
     }
 
+    /// The mix is decided first, once, and kept beside the tracks; then the merge and the
+    /// transcript run side by side, since neither needs what the other makes. Capture has
+    /// already been released by the time a request is queued.
     nonisolated private static func process(
         _ request: Request, progress: @escaping @Sendable (Update) -> Void
     ) async -> Result {
-        var outcome: RecordingOutcome?
-        if let capture = request.capture {
-            progress(Update(stage: .merging, message: "Preparing the recording…"))
-            outcome = await capture.merged(enabled: request.merge)
+        guard let capture = request.capture else {
+            guard let engine = request.engine else { return Result(transcript: nil) }
+            progress(Update(stage: .transcribing, message: "Transcribing…"))
+            return Result(transcript: await transcribe(request, engine: engine, progress: progress))
         }
-        guard let engine = request.engine else { return Result(recording: outcome, transcript: nil) }
+        progress(Update(stage: .merging, message: "Preparing the recording…"))
+        if (request.merge || request.engine != nil), let ffmpeg = Muxer.ffmpegPath() {
+            _ = await Task.detached(priority: .utility) { MixPlan.decided(for: request.plan, using: ffmpeg) }.value
+        }
+        async let merged = capture.merged(enabled: request.merge)
+        guard let engine = request.engine else { return Result(recording: await merged, transcript: nil) }
         progress(Update(stage: .transcribing, message: "Transcribing…"))
-        let transcript = await TranscriptPass.run(request.plan, engine: engine, options: request.options) {
+        let transcript = await transcribe(request, engine: engine, progress: progress)
+        return Result(recording: await merged, transcript: transcript)
+    }
+
+    nonisolated private static func transcribe(
+        _ request: Request, engine: TranscriptionEngine, progress: @escaping @Sendable (Update) -> Void
+    ) async -> TranscriptOutcome {
+        await TranscriptPass.run(request.plan, engine: engine, options: request.options, summary: request.summary) {
             progress(Update(stage: .transcribing, message: $0))
         }
-        return Result(recording: outcome, transcript: transcript)
     }
 }

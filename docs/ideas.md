@@ -85,6 +85,36 @@ the previous summary. Audio-based separation still supplies the initial identiti
 
 See [the pipeline](pipeline.md) for ordering and failure handling.
 
+## Speaker changes as events, not once-a-second scans
+
+`ParticipantMonitor` polls the call window once a second and walks its whole
+accessibility tree each time, up to 1,500 elements. A turn shorter than a second can
+fall between two polls, and a poll that runs past its 0.4 s deadline is recorded as a
+gap. In the Slack calls recorded so far the window was readable for 13 s and 106 s
+and then produced nothing but gaps for the rest of the call.
+
+Subscribe instead. Find the speaker tiles and the roster once, register an
+`AXObserver` on them for value, title and child changes, and append a timestamped
+event whenever the active speaker or the roster changes. Keep a slow full rescan,
+every few seconds, to pick up tiles that appear and to recover when a notification is
+missed or the tree is rebuilt.
+
+Fathom's meeting helper appears to work this way: its binary carries `AXObserver`,
+`AXObserverManager` and `ActiveSpeakerChangedEvent`, and each audio chunk it uploads
+carries the speaker and roster changes seen since the last one. That is read from
+strings in the installed app, not confirmed by running it.
+
+Questions to settle first:
+
+- Which Slack and Teams elements actually post notifications when the speaker
+  changes. Chromium does not post them for every DOM change; the speaking state may be
+  a class change that never produces one, which would leave polling as the only way.
+- Whether `call-participants.json` keeps its format, with events turned into
+  observations, or becomes a list of events. `CallParticipants.spans` and the replay
+  tests read the current shape.
+- What to measure before and after: share of the call with usable evidence, and how
+  many turns under a second are caught, on the same recorded calls.
+
 ## Custom summary instructions
 
 Let users provide their own additional summary instructions, such as preferred

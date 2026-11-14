@@ -24,6 +24,9 @@ struct Speakers: AsyncParsableCommand {
     @Option(name: .long, help: "A letter and a name, as A=John. Repeatable.")
     var name: [String] = []
 
+    @Option(name: .long, help: "Mark a known person as you, the one recording, so your voice heard on the far end goes back to Me.")
+    var me: String?
+
     @Option(name: .shortAndLong, help: "Where recordings live, when no path is given.")
     var output = Defaults.outputRoot
 
@@ -36,6 +39,16 @@ struct Speakers: AsyncParsableCommand {
 
     func run() async throws {
         if download { return try await fetchModels() }
+        if let me {
+            var library = VoiceLibrary.load()
+            guard library.names.contains(me) else {
+                throw ValidationError("Nobody called \(me) is known yet. Name your voice in a transcript first.")
+            }
+            library.setOwner(me)
+            try library.save()
+            print("\(me) is marked as you.")
+            if name.isEmpty, path == nil { return }
+        }
         let folder = try resolveFolder()
         guard let voices = RecordingVoices.read(in: folder) else {
             throw VoiceNaming.Failure.nothingToName(folder: folder.lastPathComponent)

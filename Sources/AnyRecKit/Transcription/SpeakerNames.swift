@@ -11,6 +11,11 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
         /// Nil until someone says, or a voiceprint in the library matches.
         public var name: String?
         public var identityEvidence: SpeakerIdentityEvidence?
+        /// The share of this voice's diarized speech that fell inside lines measured as the
+        /// microphone's. Near one, the voice is the person recording.
+        public var microphoneShare: Double?
+        /// How many seconds of it that was.
+        public var microphoneSeconds: Double?
 
         public init(
             letter: String, print: Voiceprint, sample: String, start: TimeInterval,
@@ -23,11 +28,33 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
             self.end = end
             self.name = name
         }
+
+        func relettered(_ letter: String) -> Voice {
+            var voice = Voice(letter: letter, print: print, sample: sample, start: start, end: end, name: name)
+            voice.identityEvidence = identityEvidence
+            voice.microphoneShare = microphoneShare
+            voice.microphoneSeconds = microphoneSeconds
+            return voice
+        }
+    }
+
+    /// The diarizer heard the person recording as a voice of the far end, and its lines
+    /// were given back: to "Me" where the microphone was live and carrying speech, to the
+    /// person a call window showed instead where it showed one, and to the call otherwise.
+    public struct OwnerMerge: Codable, Equatable, Sendable {
+        public enum Evidence: String, Codable, Sendable { case microphone, voiceprint, callWindow }
+        public let evidence: [Evidence]
+        public let toMe: Int
+        public let toOthers: Int
     }
 
     public static let fileName = "voices.json"
 
     public var voices: [Voice]
+    public var ownerMerge: OwnerMerge?
+    /// Lines no diarized voice covered that the call window's speaking indicator put a
+    /// voice of this recording to.
+    public var callLinesNamed: Int?
 
     public init(voices: [Voice]) {
         self.voices = voices
@@ -54,8 +81,9 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
         return try? JSONDecoder().decode(RecordingVoices.self, from: data)
     }
 
+    /// The selected transcript's voices, from its speakers layer or an older generation's file.
     public static func read(in directory: URL) -> RecordingVoices? {
-        TranscriptStore.voicesURL(in: directory).flatMap { read($0) }
+        RecordingTranscript.read(in: directory)?.voices
     }
 
     public func write(to url: URL) throws {
@@ -80,45 +108,31 @@ public enum VoiceNaming {
         public var errorDescription: String? { description }
     }
 
-    /// The names as they stand afterwards, and the files rewritten.
+    /// The names as they stand afterwards, and the files rewritten. Changes the speakers
+    /// layer and the library, and re-renders; the summary is not touched — its labels now
+    /// read as the names.
     @discardableResult
     public static func apply(
-        _ names: [String: String], in folder: URL
+        _ names: [String: String], in folder: URL, library libraryDirectory: URL = VoiceLibrary.directory
     ) throws -> (voices: RecordingVoices, written: [URL]) {
-        try TranscriptStore.pinSelection(in: folder)
-        guard let file = TranscriptStore.voicesURL(in: folder), var voices = RecordingVoices.read(file) else {
+        guard var voices = RecordingVoices.read(in: folder) else {
             throw Failure.nothingToName(folder: folder.lastPathComponent)
         }
-
-        var library = VoiceLibrary.load()
+        var library = VoiceLibrary.load(from: libraryDirectory)
         for (letter, name) in names {
             guard let voice = voices.voices.first(where: { $0.letter == letter }) else {
                 throw Failure.noSuchVoice(letter: letter)
             }
             voices.name(letter, name)
             library.enroll(name, voice.print)
+            /// The display name the call window showed for this voice is now known to
+            /// belong to the person just named.
+            if let display = voice.identityEvidence?.callName { library.addAlias(display, to: name.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
-        try voices.write(to: file)
-        try library.save()
-
-        return (voices, try render(folder, names: voices.names))
-    }
-
-    /// Older generations keep their own speaker identities.
-    private static func render(_ folder: URL, names: [String: String]) throws -> [URL] {
-        let allFiles =
-            (try? FileManager.default.contentsOfDirectory(
-                at: folder, includingPropertiesForKeys: nil)) ?? []
-        let files = TranscriptStore.selection(in: folder).map { [folder.appendingPathComponent($0.transcript)] } ?? allFiles
-        var written: [URL] = []
-        for file in files
-        where file.pathExtension == "json" && file.lastPathComponent.hasPrefix("transcript-") {
-            guard let transcript = Transcript.read(file) else { continue }
-            let name = file.deletingPathExtension().lastPathComponent
-            written += try TranscriptionService.write(
-                transcript, into: folder, named: name, names: names)
-        }
-        return written
+        let renamed = voices
+        let written = try TranscriptStore.updateSpeakers(in: folder) { layer, _ in layer.voices = renamed }
+        try library.save(to: libraryDirectory)
+        return (voices, written)
     }
 }
 

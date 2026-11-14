@@ -2,7 +2,7 @@ import FluidAudio
 import Foundation
 
 /// One stretch of one voice, as a diarizer heard it.
-public struct VoiceSegment: Sendable, Equatable {
+public struct VoiceSegment: Sendable, Equatable, Codable {
     public let voice: String
     public let start: TimeInterval
     public let end: TimeInterval
@@ -58,11 +58,26 @@ public enum VoiceSeparation {
             return lines
         }
 
+        /// How much of each voice the microphone measured as the person recording.
+        let mine = utterances.filter { $0.speaker == .me }
+        var heard: [String: TimeInterval] = [:], inside: [String: TimeInterval] = [:]
+        for segment in segments where segment.end > segment.start {
+            heard[segment.voice, default: 0] += segment.end - segment.start
+            inside[segment.voice, default: 0] += mine.reduce(0) {
+                $0 + max(0, min($1.end, segment.end) - max($1.start, segment.start))
+            }
+        }
+
         let voices = letters.sorted { $0.value < $1.value }.map { voice, letter in
             let sample = longest[letter]!
-            return RecordingVoices.Voice(
+            var result = RecordingVoices.Voice(
                 letter: letter, print: prints[voice] ?? [], sample: sample.text,
                 start: sample.start, end: sample.end)
+            if let total = heard[voice], total > 0 {
+                result.microphoneShare = (inside[voice] ?? 0) / total
+                result.microphoneSeconds = inside[voice] ?? 0
+            }
+            return result
         }
         return (assigned, RecordingVoices(voices: voices))
     }

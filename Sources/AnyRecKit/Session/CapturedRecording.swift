@@ -16,7 +16,7 @@ public struct CapturedRecording: Sendable {
         } else if !Readiness.ffmpegInstalled {
             merge = .ffmpegMissing
         } else {
-            do { merge = .merged(try Muxer.mux(summary.plan)) }
+            do { merge = .merged(try await Muxer.mux(summary.plan)) }
             catch { merge = .failed("\(error)") }
         }
         return RecordingOutcome(summary: summary, merge: merge, microphoneLive: microphoneLive)

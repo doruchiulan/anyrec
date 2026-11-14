@@ -55,4 +55,14 @@ struct EngineSetupTests {
     func doesNotWrapShortText() {
         #expect(EngineSetup.wrapped("English, French", to: 40) == ["English, French"])
     }
+
+    @Test("the Video row says when only the audio will be kept")
+    func videoRow() {
+        var configuration = RecordingConfiguration(outputRoot: "~/Desktop")
+        #expect(configuration.videoLabel.hasPrefix("On"))
+        configuration.video = false
+        #expect(configuration.videoLabel.hasPrefix("Off — audio only"))
+        #expect(phrase(.bothAudioTracksOff, video: false).contains("nothing to record"))
+        #expect(phrase(.bothAudioTracksOff).contains("silent video"))
+    }
 }

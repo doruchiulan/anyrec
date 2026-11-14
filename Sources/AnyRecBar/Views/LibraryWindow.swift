@@ -88,8 +88,8 @@ struct LibraryView: View {
         let entries = controller.library
         let texts = await Task.detached {
             entries.reduce(into: [URL: String]()) { texts, entry in
-                if let url = entry.transcript, let transcript = Transcript.read(url) {
-                    texts[entry.directory] = transcript.plainText
+                if entry.transcript != nil, let current = RecordingTranscript.read(in: entry.directory) {
+                    texts[entry.directory] = current.named.plainText
                 }
             }
         }.value
@@ -171,13 +171,19 @@ private struct PeopleList: View {
             Label {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(person.name)
-                    Text(Wording.voiceprints(person.prints.count))
+                    Text(Wording.person(person))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
             } icon: {
-                Image(systemName: "person.crop.circle")
+                Image(systemName: person.isOwner ? "person.crop.circle.badge.checkmark" : "person.crop.circle")
             }
             .contextMenu {
+                if person.isOwner {
+                    Button("This Isn’t Me") { controller.setOwner(nil) }
+                } else {
+                    Button("This Is Me") { controller.setOwner(person.name) }
+                }
+                Divider()
                 Button("Forget \(person.name)") { controller.forget(person.name) }
             }
         }
@@ -259,8 +265,8 @@ private struct LibraryList: View {
     /// also in the File and Recording menus.
     @ViewBuilder private func menu(for entry: LibraryEntry) -> some View {
         Button("Show in Finder") { controller.reveal(entry) }
-        if let video = entry.video {
-            ShareLink(item: video)
+        if let media = entry.media {
+            ShareLink(item: media)
         }
         TranscriptAction(controller: controller, entry: entry)
         if entry.transcript != nil, controller.activeSummaryProvider != nil {

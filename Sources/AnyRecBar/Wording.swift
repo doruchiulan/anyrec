@@ -71,9 +71,52 @@ enum Wording {
             entry.started.formatted(date: .abbreviated, time: .shortened), duration(entry.duration),
         ]
         if let app = entry.info?.appName { parts.append(app) }
-        if let info = entry.info, info.width > 0 { parts.append("\(info.width)×\(info.height), \(info.fps) fps") }
+        if let picture = entry.info.flatMap(picture) { parts.append(picture) }
         parts.append(size(entry.bytes))
         return parts.joined(separator: " · ")
+    }
+
+    /// What was kept of the picture: its size and rate, or that there was none. The window
+    /// an audio-only recording was pointed at still has a size, which is not worth saying.
+    static func picture(_ info: RecordingInfo) -> String? {
+        if info.audioOnly { return audioOnly }
+        return info.width > 0 ? "\(info.width)×\(info.height), \(info.fps) fps" : nil
+    }
+
+    static let audioOnly = "Audio only"
+
+    /// The line under the title where an audio-only recording's picture would be:
+    /// "Audio only · Microsoft Teams", or "Audio only · Display" for a whole screen.
+    static func audioSurface(of entry: LibraryEntry) -> String {
+        audioSurface(app: entry.info?.appName, display: entry.info.map { $0.bundleID == nil } ?? false)
+    }
+
+    static func audioSurface(app: String?, display: Bool) -> String {
+        [audioOnly, app ?? (display ? "Display" : nil)].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The two ways to start, wherever starting is offered: the panel's buttons, the
+    /// call banner, the notification. The window is picked either way.
+    static func record(video: Bool) -> String { video ? "Record Window…" : "Record Audio Only…" }
+
+    /// The same two in the File and Dock menus, which name what they make.
+    static func newRecording(video: Bool) -> String {
+        video ? "New Recording…" : "New Audio-Only Recording…"
+    }
+
+    static func recordHelp(video: Bool) -> String {
+        video
+            ? "Choose a window or display and start recording"
+            : "Choose a window or display and record its sound, without the picture"
+    }
+
+    /// The banner's buttons are short; the banner's question names the call.
+    static func bannerRecord(video: Bool) -> String { video ? "Record" : "Audio Only" }
+
+    /// The live panel's line under the window's title.
+    static func live(video: Bool, width: Int, height: Int, fps: Int, droppedFrames: Int?) -> String {
+        guard video else { return "Audio only — no video is being saved" }
+        return "\(width)×\(height) · \(fps) fps" + (droppedFrames.map { " · \($0) frames dropped" } ?? "")
     }
 
     /// The line under a list row's title.
@@ -114,6 +157,49 @@ enum Wording {
 
     static func voiceprints(_ count: Int) -> String {
         count == 1 ? "1 voiceprint" : "\(count) voiceprints"
+    }
+
+    /// A People row's second line: prints, the display names learned from call windows,
+    /// and whether this is the person recording.
+    static func person(_ person: VoiceLibrary.Person) -> String {
+        var parts = [voiceprints(person.prints.count)]
+        if !person.aliases.isEmpty { parts.append("also “" + person.aliases.joined(separator: "”, “") + "”") }
+        if person.isOwner { parts.insert("You", at: 0) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// How much of the call the call window could be read for.
+    static func readable(_ readable: TimeInterval, of duration: TimeInterval) -> String {
+        guard duration > 0 else { return "Readable for \(clock(readable))." }
+        let share = Int((min(1, readable / duration) * 100).rounded())
+        return "The call window could be read for \(clock(readable)) of \(clock(duration)) (\(share)%)."
+    }
+
+    /// One observed participant's detail: how long they were shown as the only one speaking.
+    static func spokeAlone(_ seconds: TimeInterval) -> String {
+        seconds < 1 ? "Not shown speaking" : "Shown speaking for \(clock(seconds))"
+    }
+
+    /// Facts about this recording's voices worth a line under the roster.
+    static func voiceFacts(_ voices: RecordingVoices?) -> [String] {
+        guard let voices else { return [] }
+        var lines: [String] = []
+        if let merge = voices.ownerMerge {
+            let back = merge.toMe == 1 ? "1 line" : "\(merge.toMe) lines"
+            let away = merge.toOthers == 1 ? "1 line" : "\(merge.toOthers) lines"
+            lines.append("Your voice was also heard as a far-end voice. \(back) went back to Me; \(away) the microphone wasn’t carrying went to the call.")
+        }
+        for voice in voices.voices {
+            if let fused = voice.identityEvidence?.fusedNames, fused.count > 1 {
+                let label = voice.name ?? "Speaker \(voice.letter)"
+                lines.append("\(label) may be more than one person: the call window showed " + fused.joined(separator: " and ") + " while this voice spoke.")
+            }
+        }
+        if let named = voices.callLinesNamed, named > 0 {
+            lines.append(named == 1 ? "1 line no voice covered was named from the call window."
+                         : "\(named) lines no voice covered were named from the call window.")
+        }
+        return lines
     }
 
     static let rates: [Float] = [0.75, 1, 1.25, 1.5, 2]
@@ -311,7 +397,7 @@ enum Wording {
         case .appleUnavailable:
             "Apple's engine needs macOS 26. Pick whisper or OpenAI instead."
         case .ffmpegMissing:
-            "ffmpeg is missing, so there will be no call.mp4. Install it in Settings › Transcription."
+            "ffmpeg is missing, so the tracks will not be merged into one playable file. Install it in Settings › Transcription."
         case .openAIUploadsAudio:
             "OpenAI transcribes off your machine — both audio tracks are uploaded."
         case .appleCoversSomeLanguages(let count):
@@ -341,21 +427,65 @@ enum Wording {
     /// The notification when a call app takes the microphone. The button says what
     /// pressing it does, because the picker is a second step.
     static func callOffer(_ app: CallApp) -> (title: String, body: String) {
-        ("\(app.name) is on a call", "Record it? Record opens the window picker.")
+        ("\(app.name) is on a call", "Record it? Either button opens the window picker.")
+    }
+
+    static func reviewTitle(_ current: RecordingTranscript) -> String {
+        if let provider = current.reviewProvider { return "Reviewed with \(provider.name)" }
+        return current.reviewFailures.isEmpty ? "Transcript versions" : "Original transcript kept"
+    }
+
+    static func versions(_ sources: [TranscriptStore.SourceVersion]) -> String {
+        sources.count == 1 ? "1 source transcript" : "\(sources.count) source transcripts"
+    }
+
+    /// A version's row in View Sources: the engine, when it was written, and its part.
+    static func version(_ source: TranscriptStore.SourceVersion) -> String {
+        let when = source.written.formatted(date: .abbreviated, time: .shortened)
+        let role: String
+        switch source.role {
+        case .selected: role = "Current · timing reference"
+        case .compared: role = "Compared"
+        case .earlier: role = "Earlier version"
+        }
+        let engine = TranscriptionEngine(rawValue: source.engine).map(engineName) ?? source.engine.capitalized
+        return "\(engine) · \(role) · \(when)"
+    }
+
+    /// Nil when the summary still describes the transcript.
+    static func summaryStale(_ staleness: Summary.Staleness) -> String? {
+        switch staleness {
+        case .current: nil
+        case .transcriptChanged: "The transcript has changed since this summary was written."
+        case .nameChanged: "A speaker’s name has changed since this summary was written."
+        }
+    }
+
+    static func summaryFailure(_ reason: String) -> String { "The transcript was written; the summary failed: \(reason)" }
+
+    /// The footer under "Review with a second engine".
+    static func comparison(_ options: TranscriptionOptions) -> String {
+        guard options.review else { return "Turn on transcript review to compare engines. Other engines run only for a review." }
+        guard options.compareEngines else {
+            return "Review reads the chosen engine’s transcript. Turn this on to also run the engines checked here and let the reviewer compare their wording."
+        }
+        let remote = options.comparisonEngines.contains(.openai) && options.enabledEngines.contains(.openai)
+            ? " OpenAI receives the audio when it is checked." : " Audio stays on this Mac."
+        return "The chosen engine writes the transcript; the checked engines also run, and the reviewer compares every version line by line." + remote
     }
 
     static func merge(_ outcome: MergeOutcome) -> String {
         switch outcome {
-        case .merged: "Merged into call.mp4"
+        case .merged(let mux): "Merged into “\(mux.output.lastPathComponent)”"
         case .notRequested: "The tracks were left separate, as asked"
-        case .ffmpegMissing: "No call.mp4: ffmpeg is not installed"
+        case .ffmpegMissing: "Not merged into one file: ffmpeg is not installed"
         case .failed(let reason): "The merge failed: \(reason)"
         }
     }
 
     static func transcript(_ outcome: TranscriptOutcome) -> String {
         switch outcome {
-        case .written(let files, _, _):
+        case .written(let files, _, _, _):
             "Wrote \(files.count == 1 ? "a transcript" : "\(files.count) transcript files")"
         case .nothingHeard:
             "Nothing was heard, so there is no transcript"

@@ -12,13 +12,42 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
     public let width: Int
     public let height: Int
     public let fps: Int
+    /// No video was kept: the window was captured for its audio, title, participants and
+    /// mute button only. False for a file written before this was recorded, all of which
+    /// had video.
+    public let audioOnly: Bool
+    /// The merged file's name in this folder, written once a merge has been verified —
+    /// "Design review – Slack – 2026-11-03 10.08.mp4". Nil before any merge and in files
+    /// written before merged files were named, whose merge is `call.mp4`. Read through
+    /// `RecordingMedia`, which falls back when the named file is not there.
+    public var mergedFile: String?
 
-    public init(title: String, bundleID: String?, width: Int, height: Int, fps: Int) {
+    public init(
+        title: String, bundleID: String?, width: Int, height: Int, fps: Int, audioOnly: Bool = false,
+        mergedFile: String? = nil
+    ) {
         self.title = title
         self.bundleID = bundleID
         self.width = width
         self.height = height
         self.fps = fps
+        self.audioOnly = audioOnly
+        self.mergedFile = mergedFile
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title, bundleID, width, height, fps, audioOnly, mergedFile
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decode(String.self, forKey: .title)
+        bundleID = try container.decodeIfPresent(String.self, forKey: .bundleID)
+        width = try container.decode(Int.self, forKey: .width)
+        height = try container.decode(Int.self, forKey: .height)
+        fps = try container.decode(Int.self, forKey: .fps)
+        audioOnly = try container.decodeIfPresent(Bool.self, forKey: .audioOnly) ?? false
+        mergedFile = try container.decodeIfPresent(String.self, forKey: .mergedFile)
     }
 
     /// The registry's name for the app, else nil: a bundle id is not something to show.

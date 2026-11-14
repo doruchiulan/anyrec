@@ -20,6 +20,10 @@ struct Transcribe: AsyncParsableCommand {
         key in OPENAI_API_KEY. The optional speaker model separates remote voices \
         on this Mac after any engine finishes. Each successful run saves a new \
         transcript version and selects it, preserving previous versions.
+
+        This runs the same steps as the app: transcript, voices, then --review and \
+        --summarize when asked. Both send the transcript's text, never its audio, to \
+        --provider.
         """
     )
 
@@ -40,9 +44,27 @@ struct Transcribe: AsyncParsableCommand {
 
     @Flag(
         name: .long,
-        help: "Summarise the transcript with claude -p. This sends the text to Anthropic."
+        help: "Write a summary afterwards. This sends the transcript text (never the audio) to --provider."
     )
     var summarize = false
+
+    @Flag(
+        name: .long,
+        help: "Review the wording with an LLM afterwards. This sends the transcript text to --provider."
+    )
+    var review = false
+
+    @Flag(
+        name: .long,
+        help: "With --review, also run the other enabled on-device engines and let the reviewer compare them."
+    )
+    var compareEngines = false
+
+    @Option(name: .long, help: "Who reviews and summarises: claude, codex, openai or gemini.")
+    var provider: SummaryProvider = .claude
+
+    @Option(name: .long, help: "The summary's language, such as English. Follows the call when omitted.")
+    var summaryLanguage: String?
 
     @Flag(
         inversion: .prefixedNo,
@@ -62,23 +84,39 @@ struct Transcribe: AsyncParsableCommand {
             live: MicrophoneLive.read(OutputPlan(directory: directory).microphoneLive),
             participants: CallParticipants.read(in: directory)
         )
+        var options = TranscriptionOptions()
+        options.enabledEngines = Set(TranscriptionEngine.allCases)
+        options.comparisonEngines = [.parakeet, .apple, .whisper]
+        options.identifySpeakers = diarize
+        options.review = review
+        options.compareEngines = compareEngines
+        options.reviewProvider = provider
+        if review || summarize {
+            print("The transcript text (never the audio) is sent to \(provider.company) for "
+                  + [review ? "review" : nil, summarize ? "a summary" : nil].compactMap { $0 }.joined(separator: " and ") + ".")
+        }
 
         let started = Date()
-        let transcribed = try await withRemedy {
-            try await TranscriptionService.run(job) { print($0) }
+        let outcome = await TranscriptPass.run(job, in: directory, options: options,
+                                               summary: summarize ? SummaryRequest(provider: provider, language: summaryLanguage) : nil) {
+            print($0)
         }
-        let transcript = transcribed.transcript
-        guard !transcript.isEmpty else {
-            try TranscriptStore.recordNoSpeech(in: directory)
+        switch outcome {
+        case .nothingHeard:
             print("Nothing was said, or nothing was heard — no transcript written.")
-            return
+        case .failed(let reason, let remedy):
+            throw Explained(message: ([reason] + (remedy.map { [$0.advice] } ?? [])).joined(separator: "\n"))
+        case .written(let files, _, let voices, let summary):
+            if let current = TranscriptStore.current(in: directory) {
+                print(report(current.transcript, started: started, written: files))
+            }
+            switch summary {
+            case .written(let url): print("Wrote \(url.path)\nWrote \(url.deletingPathExtension().appendingPathExtension("md").path)")
+            case .failed(let reason): print("\nNo summary: \(reason)")
+            case nil: break
+            }
+            SpeakerPrompt.offer(voices, in: directory)
         }
-
-        let written = try TranscriptStore.publish(transcript, voices: transcribed.voices, in: directory)
-
-        print(report(transcript, started: started, written: written))
-        if summarize { try writeSummary(transcript, for: written[2]) }
-        SpeakerPrompt.offer(transcribed.voices, in: directory)
     }
 
     private func resolveSource() throws -> URL {
@@ -124,14 +162,5 @@ struct Transcribe: AsyncParsableCommand {
             \(speed > 0 ? String(format: " (%.1f× realtime)", speed) : "")
             \(written.map { "Wrote \($0.path)" }.joined(separator: "\n"))
             """ + transcript.notes.map { "\n\n\($0)" }.joined()
-    }
-
-    private func writeSummary(_ transcript: Transcript, for source: URL) throws {
-        print("\nSummarising with claude — the transcript text is sent to Anthropic for this.")
-        let summary = try Summarizer.summarize(transcript)
-        let url = TranscriptStore.summaryDestination(for: source).deletingPathExtension().appendingPathExtension("md")
-        try summary.write(to: url, atomically: true, encoding: .utf8)
-        try TranscriptStore.selectSummary(url, for: source)
-        print("Wrote \(url.path)")
     }
 }

@@ -1,29 +1,33 @@
 import AnyRecKit
 import SwiftUI
 
+/// Speaker corrections the review proposed, one confirmation each. Accepting one changes
+/// that line's speaker and nothing else; the summary stays and says it is stale.
 struct SpeakerReviewSuggestions: View {
     @Bindable var controller: RecordingController
     let entry: LibraryEntry
-    @State private var review: TranscriptReview?
-    @State private var transcript: Transcript?
+    @State private var current: RecordingTranscript?
     @State private var failure: String?
     @State private var deferred = false
 
     var body: some View {
-        if let review, !review.speakerChanges.isEmpty, !deferred {
+        if let current, !current.pendingSpeakerChanges.isEmpty, !deferred {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Suggested speaker corrections").font(.headline)
-                Text("Check the context before applying. This changes the transcript and clears its previous summary.")
+                Text("Check the context before applying. Only that line’s speaker changes.")
                     .font(.caption).foregroundStyle(.secondary)
-                ForEach(review.speakerChanges) { correction in
+                ForEach(current.pendingSpeakerChanges) { correction in
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("\(correction.from.label) → \(correction.to.label)").font(.callout.bold())
-                        if let transcript, transcript.utterances.indices.contains(correction.line) {
-                            Text(transcript.utterances[correction.line].text).font(.callout).textSelection(.enabled)
+                        Text("\(label(correction.from)) → \(label(correction.to))").font(.callout.bold())
+                        if current.transcript.utterances.indices.contains(correction.line) {
+                            Text(current.transcript.utterances[correction.line].text).font(.callout).textSelection(.enabled)
                         }
                         Text(correction.reason).font(.caption)
                         Text("Evidence: “\(correction.quote)”").font(.caption).foregroundStyle(.secondary)
-                        Button("Assign to \(correction.to.label)") { apply(correction) }
+                        HStack {
+                            Button("Assign to \(label(correction.to))") { apply(correction) }
+                            Button("Keep \(label(correction.from))") { dismiss(correction) }.buttonStyle(.borderless)
+                        }
                     }
                 }
                 if let failure { Notice(failure, level: .error) }
@@ -36,16 +40,28 @@ struct SpeakerReviewSuggestions: View {
         }
     }
 
+    private func label(_ speaker: Speaker) -> String {
+        if case .voice(let letter) = speaker, let name = current?.voices?.names[letter] { return name }
+        return speaker.label
+    }
+
     private func load() {
-        review = TranscriptReview.read(in: entry.directory)
-        transcript = entry.transcript.flatMap(Transcript.read)
+        current = RecordingTranscript.read(in: entry.directory)
     }
 
     private func apply(_ correction: SpeakerCorrection) {
-        guard !controller.working.contains(entry.directory), let file = entry.transcript else { return }
+        guard !controller.working.contains(entry.directory) else { return }
         do {
-            try TranscriptSpeakerReview.apply(correction, to: file)
+            try TranscriptSpeakerReview.apply(correction, in: entry.directory)
+            load()
             Task { await controller.reloadLibrary() }
+        } catch { failure = error.localizedDescription }
+    }
+
+    private func dismiss(_ correction: SpeakerCorrection) {
+        do {
+            try TranscriptSpeakerReview.dismiss(correction, in: entry.directory)
+            load()
         } catch { failure = error.localizedDescription }
     }
 }

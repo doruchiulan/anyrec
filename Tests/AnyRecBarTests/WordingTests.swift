@@ -79,6 +79,9 @@ struct WordingTests {
         #expect(Wording.merge(.notRequested).contains("as asked"))
         #expect(Wording.merge(.ffmpegMissing).contains("ffmpeg"))
         #expect(Wording.merge(.failed("boom")).contains("boom"))
+        let named = URL(fileURLWithPath: "/tmp/rec/Standup – Slack – 2026-11-03 10.08.mp4")
+        let merged = Wording.merge(.merged(MuxOutcome(output: named, notes: [])))
+        #expect(merged.contains("Standup – Slack – 2026-11-03 10.08.mp4") && !merged.contains("call.mp4"))
     }
 
     @Test("carries the way out when the transcript failed for a fixable reason")
@@ -128,5 +131,49 @@ struct WordingTests {
         let pieces = Wording.captionPieces(words, limit: 20)
         #expect(pieces.allSatisfy { $0.count <= 20 })
         #expect(pieces.joined(separator: " ") == words)
+    }
+
+    @Test("says how much of the call the window was readable for, and what was done with the owner's voice")
+    func roster() {
+        #expect(Wording.readable(106, of: 4_580) == "The call window could be read for 01:46 of 1:16:20 (2%).")
+        var voices = RecordingVoices(voices: [])
+        voices.ownerMerge = .init(evidence: [.microphone], toMe: 8, toOthers: 1)
+        #expect(Wording.voiceFacts(voices).first?.contains("8 lines went back to Me; 1 line") == true)
+        #expect(Wording.spokeAlone(0) == "Not shown speaking")
+    }
+
+    @Test("summaries say why they are stale, and comparison says where audio goes")
+    func summaryAndComparison() {
+        #expect(Wording.summaryStale(.current) == nil)
+        #expect(Wording.summaryStale(.nameChanged)?.contains("name") == true)
+        var options = TranscriptionOptions()
+        #expect(Wording.comparison(options).contains("Turn on transcript review"))
+        options.review = true
+        options.compareEngines = true
+        options.enabledEngines.insert(.openai)
+        options.comparisonEngines.insert(.openai)
+        #expect(Wording.comparison(options).contains("OpenAI receives the audio"))
+    }
+
+    @Test("names both ways to start, and says an audio-only recording kept no picture")
+    func audioOnly() {
+        #expect(Wording.record(video: true) == "Record Window…")
+        #expect(Wording.record(video: false) == "Record Audio Only…")
+        #expect(Wording.newRecording(video: false) == "New Audio-Only Recording…")
+        #expect(Wording.bannerRecord(video: false) == "Audio Only")
+        #expect(Wording.recordHelp(video: false).contains("without the picture"))
+
+        let audio = RecordingInfo(title: "Weekly", bundleID: "com.microsoft.teams2", width: 1512,
+                                  height: 982, fps: 30, audioOnly: true)
+        let video = RecordingInfo(title: "Weekly", bundleID: nil, width: 1512, height: 982, fps: 30)
+        #expect(Wording.picture(audio) == "Audio only")
+        #expect(Wording.picture(video) == "1512×982, 30 fps")
+
+        #expect(Wording.live(video: false, width: 2, height: 2, fps: 30, droppedFrames: nil).contains("Audio only"))
+        #expect(Wording.live(video: true, width: 1512, height: 982, fps: 30, droppedFrames: 4)
+                == "1512×982 · 30 fps · 4 frames dropped")
+        #expect(Wording.audioSurface(app: "Microsoft Teams", display: false) == "Audio only · Microsoft Teams")
+        #expect(Wording.audioSurface(app: nil, display: true) == "Audio only · Display")
+        #expect(Wording.audioSurface(app: nil, display: false) == "Audio only")
     }
 }

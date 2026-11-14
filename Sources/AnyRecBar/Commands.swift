@@ -24,9 +24,12 @@ struct AnyRecCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("New Recording…") { controller.pickAndStart() }
+            Button(Wording.newRecording(video: true)) { controller.pickAndStart() }
                 .keyboardShortcut("n")
                 .disabled(!controller.canStart)
+            Button(Wording.newRecording(video: false)) { controller.pickAndStart(video: false) }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+                .disabled(!controller.canStartAudioOnly)
             Button("Stop Recording") { Task { await controller.stop() } }
                 .keyboardShortcut(".")
                 .disabled(controller.phase != .recording)

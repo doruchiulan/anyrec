@@ -14,7 +14,7 @@ public enum SpeakerAttribution {
     static let margin = 1.5
 
     /// What the microphone has to be *saying* before a line can be yours.
-    private struct Microphone {
+    struct Microphone {
         /// The track as the mix heard it, so a line is judged on the audio the engine
         /// actually transcribed. When the mix held the microphone under the call, a
         /// cue that lands inside the far end's sentence can run twice the wire copy in
@@ -25,6 +25,30 @@ public enum SpeakerAttribution {
         /// empties a third of its frames. Against a digitally silent call any ratio
         /// is infinite, so the microphone has to clear the room, not just the call.
         let talking: Double
+
+        init(heard: AudioEnvelope, talking: Double) {
+            self.heard = heard
+            self.talking = talking
+        }
+
+        /// The track as `mix` heard it: held under the call when it bleeds, silent where
+        /// the call was not listening.
+        init?(microphone: AudioEnvelope, systemAudio: AudioEnvelope, mix: MixPlan) {
+            guard !microphone.isEmpty, !systemAudio.isEmpty else { return nil }
+            var heard = microphone
+            if mix.balance == .duckedMicrophone {
+                heard = heard.held(
+                    under: systemAudio, threshold: MixPlan.duckThreshold * Double(Int16.max),
+                    release: MixPlan.duckRelease)
+            }
+            if let live = mix.microphoneLive { heard = heard.only(during: live.spans) }
+            self.init(heard: heard, talking: SpeechRegions.threshold(for: microphone))
+        }
+
+        /// Whether the microphone was live and carrying speech over a span.
+        func speaks(from start: TimeInterval, to end: TimeInterval) -> Bool {
+            heard.level(from: start, to: end) > talking
+        }
     }
 
     /// Diarisation says how many voices there were, not which of them is holding the
@@ -35,17 +59,7 @@ public enum SpeakerAttribution {
         _ utterances: [Utterance], microphone: AudioEnvelope, systemAudio: AudioEnvelope,
         mix: MixPlan = .plain
     ) -> [Utterance] {
-        guard !microphone.isEmpty, !systemAudio.isEmpty else { return utterances }
-        var heard = microphone
-        if mix.balance == .duckedMicrophone {
-            heard = heard.held(
-                under: systemAudio, threshold: MixPlan.duckThreshold * Double(Int16.max),
-                release: MixPlan.duckRelease)
-        }
-        if let live = mix.microphoneLive {
-            heard = heard.only(during: live.spans)
-        }
-        let mic = Microphone(heard: heard, talking: SpeechRegions.threshold(for: microphone))
+        guard let mic = Microphone(microphone: microphone, systemAudio: systemAudio, mix: mix) else { return utterances }
         return renumber(utterances.flatMap { claim($0, mic, systemAudio) })
     }
 

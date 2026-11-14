@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Testing
 
@@ -39,5 +40,41 @@ struct CapturedRecordingTests {
         #expect(try Data(contentsOf: secondFile.output) == complete)
         let files = try FileManager.default.contentsOfDirectory(atPath: plan.directory.path)
         #expect(!files.contains { $0.hasPrefix(".merge-") })
+    }
+
+    /// The real merge of an audio-only folder: both tracks through `MixPlan` and ffmpeg,
+    /// out as a `call.mp4` with one audio stream and no video.
+    @Test("merges an audio-only recording into a call.mp4 with one audio stream and no video",
+          .enabled(if: Muxer.ffmpegPath() != nil))
+    func audioOnlyMerge() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-audio-merge-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let plan = try OutputPlan.create(in: root)
+        let ffmpeg = try #require(Muxer.ffmpegPath())
+        for (url, tone) in [(plan.systemAudio, 440), (plan.microphone, 660)] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: ffmpeg)
+            process.arguments = ["-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                                 "sine=frequency=\(tone):sample_rate=48000:duration=2", "-c:a", "aac", url.path]
+            try process.run()
+            process.waitUntilExit()
+            try #require(process.terminationStatus == 0)
+        }
+        var summary = RecordingSummary(
+            plan: plan, screenFrames: 0, systemAudioSamples: 100, microphoneSamples: 100,
+            droppedSamples: 0, systemAudioPeak: -12, microphonePeak: -12, endedEarly: nil)
+        summary.audioOnly = true
+
+        let outcome = await CapturedRecording(summary: summary).merged(enabled: true)
+        guard case .merged(let file) = outcome.merge else {
+            Issue.record("Audio-only merge failed: \(outcome.merge)"); return
+        }
+
+        #expect(file.output.lastPathComponent == "call.mp4")
+        #expect(!FileManager.default.fileExists(atPath: plan.screen.path))
+        let asset = AVURLAsset(url: file.output)
+        #expect(try await asset.loadTracks(withMediaType: .audio).count == 1)
+        #expect(try await asset.loadTracks(withMediaType: .video).isEmpty)
+        #expect(try await asset.load(.duration).seconds > 1.5)
     }
 }

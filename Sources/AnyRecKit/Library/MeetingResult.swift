@@ -38,6 +38,8 @@ public struct MeetingParticipants: Encodable, Sendable {
 
     public let meetingID: String
     public let observedInCall: [String]
+    /// Seconds the call window could be read for; nil when nothing was observed.
+    public var observedReadableSeconds: Double? = nil
     public let transcriptSpeakers: [Voice]
     public let warnings: [String]
 
@@ -69,7 +71,10 @@ public struct MeetingTranscript: Encodable, Sendable {
 public struct MeetingSummary: Encodable, Sendable {
     public let meetingID: String
     public let generation: String?
+    /// With speaker labels filled in from the names voices have now.
     public let summary: Summary?
+    /// Set when the transcript's words or a speaker's name changed after it was written.
+    public var stale: String? = nil
     public let markdown: String?
     public let warnings: [String]
 }

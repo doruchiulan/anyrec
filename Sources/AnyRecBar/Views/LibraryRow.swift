@@ -35,9 +35,28 @@ struct LibraryRow: View {
                     .foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            if entry.video != nil { RowThumbnail(entry: entry) }
+            if entry.audioOnly {
+                RowAudioMark()
+            } else if entry.video != nil {
+                RowThumbnail(entry: entry)
+            }
         }
         .padding(.vertical, 6)
+    }
+}
+
+/// Where a still would be, for a recording that kept no picture: the same square, with
+/// a waveform in it, so audio-only rows line up with the rest and read as sound at a glance.
+private struct RowAudioMark: View {
+    var body: some View {
+        Image(systemName: "waveform")
+            .font(.title2)
+            .foregroundStyle(.secondary)
+            .frame(width: 54, height: 54)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
+            .help(Wording.audioOnly)
+            .accessibilityLabel(Wording.audioOnly)
     }
 }
 

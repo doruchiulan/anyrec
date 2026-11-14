@@ -3,9 +3,13 @@ import AVKit
 import AnyRecKit
 import Observation
 
-/// One recording being played. Plays `call.mp4` as it is until a track is switched off;
-/// then it plays the masters — screen, call audio, microphone — as one composition with
-/// that track silenced, picking up where it was. The masters are never rewritten.
+/// One recording being played. Plays the merged file as it is until a track is switched
+/// off; then it plays the masters — the picture, call audio, microphone — as one
+/// composition with that track silenced, picking up where it was. The picture comes from
+/// `screen.mov` while it exists and from the merged file once that has replaced it; only
+/// its video stream is used, never the mix beside it. Nothing is rewritten. An audio-only
+/// recording plays the same way without a picture; with no merged file yet, it starts on
+/// the composition of its two tracks.
 @MainActor
 @Observable
 final class Playback {
@@ -49,7 +53,11 @@ final class Playback {
             case .video: entry.video != nil
             }
         }
-        if let video = entry.video { player.replaceCurrentItem(with: AVPlayerItem(url: video)) }
+        if let media = entry.media {
+            player.replaceCurrentItem(with: AVPlayerItem(url: media))
+        } else if available.contains(where: { $0 != .video }) {
+            Task { await rebuild() }
+        }
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main
         ) { [weak self] time in
@@ -135,16 +143,16 @@ final class Playback {
         let plan = OutputPlan(directory: entry.directory)
         let everything = enabled.count == Track.allCases.count
         let item: AVPlayerItem
-        if everything, let video = entry.video {
-            item = AVPlayerItem(url: video)
+        if everything, let media = entry.media {
+            item = AVPlayerItem(url: media)
         } else {
             let composition = AVMutableComposition()
             var mixes: [AVAudioMixInputParameters] = []
-            let parts: [(Track, URL, AVMediaType)] = [
-                (.video, plan.screen, .video), (.callAudio, plan.systemAudio, .audio),
-                (.microphone, plan.microphone, .audio),
+            let parts: [(Track, URL?, AVMediaType)] = [
+                (.video, RecordingMedia.video(in: entry.directory, info: entry.info), .video),
+                (.callAudio, plan.systemAudio, .audio), (.microphone, plan.microphone, .audio),
             ]
-            for (track, url, kind) in parts where FileManager.default.fileExists(atPath: url.path) {
+            for case let (track, url?, kind) in parts where FileManager.default.fileExists(atPath: url.path) {
                 let asset = AVURLAsset(url: url)
                 guard let source = try? await asset.loadTracks(withMediaType: kind).first,
                     let range = try? await source.load(.timeRange),

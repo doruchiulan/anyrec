@@ -2,7 +2,7 @@ import Foundation
 
 /// How the two audio tracks go together: decided once, from the tracks themselves
 /// and what was watched while they were recorded, and built from by both mixes — the
-/// playable `call.mp4` and the file an engine transcribes — so the two cannot
+/// merged, playable file and the file an engine transcribes — so the two cannot
 /// disagree about what the microphone is worth.
 public struct MixPlan: Sendable, Equatable {
     public enum Balance: Sendable, Equatable {
@@ -38,21 +38,21 @@ public struct MixPlan: Sendable, Equatable {
     /// Measuring costs an audio-only pass over each track; a mix that buries one side
     /// of the call costs the recording. Bleed is checked first: a microphone that
     /// already contains the call has no loudness of its own to match, and raising it
-    /// only doubles the echo.
+    /// only doubles the echo. Tracks outside a recording folder are decided afresh;
+    /// a recording's own are decided once, through `decided(for:using:)`.
     public static func decide(
         systemAudio: URL, microphone: URL, live: MicrophoneLive?, using ffmpeg: String
     ) -> MixPlan {
-        let bleeding = SpeakerBleed.detected(
-            systemAudio: systemAudio, microphone: microphone, using: ffmpeg)
-        let balance: Balance =
-            bleeding
-            ? .duckedMicrophone
-            : .matched(
-                LoudnessMatch.gains(
-                    systemAudio: LoudnessMatch.measure(systemAudio, using: ffmpeg),
-                    microphone: LoudnessMatch.measure(microphone, using: ffmpeg)
-                ))
-        return MixPlan(balance: balance, microphoneLive: live)
+        let plan = OutputPlan(directory: microphone.deletingLastPathComponent())
+        if plan.microphone == microphone.standardizedFileURL.resolvingSymlinksInPath(),
+           plan.systemAudio == systemAudio.standardizedFileURL.resolvingSymlinksInPath() {
+            var decided = decided(for: plan, using: ffmpeg)
+            decided.microphoneLive = live
+            return decided
+        }
+        let decision = decide(systemAudio: systemAudio, microphone: microphone,
+                              basis: .init(microphone: nil, systemAudio: nil, microphoneLive: nil), using: ffmpeg)
+        return MixPlan(balance: decision.balance, microphoneLive: live)
     }
 
     /// A sidechain compressor keyed on the call, which needs no estimate of how loud

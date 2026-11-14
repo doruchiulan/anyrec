@@ -20,6 +20,9 @@ public struct CaptureOptions: Sendable {
     public var captureMicrophone: Bool
     public var microphoneDeviceID: String?
     public var showsCursor: Bool
+    /// Off, no `screen.mov` is written: the window is still captured for its filter, its
+    /// title, its participants and its mute button, but only the audio is kept.
+    public var recordsVideo: Bool
 
     public init(
         fps: Int = 30,
@@ -27,7 +30,8 @@ public struct CaptureOptions: Sendable {
         captureSystemAudio: Bool = true,
         captureMicrophone: Bool = true,
         microphoneDeviceID: String? = nil,
-        showsCursor: Bool = true
+        showsCursor: Bool = true,
+        recordsVideo: Bool = true
     ) {
         self.fps = max(1, min(fps, 60))
         self.codec = codec
@@ -35,5 +39,6 @@ public struct CaptureOptions: Sendable {
         self.captureMicrophone = captureMicrophone
         self.microphoneDeviceID = microphoneDeviceID
         self.showsCursor = showsCursor
+        self.recordsVideo = recordsVideo
     }
 }
