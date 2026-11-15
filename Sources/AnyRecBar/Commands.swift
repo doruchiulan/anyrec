@@ -19,10 +19,13 @@ extension FocusedValues {
 /// context menu or the menu bar helper. Items that cannot run are dimmed, never hidden.
 struct AnyRecCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @Bindable var controller: RecordingController
     @FocusedValue(\.playback) private var playback
 
     var body: some Commands {
+        let _ = controller.openLibrary = { [openWindow] in openWindow(id: LibraryWindow.id) }
+        let _ = controller.openSettings = { [openSettings] in openSettings() }
         CommandGroup(replacing: .newItem) {
             Button(Wording.newRecording(video: true)) { controller.pickAndStart() }
                 .keyboardShortcut("n")
@@ -86,6 +89,9 @@ struct AnyRecCommands: Commands {
                 controller.transcriptRequest = controller.selectedEntry
             }
             .disabled(controller.selectedEntry.map { !controller.canTranscribe($0) } ?? true)
+            Button("Show Speakers") { controller.speakersRequest = controller.selectedEntry?.directory }
+                .keyboardShortcut("k", modifiers: [.command, .option])
+                .disabled(controller.selectedEntry?.transcript == nil)
             Divider()
             Button("Summarize") { controller.selectedEntry.map(controller.summarize) }
                 .disabled(!canSummarize)

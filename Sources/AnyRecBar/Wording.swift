@@ -180,20 +180,15 @@ enum Wording {
         seconds < 1 ? "Not shown speaking" : "Shown speaking for \(clock(seconds))"
     }
 
-    /// Facts about this recording's voices worth a line under the roster.
+    /// Facts about this recording's voices worth a line under the roster. A voice that may
+    /// be two people is said on its own row of the Speakers panel, not here.
     static func voiceFacts(_ voices: RecordingVoices?) -> [String] {
         guard let voices else { return [] }
         var lines: [String] = []
         if let merge = voices.ownerMerge {
             let back = merge.toMe == 1 ? "1 line" : "\(merge.toMe) lines"
             let away = merge.toOthers == 1 ? "1 line" : "\(merge.toOthers) lines"
-            lines.append("Your voice was also heard as a far-end voice. \(back) went back to Me; \(away) the microphone wasn’t carrying went to the call.")
-        }
-        for voice in voices.voices {
-            if let fused = voice.identityEvidence?.fusedNames, fused.count > 1 {
-                let label = voice.name ?? "Speaker \(voice.letter)"
-                lines.append("\(label) may be more than one person: the call window showed " + fused.joined(separator: " and ") + " while this voice spoke.")
-            }
+            lines.append("Your voice was also heard as a far-end voice. \(back) went back to Me; \(away) went to the call or to whoever the call window showed.")
         }
         if let named = voices.callLinesNamed, named > 0 {
             lines.append(named == 1 ? "1 line no voice covered was named from the call window."
@@ -201,6 +196,137 @@ enum Wording {
         }
         return lines
     }
+
+    // MARK: Speakers
+
+    /// The Speakers panel's heading, with how many speakers want a look.
+    static func speakersTitle(toCheck: Int) -> String {
+        toCheck == 0 ? "Speakers" : "Speakers · \(toCheck) to check"
+    }
+
+    /// How a speaker came to be called what it is, in a few words.
+    static func basis(_ basis: SpeakerBasis) -> String {
+        switch basis {
+        case .microphone: "Your microphone"
+        case .namedByYou: "Named by you"
+        case .review: "Chosen by review"
+        case .agreed: "Call window and voice agree"
+        case .voiceMatch: "Voice match"
+        case .callWindow: "Call window"
+        case .named: "Named"
+        case .uncertain: "Uncertain: the evidence disagrees"
+        case .unnamed: "Not named yet"
+        }
+    }
+
+    /// A speaker row's line under its name: that it is probably you and why, else how it
+    /// came to be called what it is.
+    static func basis(of row: RecordingSpeakers.Row) -> String {
+        row.probablyYou ? probablyYou(row.yourVoice) : basis(row.basis)
+    }
+
+    /// "Probably you: the call window showed you speaking".
+    static func probablyYou(_ evidence: [YourVoiceEvidence]) -> String {
+        "Probably you: " + evidence.map(yourVoice).joined(separator: "; ")
+    }
+
+    static func yourVoice(_ evidence: YourVoiceEvidence) -> String {
+        switch evidence {
+        case .savedAsYou: "saved as you"
+        case .yourCallName: "saved under your name in the call"
+        case .shownSpeaking: "the call window showed you speaking"
+        }
+    }
+
+    /// The tick beside Me that also makes the library remember who the owner is.
+    static func rememberOwner(_ owner: OwnerToRemember) -> String { "Remember \(owner.shownName) is me" }
+
+    /// What ticking it does, as its tooltip.
+    static func rememberOwnerHelp(_ owner: OwnerToRemember) -> String {
+        let alias = owner.display.map { " and that the call window calls you \($0)" } ?? ""
+        return "Saves that \(owner.shownName) is you\(alias), so your voice is recognised as Me on later calls."
+    }
+
+    /// "04:12 · 38 lines": how long a speaker talked.
+    static func talkTime(_ seconds: TimeInterval, lines: Int) -> String {
+        "\(clock(seconds)) · \(lines == 1 ? "1 line" : "\(lines) lines")"
+    }
+
+    /// A candidate's button. A voice that only sounds like someone is asked, not stated.
+    static func candidate(_ candidate: SpeakerCandidate) -> String {
+        candidate.reason == .soundsLike ? "\(candidate.name)?" : candidate.name
+    }
+
+    /// A person offered while a name is typed: the name the transcript will show, and the
+    /// name that matched when it is another, as "Andrei Lungu — also Andi".
+    static func completion(_ suggestion: PersonSuggestion) -> String {
+        suggestion.alsoKnownAs.map { "\(suggestion.shownName) — also \($0)" } ?? suggestion.shownName
+    }
+
+    /// Why a name is offered, under its button.
+    static func candidateReason(_ reason: SpeakerCandidate.Reason) -> String {
+        switch reason {
+        case .yourVoice: "Your voice. Every line goes to Me"
+        case .callWindow: "Shown speaking in the call window"
+        case .voiceMatch: "A saved voice matches"
+        case .review: "Chosen by review"
+        case .introduced(let quote): "Said “\(quote)”"
+        case .onlyOneLeft: "The only one in the call without a voice"
+        case .inCall: "In the call"
+        case .windowTitle: "In the window’s title"
+        case .soundsLike: "Sounds like a saved voice. Is it?"
+        }
+    }
+
+    static func fused(_ names: [String]) -> String {
+        "May be more than one person: the call window showed \(names.joined(separator: " and ")) while this voice spoke."
+    }
+
+    /// The footer line for Call lines no voice claims. Nil when there are none.
+    static func unclaimed(lines: Int, seconds: TimeInterval) -> String? {
+        guard lines > 0 else { return nil }
+        let count = lines == 1 ? "1 line" : "\(lines) lines"
+        return "\(count) (\(clock(seconds))) \(lines == 1 ? "is" : "are") still marked Call; no voice claims \(lines == 1 ? "it" : "them")."
+    }
+
+    static func moveTo(_ label: String) -> String { "Move to \(label)" }
+
+    static let lineScope = "This line"
+    /// Short on purpose: it shares a segmented control with "This line" inside a popover,
+    /// and the speaker is already named in the popover's title.
+    static let voiceScope = "All their lines"
+
+    /// The heading over the speakers a line, or a whole voice, can be given to.
+    static func giveTo(voice label: String?) -> String {
+        label.map { "Or give every line of \($0) to" } ?? "Or give it to"
+    }
+
+    /// The tooltip on one of those buttons. Giving a voice away takes back the voiceprint the
+    /// owner's naming filed for it, and giving it to Me files it as the owner's.
+    static func giveHelp(voice label: String?, to target: Speaker, targetLabel: String) -> String {
+        guard let label else { return "This line goes to \(targetLabel)." }
+        let moved = "Every line of \(label) goes to \(targetLabel)."
+        return target == .me ? moved + " Its voiceprint joins yours in People, once you’ve marked which person is you." : moved
+    }
+
+    /// One remembered voiceprint in People: the recording it was named in and when that
+    /// was, an imported one, or one filed before anyrec kept where prints came from.
+    static func printOrigin(_ origin: VoiceLibrary.PrintOrigin?, number: Int, title: String? = nil) -> String {
+        guard let origin else { return "Voiceprint \(number) · earlier" }
+        guard let recording = origin.recording else {
+            return "Imported \(origin.filed.formatted(date: .abbreviated, time: .omitted))"
+        }
+        guard let started = origin.recordingStarted else { return title ?? recording }
+        let when = started.formatted(date: .abbreviated, time: .shortened)
+        guard let title, !title.isEmpty else { return "Recording of \(when)" }
+        return "\(title) · \(when)"
+    }
+
+    static let removePrintHelp =
+        "Remove this voiceprint from this person. Use it when a voice was named wrongly and this person now matches someone else."
+
+    /// A clip button's tooltip and spoken label.
+    static func clip(_ clip: SpeakerClip) -> String { "Play \(Self.clock(clip.start))–\(Self.clock(clip.end))" }
 
     static let rates: [Float] = [0.75, 1, 1.25, 1.5, 2]
 
@@ -428,6 +554,26 @@ enum Wording {
     /// pressing it does, because the picker is a second step.
     static func callOffer(_ app: CallApp) -> (title: String, body: String) {
         ("\(app.name) is on a call", "Record it? Either button opens the window picker.")
+    }
+
+    /// The notification when a call was recorded without asking: what is being kept, and
+    /// when it stops.
+    static func automaticRecordingStarted(_ app: CallApp, video: Bool) -> (title: String, body: String) {
+        (video ? "Recording your \(app.name) call" : "Recording the audio of your \(app.name) call",
+         "It stops when the call ends.")
+    }
+
+    static let automaticRecordingModes: [(AutomaticRecordingMode, String)] = [
+        (.window, "Window"), (.audioOnly, "Audio only"),
+    ]
+
+    /// Under "Record Slack and Teams calls automatically".
+    static var automaticRecordingFooter: String {
+        let grace = Int(CallAutoRecording.endGrace)
+        return "When a Slack or Teams call starts and AnyRec finds its call window, it starts recording "
+            + "that window straight away, with a notification to stop it, and stops \(grace) seconds after "
+            + "the call ends. Calls in other apps, and calls whose window can't be found, still get the offer. "
+            + "AnyRec doesn't tell the other people in the call that they are being recorded."
     }
 
     static func reviewTitle(_ current: RecordingTranscript) -> String {

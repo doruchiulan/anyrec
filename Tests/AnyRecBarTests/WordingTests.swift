@@ -24,6 +24,29 @@ struct WordingTests {
         #expect(offer.body.contains("picker"))
     }
 
+    @Test("says an automatic recording started, what it keeps, and when it stops")
+    func automaticRecordingStarted() {
+        let slack = CallApp(bundleID: "com.tinyspeck.slackmacgap", name: "Slack")
+        let window = Wording.automaticRecordingStarted(slack, video: true)
+        let audio = Wording.automaticRecordingStarted(slack, video: false)
+
+        #expect(window.title == "Recording your Slack call")
+        #expect(audio.title == "Recording the audio of your Slack call")
+        #expect(window.body == "It stops when the call ends.")
+    }
+
+    @Test("the automatic recording footer says who is recorded, who is offered, and who is not told")
+    func automaticRecordingFooter() {
+        let footer = Wording.automaticRecordingFooter
+
+        #expect(footer.contains("Slack or Teams"))
+        #expect(footer.contains("\(Int(CallAutoRecording.endGrace)) seconds after the call ends"))
+        #expect(footer.contains("other apps"))
+        #expect(footer.contains("still get the offer"))
+        #expect(footer.contains("doesn't tell the other people"))
+        #expect(Wording.automaticRecordingModes.map(\.0) == AutomaticRecordingMode.allCases)
+    }
+
     @Test("names the default microphone as the default")
     func namesTheDefault() {
         let device = AudioInputDevice(id: "1", name: "MacBook Pro Microphone", isDefault: true)
@@ -142,6 +165,40 @@ struct WordingTests {
         #expect(Wording.spokeAlone(0) == "Not shown speaking")
     }
 
+    @Test("the Speakers panel says how many to check, how each was named, and why a name is offered")
+    func speakers() {
+        #expect(Wording.speakersTitle(toCheck: 0) == "Speakers")
+        #expect(Wording.speakersTitle(toCheck: 2) == "Speakers · 2 to check")
+        #expect(Wording.basis(.agreed) == "Call window and voice agree")
+        #expect(Wording.basis(.namedByYou) == "Named by you")
+        #expect(Wording.basis(.review) == "Chosen by review")
+        #expect(Wording.talkTime(252, lines: 38) == "04:12 · 38 lines")
+        #expect(Wording.talkTime(3, lines: 1) == "00:03 · 1 line")
+        #expect(Wording.candidate(SpeakerCandidate(name: "Ana", reason: .soundsLike)) == "Ana?")
+        #expect(Wording.candidate(.me([.shownSpeaking])) == "Me")
+        #expect(Wording.candidateReason(.yourVoice([.shownSpeaking])) == "Your voice. Every line goes to Me")
+        #expect(Wording.probablyYou([.savedAsYou, .shownSpeaking]) == "Probably you: saved as you; the call window showed you speaking")
+        #expect(Wording.rememberOwner(OwnerToRemember(person: "Doru", shownName: "Doru", display: "Doru Chiulan")) == "Remember Doru is me")
+        #expect(Wording.candidate(SpeakerCandidate(name: "Ana", reason: .inCall)) == "Ana")
+        #expect(Wording.candidateReason(.introduced(quote: "I'm Ana")) == "Said “I'm Ana”")
+        #expect(Wording.candidateReason(.onlyOneLeft) == "The only one in the call without a voice")
+        #expect(Wording.completion(PersonSuggestion(savedName: "Andi", shownName: "Andrei Lungu", matched: "Andi", exact: true))
+            == "Andrei Lungu — also Andi")
+        #expect(Wording.completion(PersonSuggestion(savedName: "Andi", shownName: "Andrei Lungu", matched: "andrei  lungu", exact: false))
+            == "Andrei Lungu")
+        #expect(Wording.unclaimed(lines: 0, seconds: 0) == nil)
+        #expect(Wording.unclaimed(lines: 1, seconds: 4) == "1 line (00:04) is still marked Call; no voice claims it.")
+        #expect(Wording.unclaimed(lines: 12, seconds: 190) == "12 lines (03:10) are still marked Call; no voice claims them.")
+        #expect(Wording.clip(SpeakerClip(line: 0, start: 42, end: 50)) == "Play 00:42–00:50")
+        #expect(Wording.voiceScope == "All their lines")
+        #expect(Wording.giveTo(voice: nil) == "Or give it to")
+        #expect(Wording.giveTo(voice: "Speaker B") == "Or give every line of Speaker B to")
+        #expect(Wording.giveHelp(voice: nil, to: .others, targetLabel: "Call") == "This line goes to Call.")
+        #expect(Wording.giveHelp(voice: "Ana", to: .voice("A"), targetLabel: "Costi") == "Every line of Ana goes to Costi.")
+        #expect(Wording.giveHelp(voice: "Ana", to: .me, targetLabel: "Me").hasPrefix("Every line of Ana goes to Me. Its voiceprint joins yours"))
+        #expect(Wording.fused(["Ana", "Mihai"]).contains("Ana and Mihai"))
+    }
+
     @Test("summaries say why they are stale, and comparison says where audio goes")
     func summaryAndComparison() {
         #expect(Wording.summaryStale(.current) == nil)
@@ -175,5 +232,18 @@ struct WordingTests {
         #expect(Wording.audioSurface(app: "Microsoft Teams", display: false) == "Audio only · Microsoft Teams")
         #expect(Wording.audioSurface(app: nil, display: true) == "Audio only · Display")
         #expect(Wording.audioSurface(app: nil, display: false) == "Audio only")
+    }
+
+    @Test("a remembered voiceprint says which recording it was named in, or that it came earlier or by import")
+    func printOrigins() {
+        let filed = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(Wording.printOrigin(nil, number: 2) == "Voiceprint 2 · earlier")
+        #expect(Wording.printOrigin(.init(recording: nil, filed: filed), number: 1)
+            == "Imported \(filed.formatted(date: .abbreviated, time: .omitted))")
+        let origin = VoiceLibrary.PrintOrigin(recording: "rec-2026-11-03-100800", filed: filed)
+        let when = try! #require(origin.recordingStarted).formatted(date: .abbreviated, time: .shortened)
+        #expect(Wording.printOrigin(origin, number: 1) == "Recording of \(when)")
+        #expect(Wording.printOrigin(origin, number: 1, title: "Design review") == "Design review · \(when)")
+        #expect(Wording.printOrigin(.init(recording: "renamed", filed: filed), number: 1) == "renamed")
     }
 }

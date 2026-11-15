@@ -25,10 +25,14 @@ public enum SpeakerAttribution {
         /// empties a third of its frames. Against a digitally silent call any ratio
         /// is infinite, so the microphone has to clear the room, not just the call.
         let talking: Double
+        /// When the call could hear the microphone (`microphone-live.json`); nil when nothing
+        /// was recorded about it, which means it could throughout.
+        let live: [Range<TimeInterval>]?
 
-        init(heard: AudioEnvelope, talking: Double) {
+        init(heard: AudioEnvelope, talking: Double, live: [Range<TimeInterval>]? = nil) {
             self.heard = heard
             self.talking = talking
+            self.live = live
         }
 
         /// The track as `mix` heard it: held under the call when it bleeds, silent where
@@ -42,7 +46,16 @@ public enum SpeakerAttribution {
                     release: MixPlan.duckRelease)
             }
             if let live = mix.microphoneLive { heard = heard.only(during: live.spans) }
-            self.init(heard: heard, talking: SpeechRegions.threshold(for: microphone))
+            self.init(heard: heard, talking: SpeechRegions.threshold(for: microphone), live: mix.microphoneLive?.spans)
+        }
+
+        /// Whether the call could hear the microphone over most of a span: four fifths of it,
+        /// so a line that runs into a mute is not put in the owner's mouth.
+        func isLive(from start: TimeInterval, to end: TimeInterval) -> Bool {
+            guard let live else { return true }
+            guard end > start else { return live.contains { $0.contains(start) } }
+            let covered = live.reduce(0) { $0 + max(0, min(end, $1.upperBound) - max(start, $1.lowerBound)) }
+            return covered >= 0.8 * (end - start)
         }
 
         /// Whether the microphone was live and carrying speech over a span.

@@ -35,10 +35,11 @@ extension TranscriptionService {
             }
             let resolved = ParticipantAttribution.resolve(voices, lines: lines, evidence: evidence, library: library,
                                                           microphone: microphone)
-            /// A display name that corroborated a voiceprint is filed as that person's
-            /// alias. Only names: a print is filed only when somebody names a voice.
+            /// A display name a call window showed for a known person is filed as their
+            /// alias and becomes the name later transcripts use. Only names: a print is
+            /// filed only when somebody names a voice.
             var updated = library
-            if resolved.aliases.reduce(false, { updated.addAlias($1.display, to: $1.person) || $0 }) { learn(updated) }
+            if resolved.aliases.reduce(false, { updated.noteCallName($1.display, for: $1.person) || $0 }) { learn(updated) }
             return (resolved.lines, resolved.voices)
         } catch {
             progress("Could not \(preservingSpeakers ? "match known voices" : "tell the voices apart"): \(error.localizedDescription)")

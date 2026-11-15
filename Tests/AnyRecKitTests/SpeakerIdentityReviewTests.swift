@@ -11,7 +11,7 @@ struct SpeakerIdentityReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        let outcome = try await TranscriptPass.publish(candidates, in: directory, options: options, progress: { _ in }) { _, text, _ in
+        let outcome = try await TranscriptPass.publish(candidates, in: directory, options: options, library: { VoiceLibrary() }, progress: { _ in }) { _, text, _ in
             if text.contains("\"conflicts\"") {
                 #expect(text.contains("Costin") && text.contains("Alex") && text.contains("I'm Costin"))
                 #expect(!text.contains("\"print\""))
@@ -45,6 +45,26 @@ struct SpeakerIdentityReviewTests {
         #expect(result.voices[0].identityEvidence?.conflict == false)
     }
 
+    @Test("A saved name the reviewer keeps is shown as the display name learned for that person")
+    func keptVoiceprintShowsLearnedName() async throws {
+        let directory = try folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var options = TranscriptionOptions()
+        options.review = true
+        let library = VoiceLibrary(people: [
+            .init(name: "Alex", prints: [[1, 0]], aliases: ["Alex Ionescu"], displayName: "Alex Ionescu"),
+            .init(name: "Costin", prints: [[0, 1]]),
+        ])
+        let outcome = try await TranscriptPass.publish(fixture(), in: directory, options: options, library: { library },
+                                                       progress: { _ in }) { _, text, _ in
+            text.contains("\"conflicts\"") ? self.decision("Alex") : self.wording
+        }
+        guard case .written(_, _, let voices, _) = outcome else { Issue.record("Expected transcript"); return }
+        #expect(voices?.names == ["A": "Alex Ionescu"])
+        #expect(voices?.voices[0].identityEvidence?.resolution?.name == "Alex")
+        #expect(RecordingTranscript.read(in: directory)?.named.utterances.first?.speaker == .named("Alex Ionescu"))
+    }
+
     @Test("Unknown names, unknown letters, duplicate and missing decisions reject the response")
     func invalid() throws {
         let voices = try #require(fixture().primary.voices)
@@ -76,7 +96,7 @@ struct SpeakerIdentityReviewTests {
     func disabled() async throws {
         let directory = try folder()
         defer { try? FileManager.default.removeItem(at: directory) }
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: TranscriptionOptions(), progress: { _ in }) { _, _, _ in
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: TranscriptionOptions(), library: { VoiceLibrary() }, progress: { _ in }) { _, _, _ in
             Issue.record("Review must remain opt-in")
             throw CancellationError()
         }
@@ -89,7 +109,7 @@ struct SpeakerIdentityReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, input, _ in
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, library: { VoiceLibrary() }, progress: { _ in }) { _, input, _ in
             input.contains("\"conflicts\"") ? self.decision("Invented") : self.wording
         }
         #expect(RecordingVoices.read(in: directory) == fixture().primary.voices)
@@ -103,7 +123,7 @@ struct SpeakerIdentityReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        let outcome = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, input, _ in
+        let outcome = try await TranscriptPass.publish(fixture(), in: directory, options: options, library: { VoiceLibrary() }, progress: { _ in }) { _, input, _ in
             input.contains("\"conflicts\"") ? self.decision("Costin") : "not a review"
         }
         guard case .written(_, let notes, let voices, _) = outcome else { Issue.record("Expected transcript"); return }

@@ -3,8 +3,6 @@ import AnyRecKit
 
 struct MenuPanel: View {
     @Bindable var controller: RecordingController
-    @Environment(\.openSettings) private var openSettings
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -24,7 +22,7 @@ struct MenuPanel: View {
                 if controller.phase != .recording && controller.phase != .stopping {
                     MenuRow("Settings…") {
                         NSApplication.shared.activate(ignoringOtherApps: true)
-                        openSettings()
+                        controller.openSettings?()
                     }
                 }
                 MenuRow("Quit AnyRec") { NSApplication.shared.terminate(nil) }
@@ -36,11 +34,14 @@ struct MenuPanel: View {
     }
 
     /// The helper is clicked while another app is in front, and a window opened from it
-    /// would appear behind that app unless this one is activated first.
+    /// would appear behind that app unless this one is activated first. The panel is an
+    /// AppKit window outside any scene, where SwiftUI's `openWindow` and `openSettings` do
+    /// nothing, so both go through the closures the menu bar's commands leave on the
+    /// controller.
     private func openLibrary(_ recording: URL?) {
         if let recording { controller.selection = recording }
         NSApplication.shared.activate(ignoringOtherApps: true)
-        openWindow(id: LibraryWindow.id)
+        controller.openLibrary?()
     }
 }
 

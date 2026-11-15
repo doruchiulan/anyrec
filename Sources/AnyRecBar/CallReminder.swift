@@ -8,21 +8,56 @@ final class CallReminder {
     /// Audio Only side by side.
     private let onRecord: (CaptureChoice?, Bool) -> Void
     private let onChooseWindow: (Bool) -> Void
+    /// Automatic recording: the call window, found and checked, ready to capture.
+    private let onFound: (CaptureChoice) -> Void
+    /// The started notification's Stop button.
+    private let onStop: () -> Void
     private var task: Task<Void, Never>?
     private var panel: NSPanel?
     private var generation = UUID()
     private var anchor: CallWindowAnchor?
     private var window: MuteButton.Window?
-    private lazy var notifier = CallNotifier { [weak self] video in self?.chooseWindow(video: video) }
+    private lazy var notifier = CallNotifier(
+        onRecord: { [weak self] video in self?.chooseWindow(video: video) },
+        onStop: { [weak self] in self?.onStop() })
 
-    init(onRecord: @escaping (CaptureChoice?, Bool) -> Void, onChooseWindow: @escaping (Bool) -> Void) {
+    init(onRecord: @escaping (CaptureChoice?, Bool) -> Void, onChooseWindow: @escaping (Bool) -> Void,
+         onFound: @escaping (CaptureChoice) -> Void, onStop: @escaping () -> Void) {
         self.onRecord = onRecord
         self.onChooseWindow = onChooseWindow
+        self.onFound = onFound
+        self.onStop = onStop
     }
 
+    /// The banner above the call window once it is found, and the notification after three
+    /// seconds without one.
     func offer(_ app: CallApp) {
+        look(for: app, automatic: false, notifies: true)
+    }
+
+    /// Automatic recording: the same search for the same window, which goes to `onFound`
+    /// the moment it can be captured instead of under a banner. Until then the notification
+    /// offers it as usual after three seconds, when `notifies`, and is withdrawn once the
+    /// window turns up.
+    func watch(_ app: CallApp, notifies: Bool) {
+        look(for: app, automatic: true, notifies: notifies)
+    }
+
+    /// Says an automatic recording started, with a Stop button.
+    func announce(_ app: CallApp, video: Bool) {
+        notifier.announce(app, video: video)
+    }
+
+    func withdrawAnnouncement() {
+        notifier.withdrawAnnouncement()
+    }
+
+    private func look(for app: CallApp, automatic: Bool, notifies: Bool) {
         withdraw()
-        guard app.muteButton != nil else { notifier.offer(app); return }
+        guard app.muteButton != nil else {
+            if notifies { notifier.offer(app) }
+            return
+        }
         let generation = generation
         let anchor = CallWindowAnchor(app: app)
         self.anchor = anchor
@@ -32,13 +67,25 @@ final class CallReminder {
             while !Task.isCancelled {
                 let window = await anchor.window()
                 guard !Task.isCancelled else { return }
-                let fallback = !fallbackShown && Date().timeIntervalSince(started) >= 3
-                guard self?.update(app, window: window, generation: generation, fallback: fallback) == true
+                if automatic, let window, let choice = await anchor.capture(window.identity) {
+                    guard !Task.isCancelled else { return }
+                    self?.found(choice, generation: generation)
+                    return
+                }
+                let fallback = notifies && !fallbackShown && Date().timeIntervalSince(started) >= 3
+                guard self?.update(app, window: automatic ? nil : window, generation: generation,
+                                   fallback: fallback) == true
                 else { return }
-                if window != nil || fallback { fallbackShown = true }
+                if (window != nil && !automatic) || fallback { fallbackShown = true }
                 try? await Task.sleep(for: .milliseconds(400))
             }
         }
+    }
+
+    private func found(_ choice: CaptureChoice, generation: UUID) {
+        guard self.generation == generation else { return }
+        withdraw()
+        onFound(choice)
     }
 
     private func update(_ app: CallApp, window: MuteButton.Window?, generation: UUID, fallback: Bool) -> Bool {

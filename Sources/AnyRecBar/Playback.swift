@@ -25,6 +25,9 @@ final class Playback {
     /// rows it moves between redraw — `position` changes ten times a second, and a view
     /// reading it re-runs on every one.
     private(set) var currentLine: Int?
+    /// The speaker clip being played, which stops at its end. Changes once per clip, so the
+    /// clip buttons can read it; nil once it ends or anything else moves the player.
+    private(set) var playingClip: SpeakerClip?
     /// The tracks this recording actually has, so a chip is not offered for a file that
     /// was never written. Read from disk once, not on every redraw.
     let available: [Track]
@@ -40,6 +43,8 @@ final class Playback {
     private var status: NSKeyValueObservation?
     /// Where each transcript line starts and ends, for `currentLine`.
     private var lines: [(start: TimeInterval, end: TimeInterval)] = []
+    /// The boundary observer that pauses the player at a clip's end.
+    private var clipEnd: Any?
 
     init(_ entry: LibraryEntry) {
         self.entry = entry
@@ -74,7 +79,10 @@ final class Playback {
         finish = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.isPlaying = false }
+            MainActor.assumeIsolated {
+                self?.endClip()
+                self?.isPlaying = false
+            }
         }
     }
 
@@ -99,6 +107,7 @@ final class Playback {
     }
 
     func toggle() {
+        endClip()
         if isPlaying {
             player.pause()
             isPlaying = false
@@ -114,11 +123,43 @@ final class Playback {
         isPlaying = true
     }
 
+    /// Plays exactly a clip's span and stops. Pressed again while it plays, it stops. The
+    /// line it came from is highlighted through `currentLine`, as any playing line is.
+    func play(_ clip: SpeakerClip) {
+        if playingClip == clip {
+            endClip()
+            player.pause()
+            isPlaying = false
+            return
+        }
+        seek(to: clip.start)
+        playingClip = clip
+        clipEnd = player.addBoundaryTimeObserver(
+            forTimes: [NSValue(time: CMTime(seconds: min(clip.end, duration), preferredTimescale: 600))], queue: .main
+        ) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.playingClip == clip else { return }
+                self.endClip()
+                self.player.pause()
+                self.isPlaying = false
+            }
+        }
+        player.rate = rate
+        isPlaying = true
+    }
+
+    private func endClip() {
+        if let clipEnd { player.removeTimeObserver(clipEnd) }
+        clipEnd = nil
+        if playingClip != nil { playingClip = nil }
+    }
+
     func skip(_ seconds: TimeInterval) {
         seek(to: position + seconds)
     }
 
     func seek(to seconds: TimeInterval) {
+        endClip()
         let target = max(0, min(seconds, duration))
         moved(to: target)
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
@@ -130,6 +171,7 @@ final class Playback {
     }
 
     func stop() {
+        endClip()
         player.pause()
         isPlaying = false
         if let observer { player.removeTimeObserver(observer) }

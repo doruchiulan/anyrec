@@ -33,6 +33,16 @@ public struct OutputPlan: Sendable, Equatable {
         return "rec-\(formatter.string(from: date))"
     }
 
+    /// The start a `rec-<timestamp>` folder name carries; nil for any other name.
+    public static func date(fromFolderName name: String) -> Date? {
+        guard name.hasPrefix("rec-") else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return formatter.date(from: String(name.dropFirst(4)))
+    }
+
     /// Creates `<root>/rec-<timestamp>` on disk and returns the plan for it.
     public static func create(
         in root: URL, named name: String? = nil, at date: Date = Date()

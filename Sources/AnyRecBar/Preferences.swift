@@ -29,6 +29,8 @@ enum Preferences {
         static let stopAfter = "stopAfterSeconds"
         static let microphone = "microphoneID"
         static let offerToRecord = "offerToRecord"
+        static let recordsCallsAutomatically = "recordCallsAutomatically"
+        static let automaticRecordingMode = "automaticRecordingMode"
         static let shortcut = "shortcut"
         static let captions = "captions"
         static let menuBarExtra = "showsMenuBarExtra"
@@ -55,6 +57,18 @@ enum Preferences {
     static var offerToRecord: Bool {
         get { defaults.bool(forKey: Key.offerToRecord) }
         set { defaults.set(newValue, forKey: Key.offerToRecord) }
+    }
+
+    /// Whether a Slack or Teams call whose window is found is recorded without asking.
+    /// Off unless switched on.
+    static var recordsCallsAutomatically: Bool {
+        get { defaults.bool(forKey: Key.recordsCallsAutomatically) }
+        set { defaults.set(newValue, forKey: Key.recordsCallsAutomatically) }
+    }
+
+    static var automaticRecordingMode: AutomaticRecordingMode {
+        get { defaults.string(forKey: Key.automaticRecordingMode).flatMap(AutomaticRecordingMode.init) ?? .window }
+        set { defaults.set(newValue.rawValue, forKey: Key.automaticRecordingMode) }
     }
 
     /// Setup is complete only after all permissions have been granted.

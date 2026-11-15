@@ -38,8 +38,9 @@ struct RecordingDetail: View {
 /// One recording: the video, its summary and who spoke, with what was said — the
 /// transcript, the tracks and the files — in the inspector beside it, so the transcript
 /// stays in view while the video plays. Reads the files
-/// the Kit left in the folder; the only things it writes are voice names (through
-/// `VoiceNaming`, so the library learns them) and ticks on a summary's action items.
+/// the Kit left in the folder; the only things it writes are who spoke — voice names and
+/// line speakers, through `SpeakerEditing`, so the library learns the names — and ticks on
+/// a summary's action items.
 ///
 /// Nothing in this body reads the playhead. It moves ten times a second, and whatever
 /// reads it is redrawn as often — so the clock, the waveform and the transcript's
@@ -57,10 +58,9 @@ private struct RecordingPage: View {
     @State private var transcript: Transcript?
     @State private var voices: RecordingVoices?
     @State private var observed: CallParticipants?
-    @State private var nameSuggestions: [SpeakerSuggestion] = []
+    @State private var desk: SpeakerDesk?
     @State private var summary: Summary?
     @State private var legacySummary: String?
-    @State private var names: [String: String] = [:]
     @State private var tab = Tab.transcript
     @State private var popout: NSWindow?
     /// The transcript with names in, worked out when it loads rather than on each redraw.
@@ -102,22 +102,25 @@ private struct RecordingPage: View {
     enum Tab: String, CaseIterable { case transcript = "Transcript", tracks = "Tracks", files = "Files" }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                ProcessingStatusView(controller: controller, directory: entry.directory)
-                if entry.video != nil || !playback.available.isEmpty { playerCard }
-                TranscriptReviewDetails(directory: entry.directory).id(entry.revision)
-                SpeakerReviewSuggestions(controller: controller, entry: entry).id(entry.revision)
-                if transcript != nil { summaryCard.disabled(controller.processing.working.contains(entry.directory)) }
-                if let voices, !voices.unnamed.isEmpty { naming(voices).disabled(controller.working.contains(entry.directory)) }
-                if let observed, !observed.roster.isEmpty {
-                    ObservedParticipants(participants: observed, voices: voices, duration: entry.duration)
+        ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    ProcessingStatusView(controller: controller, directory: entry.directory)
+                    if entry.video != nil || !playback.available.isEmpty { playerCard }
+                    TranscriptReviewDetails(directory: entry.directory).id(entry.revision)
+                    if transcript != nil { summaryCard.disabled(controller.processing.working.contains(entry.directory)) }
+                    speakersSection.id(Self.speakersAnchor)
                 }
+                .padding(.horizontal, 28).padding(.vertical, 22)
+                .frame(maxWidth: 820, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 28).padding(.vertical, 22)
-            .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .onChange(of: controller.speakersRequest, initial: true) { _, request in
+                guard let request, request == entry.directory else { return }
+                controller.speakersRequest = nil
+                withAnimation { reader.scrollTo(Self.speakersAnchor, anchor: .top) }
+            }
         }
         /// White, like a document; the cards sit on it in a soft grey. Both are system
         /// colours, so Dark Mode turns them into near-black and a lifted grey.
@@ -422,49 +425,20 @@ private struct RecordingPage: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    // MARK: Naming
+    // MARK: Speakers
 
-    private func naming(_ voices: RecordingVoices) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Who's speaking?").font(.system(size: 13, weight: .semibold))
-                Text("Name these voices once and AnyRec recognises them on your next call.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 10)], spacing: 10) {
-                ForEach(voices.unnamed, id: \.letter) { voice in
-                    SpeakerNamingCard(voice: voice, name: binding(voice.letter),
-                                      suggestion: nameSuggestions.first { $0.letter == voice.letter },
-                                      colour: Self.colour(.voice(voice.letter))) {
-                        playback.play(from: voice.start)
-                    }
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Not now") { names = [:] }.buttonStyle(.borderless)
-                Button("Save names") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(names.values.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty })
-            }
-        }
-        .padding(16)
-        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-    }
+    private static let speakersAnchor = "speakers"
 
-    private func binding(_ letter: String) -> Binding<String> {
-        Binding(get: { names[letter] ?? "" }, set: { names[letter] = $0 })
-    }
-
-    private func save() {
-        let given = names.filter { !$0.value.trimmingCharacters(in: .whitespaces).isEmpty }
-        guard !given.isEmpty else { return }
-        if let result = try? VoiceNaming.apply(given, in: entry.directory) {
-            voices = result.voices
-            names = [:]
-            named()
-            controller.reloadPeople()
-            Task { await controller.reloadLibrary() }
+    /// Every speaker, with the roster under them; the roster alone while there is no
+    /// transcript to have speakers.
+    @ViewBuilder private var speakersSection: some View {
+        if let desk, let speakers = desk.speakers, transcript != nil {
+            SpeakersPanel(desk: desk, speakers: speakers, playback: playback, observed: observed, voices: voices,
+                          duration: entry.duration)
+        } else if let observed, !observed.roster.isEmpty {
+            GroupBox {
+                ObservedParticipants(participants: observed, voices: voices, duration: entry.duration).padding(4)
+            }
         }
     }
 
@@ -518,7 +492,7 @@ private struct RecordingPage: View {
 
     @ViewBuilder private var transcriptLines: some View {
         if transcript != nil {
-            TranscriptList(lines: lines, playback: playback)
+            TranscriptList(lines: lines, playback: playback, desk: desk)
         } else {
             TranscriptPlaceholder(controller: controller, entry: entry)
         }
@@ -580,9 +554,10 @@ private struct RecordingPage: View {
         let current = RecordingTranscript.read(in: entry.directory)
         transcript = current?.transcript
         voices = current?.voices
-        nameSuggestions = current?.nameSuggestions ?? []
         observed = CallParticipants.read(in: entry.directory)
         named()
+        if desk?.directory != entry.directory { desk = SpeakerDesk(directory: entry.directory, controller: controller) }
+        if let desk { Task { await desk.load() } }
         summary = nil
         legacySummary = nil
         if let url = entry.summary {
@@ -599,17 +574,7 @@ private struct RecordingPage: View {
         playback.follow(transcript)
     }
 
-    /// Me is the accent; everyone else gets a fixed hue per letter so a voice keeps its
-    /// colour down the page and across recordings.
-    static func colour(_ speaker: Speaker) -> Color {
-        switch speaker {
-        case .me: return .accentColor
-        case .others: return .purple
-        case .voice(let letter), .named(let letter):
-            let palette: [Color] = [.purple, .orange, .teal, .pink, .indigo, .mint]
-            return palette[Int(letter.unicodeScalars.reduce(0) { $0 + $1.value }) % palette.count]
-        }
-    }
+    static func colour(_ speaker: Speaker) -> Color { SpeakerColour.of(speaker) }
 }
 
 /// The two spacer widths that put the toolbar's items where they belong, and the
@@ -902,6 +867,7 @@ private struct PlayheadTime: View {
 private struct TranscriptList: View {
     let lines: [Utterance]
     let playback: Playback
+    let desk: SpeakerDesk?
 
     var body: some View {
         let current = playback.currentLine
@@ -909,7 +875,8 @@ private struct TranscriptList: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(lines.indices, id: \.self) { index in
-                        TranscriptRow(line: lines[index], isCurrent: index == current) {
+                        TranscriptRow(line: lines[index], index: index, isCurrent: index == current,
+                                      desk: desk, playback: playback) {
                             playback.play(from: lines[index].start)
                         }
                         .equatable()
@@ -931,10 +898,16 @@ private struct TranscriptList: View {
 
 private struct TranscriptRow: View, Equatable {
     let line: Utterance
+    let index: Int
     let isCurrent: Bool
+    let desk: SpeakerDesk?
+    let playback: Playback
     let play: () -> Void
+    @State private var choosing = false
 
-    static func == (a: Self, b: Self) -> Bool { a.line == b.line && a.isCurrent == b.isCurrent }
+    static func == (a: Self, b: Self) -> Bool {
+        a.line == b.line && a.index == b.index && a.isCurrent == b.isCurrent && a.desk === b.desk
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -944,9 +917,23 @@ private struct TranscriptRow: View, Equatable {
                 .frame(width: 56, alignment: .leading)
                 .accessibilityLabel("Play from \(Wording.clock(line.start))")
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Circle().fill(RecordingPage.colour(line.speaker)).frame(width: 8, height: 8)
-                    Text(line.speaker.label).font(.system(size: 11, weight: .semibold))
+                /// The label opens the speaker chooser for this line, the same choices as the
+                /// Speakers panel's.
+                Button { choosing = true } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(RecordingPage.colour(line.speaker)).frame(width: 8, height: 8)
+                        Text(line.speaker.label).font(.caption.bold())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(desk == nil)
+                .help("Change who said this")
+                .accessibilityLabel("\(line.speaker.label). Change who said this")
+                .popover(isPresented: $choosing, arrowEdge: .leading) {
+                    if let desk {
+                        LineSpeakerChooser(desk: desk, line: index, playback: playback) { choosing = false }
+                    }
                 }
                 Text(line.text).font(.system(size: 13)).lineSpacing(3).textSelection(.enabled)
             }

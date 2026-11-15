@@ -6,13 +6,18 @@ struct AnyRecBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        /// The app itself: a Dock icon and this window, opened at launch. Closing the
-        /// window leaves the app running — a recording and the menu bar helper outlive it.
+        /// The app itself: a Dock icon and this window. It is not opened at launch — a launch
+        /// by hand drops the menu bar panel open instead, and one at login shows nothing —
+        /// and opens from the Dock icon, the helper's Open AnyRec, or the Window menu.
+        /// Closing it leaves the app running: a recording and the menu bar helper outlive it.
         Window("AnyRec", id: LibraryWindow.id) {
             LibraryView(controller: delegate.controller)
         }
         .defaultSize(width: 1180, height: 760)
-        .defaultLaunchBehavior(Preferences.welcomed ? .presented : .suppressed)
+        .defaultLaunchBehavior(.suppressed)
+        /// macOS reopens windows that were open at quit, which would bring the library back
+        /// at the next launch whatever the line above says.
+        .restorationBehavior(.disabled)
         .commands { AnyRecCommands(controller: delegate.controller) }
 
         Window("Welcome to AnyRec", id: WelcomeSheet.windowID) {
@@ -21,22 +26,6 @@ struct AnyRecBarApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(Preferences.welcomed ? .suppressed : .presented)
-
-        /// The helper: start a recording from anywhere, watch one, and get back to the app.
-        /// Shown unless switched off in Settings › General — whether an extra is in the
-        /// menu bar is the person's call, and the Dock menu reaches the same commands.
-        MenuBarExtra(isInserted: Binding(
-            get: { delegate.controller.showsMenuBarExtra },
-            set: { delegate.controller.showsMenuBarExtra = $0 })
-        ) {
-            MenuPanel(controller: delegate.controller)
-        } label: {
-            MenuBarLabel(controller: delegate.controller)
-        }
-        /// A menu bar extra should show a menu, not a panel — except where the
-        /// functionality is too complex for one, which live meters and a capture
-        /// picker are.
-        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsWindow(controller: delegate.controller)
@@ -47,12 +36,56 @@ struct AnyRecBarApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let controller = RecordingController()
+    /// The helper: start a recording from anywhere, watch one, and get back to the app.
+    /// Shown unless switched off in Settings › General — whether an extra is in the menu
+    /// bar is the person's call, and the Dock menu reaches the same commands.
+    private var statusItem: StatusItem?
 
     func applicationDidFinishLaunching(_: Notification) {
+        /// Read first: the launch event is only current while this runs.
+        let atLogin = Self.launchedAtLogin
+        let statusItem = StatusItem(controller: controller)
+        self.statusItem = statusItem
+        controller.willPresentPicker = { [weak statusItem] in statusItem?.close() }
         Task { await controller.prepare() }
+
+        /// Started by hand, the app shows itself where people work with it — the menu bar
+        /// panel, or the library when there is no menu bar item to hang it from. Started at
+        /// login it stays quiet, and before setup the welcome window is the whole launch.
+        guard controller.completedSetup, !atLogin else { return }
+        statusItem.whenPlaced { [weak self] placed in
+            guard let self else { return }
+            if !(placed && statusItem.open()) { DispatchQueue.main.async { self.openLibrary() } }
+        }
+    }
+
+    /// A login item is launched with an open-application event saying so, which is what
+    /// tells it apart from a double-click, `open` or the Dock.
+    private static var launchedAtLogin: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == kCoreEventClass, event.eventID == kAEOpenApplication
+        else { return false }
+        return event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+    }
+
+    private func openLibrary() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        controller.openLibrary?()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { false }
+
+    /// The library is not opened at launch, so a click on the Dock icon with nothing on
+    /// screen is the person asking for it. The menu bar panel does not count as something
+    /// on screen: it closes, as it would on any other click outside it.
+    func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        let onlyPanel = statusItem?.isPanelOpen == true
+            && !NSApplication.shared.windows.contains { $0.isVisible && $0.canBecomeMain }
+        statusItem?.close()
+        guard !hasVisibleWindows || onlyPanel, let open = controller.openLibrary else { return true }
+        open()
+        return false
+    }
 
     /// The menu bar extra can be hidden, by the person or by the system when the menu bar
     /// is full, so the Dock menu carries what it does.
@@ -74,26 +107,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         controller.applicationShouldTerminate(sender)
-    }
-}
-
-/// The menu bar itself: a symbol when idle, a phone while a call app holds the
-/// microphone and nothing is being recorded, and the running time beside the filled
-/// symbol once there is one, because the panel is usually shut. The state is carried
-/// by the symbol and the clock rather than by colour — a status item is drawn as a
-/// template, so a tint here would be stripped.
-struct MenuBarLabel: View {
-    @Bindable var controller: RecordingController
-
-    var body: some View {
-        if controller.isRecording {
-            Label(controller.clock, systemImage: "record.circle.fill")
-        } else if !controller.working.isEmpty {
-            Image(systemName: "clock")
-        } else if controller.callApp != nil {
-            Image(systemName: "phone.circle.fill")
-        } else {
-            Image(systemName: "record.circle")
-        }
     }
 }

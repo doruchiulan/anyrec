@@ -13,32 +13,112 @@ public typealias Voiceprint = [Float]
 ///
 /// Nothing in here ever leaves the machine. Twenty people is twenty files.
 public struct VoiceLibrary: Sendable, Equatable {
+    /// Where one print came from: the recording whose voice was named, or nil for a print
+    /// that arrived in an imported `.anyrecvoices` file, and when it was filed. Prints
+    /// filed before this was kept have none, and are shown as earlier.
+    public struct PrintOrigin: Sendable, Equatable, Codable {
+        /// The recording folder's name (`rec-YYYY-MM-DD-HHMMSS`); nil for an import.
+        public let recording: String?
+        public let filed: Date
+
+        public init(recording: String?, filed: Date = Date()) {
+            self.recording = recording
+            self.filed = filed
+        }
+
+        /// When the recording started, read from its folder's name.
+        public var recordingStarted: Date? { recording.flatMap(OutputPlan.date(fromFolderName:)) }
+    }
+
     /// One person: the name the owner gave, the display names call windows showed for
     /// them, their prints, and whether this is the person recording. Files written before
     /// aliases and the owner flag existed read with neither.
     public struct Person: Sendable, Equatable, Codable {
         public let name: String
-        public var prints: [Voiceprint]
+        /// Changed only through the library, so `origins` stays beside it.
+        public internal(set) var prints: [Voiceprint]
+        /// Where each print came from, by index; shorter than `prints` (or nil entries) for
+        /// prints filed before this was kept. Read through `origin(ofPrint:)`.
+        public internal(set) var origins: [PrintOrigin?]
         /// Display names seen in call windows for this person ("Alex Smith" for "Alex").
         /// Learned when a call window and a voiceprint agree; never a source of prints.
         public var aliases: [String]
         public var isOwner: Bool
+        /// The display name a call window showed for this person most recently. Transcripts
+        /// written from then on call them this rather than the saved name, which stays the
+        /// key the library is filed and matched under.
+        public var displayName: String?
 
-        public init(name: String, prints: [Voiceprint], aliases: [String] = [], isOwner: Bool = false) {
+        public init(name: String, prints: [Voiceprint], aliases: [String] = [], isOwner: Bool = false,
+                    displayName: String? = nil, origins: [PrintOrigin?] = []) {
             self.name = name
             self.prints = prints
+            self.origins = Self.trimmed(origins)
             self.aliases = aliases
             self.isOwner = isOwner
+            self.displayName = displayName
         }
 
-        private enum CodingKeys: String, CodingKey { case name, prints, aliases, isOwner }
+        /// Where print `index` came from; nil when that was not kept.
+        public func origin(ofPrint index: Int) -> PrintOrigin? {
+            origins.indices.contains(index) ? origins[index] : nil
+        }
+
+        /// Nothing left that could name anyone: no print to match and no other name.
+        var isEmpty: Bool { prints.isEmpty && aliases.isEmpty && displayName == nil && !isOwner }
+
+        mutating func add(_ print: Voiceprint, origin: PrintOrigin?) {
+            alignOrigins()
+            prints.append(print)
+            origins.append(origin)
+            origins = Self.trimmed(origins)
+        }
+
+        mutating func removePrint(at index: Int) {
+            alignOrigins()
+            prints.remove(at: index)
+            origins.remove(at: index)
+            origins = Self.trimmed(origins)
+        }
+
+        private mutating func alignOrigins() {
+            if origins.count < prints.count { origins += Array(repeating: nil, count: prints.count - origins.count) }
+            if origins.count > prints.count { origins.removeLast(origins.count - prints.count) }
+        }
+
+        /// One spelling for "not known": no trailing nils, so a person compares equal to
+        /// itself read back from disk.
+        private static func trimmed(_ origins: [PrintOrigin?]) -> [PrintOrigin?] {
+            var origins = origins
+            while let last = origins.last, last == nil { origins.removeLast() }
+            return origins
+        }
+
+        /// What a transcript calls this person: the call window's name once one is known.
+        public var shownName: String { displayName ?? name }
+
+        private enum CodingKeys: String, CodingKey { case name, prints, origins, aliases, isOwner, displayName }
 
         public init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             name = try values.decode(String.self, forKey: .name)
             prints = try values.decodeIfPresent([Voiceprint].self, forKey: .prints) ?? []
+            origins = Self.trimmed(try values.decodeIfPresent([PrintOrigin?].self, forKey: .origins) ?? [])
             aliases = try values.decodeIfPresent([String].self, forKey: .aliases) ?? []
             isOwner = try values.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+            displayName = try values.decodeIfPresent(String.self, forKey: .displayName)
+        }
+
+        /// `origins` is written only once a print has one, so a library that never filed a
+        /// print since keeps its files' shape.
+        public func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(name, forKey: .name)
+            try values.encode(prints, forKey: .prints)
+            if origins.contains(where: { $0 != nil }) { try values.encode(origins, forKey: .origins) }
+            try values.encode(aliases, forKey: .aliases)
+            try values.encode(isOwner, forKey: .isOwner)
+            try values.encodeIfPresent(displayName, forKey: .displayName)
         }
 
         /// Whether `display` is this person: their saved name or one of their aliases,
@@ -46,6 +126,7 @@ public struct VoiceLibrary: Sendable, Equatable {
         public func answers(to display: String) -> Bool {
             let key = VoiceLibrary.normalized(display)
             return VoiceLibrary.normalized(name) == key || aliases.contains { VoiceLibrary.normalized($0) == key }
+                || displayName.map { VoiceLibrary.normalized($0) == key } == true
         }
     }
 
@@ -94,6 +175,28 @@ public struct VoiceLibrary: Sendable, Equatable {
         return true
     }
 
+    /// Records that a call window showed `display` for `name`: filed as an alias when it is
+    /// new, and kept as the name transcripts use for this person from now on. Nothing
+    /// changes when the display name belongs to someone else, or is only the saved name
+    /// written differently.
+    @discardableResult
+    public mutating func noteCallName(_ display: String, for name: String) -> Bool {
+        let display = display.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !display.isEmpty, let index = people.firstIndex(where: { $0.name == name }),
+              !people.contains(where: { $0.name != name && $0.answers(to: display) }),
+              Self.normalized(display) != Self.normalized(name) else { return false }
+        var changed = false
+        if !people[index].answers(to: display) {
+            people[index].aliases.append(display)
+            changed = true
+        }
+        if people[index].displayName != display {
+            people[index].displayName = display
+            changed = true
+        }
+        return changed
+    }
+
     /// Marks who is recording. One owner at most; nil clears it.
     public mutating func setOwner(_ name: String?) {
         for index in people.indices { people[index].isOwner = people[index].name == name }
@@ -119,15 +222,63 @@ public struct VoiceLibrary: Sendable, Equatable {
         return best
     }
 
-    /// A print filed under a name that already exists joins that person's prints.
-    public mutating func enroll(_ name: String, _ print: Voiceprint) {
+    /// A print filed under a name somebody already answers to joins that person's prints:
+    /// their saved name first, else the one person whose alias or display name it is.
+    /// Typing the name a transcript shows ("Andrei Lungu" for someone saved as "Andi")
+    /// must not start a second record for the same person. A print the person already has
+    /// is not added twice. Returns the saved name the print was filed under, nil when
+    /// nothing was filed; `file` also says whether the record was made for it.
+    @discardableResult
+    public mutating func enroll(_ name: String, _ print: Voiceprint, origin: PrintOrigin? = nil) -> String? {
+        file(name, print, origin: origin)?.name
+    }
+
+    @discardableResult
+    public mutating func file(_ name: String, _ print: Voiceprint, origin: PrintOrigin? = nil) -> (name: String, created: Bool)? {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !print.isEmpty else { return }
-        if let index = people.firstIndex(where: { $0.name == name }) {
-            people[index].prints.append(print)
-        } else {
-            people.append(Person(name: name, prints: [print]))
+        guard !name.isEmpty, !print.isEmpty else { return nil }
+        if let index = people.firstIndex(where: { $0.name == name })
+            ?? person(answering: name).flatMap({ found in people.firstIndex { $0.name == found.name } }) {
+            if !people[index].prints.contains(print) { people[index].add(print, origin: origin) }
+            return (people[index].name, false)
         }
+        people.append(Person(name: name, prints: [print], origins: [origin]))
+        return (name, true)
+    }
+
+    /// Takes back what naming one voice filed under `name`: that exact print, when the
+    /// person still has it, and the alias the same naming added. Prints that came from
+    /// anywhere else are left alone. Returns whether anything changed. The record itself
+    /// stays; `removeIfEmpty` is for a record that naming made.
+    @discardableResult
+    public mutating func retract(_ print: Voiceprint, from name: String, alias: String? = nil) -> Bool {
+        guard let index = people.firstIndex(where: { $0.name == name }) else { return false }
+        var changed = false
+        if !print.isEmpty, let at = people[index].prints.firstIndex(of: print) {
+            people[index].removePrint(at: at)
+            changed = true
+        }
+        if let alias, let at = people[index].aliases.firstIndex(of: alias) {
+            people[index].aliases.remove(at: at)
+            changed = true
+        }
+        return changed
+    }
+
+    /// Removes a person who has nothing left to be recognised by: no print, no alias, no
+    /// call-window name, not the owner.
+    @discardableResult
+    public mutating func removeIfEmpty(_ name: String) -> Bool {
+        guard let index = people.firstIndex(where: { $0.name == name }), people[index].isEmpty else { return false }
+        people.remove(at: index)
+        return true
+    }
+
+    /// One print the owner says is wrong, out of one person's record. The person stays.
+    public mutating func removePrint(at index: Int, from name: String) {
+        guard let person = people.firstIndex(where: { $0.name == name }),
+              people[person].prints.indices.contains(index) else { return }
+        people[person].removePrint(at: index)
     }
 
     public mutating func forget(_ name: String) {
@@ -159,7 +310,9 @@ public struct VoiceLibrary: Sendable, Equatable {
 
     /// Who is recording is this library's fact, not the colleague's, so it stays behind.
     public func exported() throws -> Data {
-        try JSONEncoder().encode(people.map { Person(name: $0.name, prints: $0.prints, aliases: $0.aliases) })
+        try JSONEncoder().encode(people.map {
+            Person(name: $0.name, prints: $0.prints, aliases: $0.aliases, displayName: $0.displayName)
+        })
     }
 
     /// Takes a colleague's file in: a name already here gains the prints it did not
@@ -168,6 +321,7 @@ public struct VoiceLibrary: Sendable, Equatable {
     @discardableResult
     public mutating func merge(_ data: Data) throws -> (people: Int, prints: Int) {
         let incoming = try JSONDecoder().decode([Person].self, from: data)
+        let imported = PrintOrigin(recording: nil)
         var newPeople = 0
         var newPrints = 0
         for person in incoming {
@@ -175,18 +329,20 @@ public struct VoiceLibrary: Sendable, Equatable {
             guard !name.isEmpty else { continue }
             if let index = people.firstIndex(where: { $0.name == name }) {
                 for print in person.prints where !people[index].prints.contains(print) {
-                    people[index].prints.append(print)
+                    people[index].add(print, origin: imported)
                     newPrints += 1
                 }
                 for alias in person.aliases { addAlias(alias, to: name) }
+                if people[index].displayName == nil, let shown = person.displayName { noteCallName(shown, for: name) }
             } else {
                 let prints = person.prints.filter { !$0.isEmpty }
                 guard !prints.isEmpty else { continue }
                 /// Whoever exported the file was its owner, not this library's.
-                people.append(Person(name: name, prints: prints))
+                people.append(Person(name: name, prints: prints, origins: prints.map { _ in imported }))
                 newPeople += 1
                 newPrints += prints.count
                 for alias in person.aliases { addAlias(alias, to: name) }
+                if let shown = person.displayName { noteCallName(shown, for: name) }
             }
         }
         people.sort { $0.name < $1.name }

@@ -17,11 +17,36 @@ struct SpeakerSettings: View {
             if !controller.people.isEmpty {
                 DisclosureGroup("Remembered voices (\(controller.people.count))") {
                     ForEach(controller.people, id: \.name) { person in
-                        LabeledContent(person.name) {
-                            Button("Forget") { controller.forget(person.name) }
-                        }
+                        RememberedPerson(controller: controller, person: person)
                     }
                 }
+            }
+        }
+    }
+}
+
+/// One remembered person: how many voiceprints they have, where each came from, and a way
+/// to remove one that was filed by a wrong name, or forget the person.
+private struct RememberedPerson: View {
+    @Bindable var controller: RecordingController
+    let person: VoiceLibrary.Person
+
+    var body: some View {
+        DisclosureGroup {
+            ForEach(Array(person.prints.indices), id: \.self) { index in
+                let origin = person.origin(ofPrint: index)
+                LabeledContent(Wording.printOrigin(origin, number: index + 1,
+                                                   title: controller.recordingTitle(folder: origin?.recording))) {
+                    Button("Remove") { controller.removePrint(at: index, from: person.name) }
+                        .help(Wording.removePrintHelp)
+                }
+            }
+        } label: {
+            LabeledContent {
+                Button("Forget") { controller.forget(person.name) }
+            } label: {
+                Text(person.name)
+                Text(Wording.person(person))
             }
         }
     }

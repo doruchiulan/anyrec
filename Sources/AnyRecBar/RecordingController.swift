@@ -36,7 +36,16 @@ final class RecordingController {
     }
 
     private(set) var phase = Phase.idle {
-        didSet { if phase != .idle { reminder?.withdraw() } }
+        didSet {
+            if phase != .idle { reminder?.withdraw() }
+            /// However the recording ended — Stop, the window closing, the stop time — or
+            /// a start that failed: an automatic recording is over, and so is its notice.
+            if phase == .finished || (oldValue == .starting && phase == .idle) {
+                autoRecording.recordingEnded()
+                automaticStop?.cancel()
+                reminder?.withdrawAnnouncement()
+            }
+        }
     }
     private(set) var readiness = Readiness(appleLanguages: [])
     private(set) var microphones: [AudioInputDevice] = []
@@ -78,6 +87,23 @@ final class RecordingController {
             if offerToRecord { offerCallReminder() } else { reminder?.withdraw() }
         }
     }
+    /// Settings › General: Slack and Teams calls recorded without asking, once their
+    /// window is found. Turned off while a window is being looked for, the call is offered
+    /// instead; a recording already running still stops at the call's end.
+    var recordsCallsAutomatically = Preferences.recordsCallsAutomatically {
+        didSet {
+            Preferences.recordsCallsAutomatically = recordsCallsAutomatically
+            if !recordsCallsAutomatically, autoRecording.disabled() != nil {
+                reminder?.withdraw()
+                offerCallReminder()
+            }
+        }
+    }
+    var automaticRecordingMode = Preferences.automaticRecordingMode {
+        didSet { Preferences.automaticRecordingMode = automaticRecordingMode }
+    }
+    @ObservationIgnored private var autoRecording = CallAutoRecording()
+    @ObservationIgnored private var automaticStop: Task<Void, Never>?
 
     /// Bumped by the ticker so the meters redraw; the levels themselves are read
     /// straight off the buffers on their way to disk.
@@ -165,6 +191,18 @@ final class RecordingController {
     var isSettingUp: Bool { setupTarget != nil }
     var acceptsProcessing: Bool { !quitting }
     var transcriptRequest: LibraryEntry?
+    /// Set by Recording › Show Speakers: the open recording's page scrolls its Speakers
+    /// panel into view and clears it.
+    var speakersRequest: URL?
+    /// Opens the library window. SwiftUI only hands out `openWindow` to views and commands,
+    /// and with the window not opened at launch none of its views exist yet, so the menu
+    /// bar's commands — built at launch — leave it here for the Dock icon's reopen.
+    @ObservationIgnored var openLibrary: (() -> Void)?
+    /// Opens Settings, left here by the same commands for the same reason: the menu bar
+    /// panel is an AppKit window outside any scene.
+    @ObservationIgnored var openSettings: (() -> Void)?
+    /// Closes the menu bar panel before macOS's picker comes up over the screen.
+    @ObservationIgnored var willPresentPicker: (() -> Void)?
 
     /// The panel picks a microphone through here rather than writing the configuration
     /// directly. Only a choice is worth remembering: the two places that *resolve* a
@@ -249,6 +287,20 @@ final class RecordingController {
         library.forget(name)
         try? library.save()
         reloadPeople()
+    }
+
+    /// One voiceprint the owner says is wrong, out of one person; the person stays.
+    func removePrint(at index: Int, from name: String) {
+        var library = VoiceLibrary.load()
+        library.removePrint(at: index, from: name)
+        try? library.save()
+        reloadPeople()
+    }
+
+    /// The title of the recording a voiceprint was named in, when it is still in the library.
+    func recordingTitle(folder: String?) -> String? {
+        guard let folder else { return nil }
+        return library.first { $0.directory.lastPathComponent == folder }?.info?.title
     }
 
     /// What each summary provider can do on this machine. Finding one is a search of
@@ -367,7 +419,9 @@ final class RecordingController {
     /// keeps the icon honest.
     private func watchForCalls() {
         reminder = CallReminder(onRecord: { [weak self] choice, video in self?.recordCallWindow(choice, video: video) },
-                                onChooseWindow: { [weak self] video in self?.pickAndStart(video: video) })
+                                onChooseWindow: { [weak self] video in self?.pickAndStart(video: video) },
+                                onFound: { [weak self] choice in self?.recordCallAutomatically(choice) },
+                                onStop: { [weak self] in Task { await self?.stop() } })
         calls.start { [weak self] event in
             Task { @MainActor in self?.callChanged(event) }
         }
@@ -377,15 +431,54 @@ final class RecordingController {
         switch event {
         case .started(let app):
             callApp = app
-            offerCallReminder()
+            switch autoRecording.callStarted(app, context: autoContext) {
+            case .watch(let app): reminder?.watch(app, notifies: offerToRecord)
+            case .offer: offerCallReminder()
+            case .resume: automaticStop?.cancel()
+            case .ignore: break
+            }
         case .ended:
             callApp = nil
             reminder?.withdraw()
+            if case .stopAt(let deadline) = autoRecording.callEnded(at: Date()) { stopAutomatically(at: deadline) }
         }
     }
 
+    private var autoContext: CallAutoRecording.Context {
+        CallAutoRecording.Context(
+            enabled: recordsCallsAutomatically, mode: automaticRecordingMode,
+            canStart: canStart && (automaticRecordingMode.video || audioOnlyRecordsAnything))
+    }
+
+    /// The watched call's window, found and checked: started the way the banner's buttons
+    /// start it, in the mode Settings chose, and said so in a notification with Stop.
+    private func recordCallAutomatically(_ choice: CaptureChoice) {
+        guard let app = callApp, let video = autoRecording.windowFound(context: autoContext) else { return }
+        configuration.capture = choice
+        Task {
+            await start(video: video)
+            if phase == .recording, autoRecording.recording == app { reminder?.announce(app, video: video) }
+        }
+    }
+
+    /// The call let go of the microphone. Its automatic recording stops once the grace has
+    /// passed without the call taking it back; a recording still coming up is waited for.
+    private func stopAutomatically(at deadline: Date) {
+        automaticStop?.cancel()
+        automaticStop = Task { [weak self] in
+            /// A quarter second past it, so the sleep's clock and the wall clock agree it passed.
+            try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow) + 0.25))
+            guard !Task.isCancelled, let self else { return }
+            while phase == .starting { try? await Task.sleep(for: .milliseconds(50)) }
+            guard !Task.isCancelled, autoRecording.deadlinePassed(at: Date()) else { return }
+            await stop()
+        }
+    }
+
+    /// Not while the call's window is being looked for to record it automatically: Done,
+    /// or the offer switch, would otherwise swap that search for the banner.
     private func offerCallReminder() {
-        guard canStart, offerToRecord, let callApp else { return }
+        guard canStart, offerToRecord, let callApp, autoRecording.watching == nil else { return }
         reminder?.offer(callApp)
     }
 
@@ -547,6 +640,7 @@ final class RecordingController {
     /// are read as usual. Only the picture is not kept.
     func pickAndStart(video: Bool = true) {
         guard canStart, video || audioOnlyRecordsAnything else { return }
+        willPresentPicker?()
         picker.present { [weak self] choice in
             guard let self, let choice else { return }
             configuration.capture = choice

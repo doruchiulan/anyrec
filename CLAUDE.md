@@ -25,7 +25,7 @@ rather bring a key than a model — with OpenAI's API.
 - Swift 6 (language mode 5), SwiftPM
 - ScreenCaptureKit — capture; AVFoundation — encoding
 - swift-argument-parser — CLI
-- SwiftUI `MenuBarExtra` — the menu bar app
+- AppKit `NSStatusItem` with a SwiftUI panel — the menu bar helper
 - swift-testing — tests
 - ffmpeg (runtime) — merges the tracks into one file named after the call, which
   replaces `screen.mov` once verified, and makes the mix the engines
@@ -99,9 +99,10 @@ second one for "UI-common" code.
 | `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
 | `MuteButton.swift` | The call app's own mute control, found in its accessibility tree and re-read four times a second. What Teams's mute is read from. |
-| `CallWatch.swift` | A call starting, read as a known call app taking the microphone. What the menu bar's offer to record comes from. |
-| `AnyRecBar/CallReminder.swift` | A persistent Record/Audio Only/Dismiss banner above the focused Slack or Teams call window, with native notifications as fallback. |
-| `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record and Record Audio Only open the capture picker. |
+| `CallWatch.swift` | A call starting, read as a known call app taking the microphone. What the menu bar's offer to record, and automatic recording, come from. |
+| `AnyRecBar/CallReminder.swift` | A persistent Record/Audio Only/Dismiss banner above the focused Slack or Teams call window, with native notifications as fallback; `watch` is the same window search for automatic recording, handing the window over instead of showing the banner. |
+| `AnyRecBar/CallAutoRecording.swift` | Whether a call is recorded without asking (Slack or Teams, switched on, window found, nothing recording) and when that recording stops (the call over for `endGrace`). Pure state; `AutomaticRecordingMode` is Window or Audio only. |
+| `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record and Record Audio Only open the capture picker. Also the automatic recording's started notification, whose Stop Recording stops it. |
 | `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read; the last few decoded are remembered by path, size and modification time. |
 | `Transcription/DiarizationCache.swift` | Diarization segments and prints kept as `diarization.json`, keyed by a SHA-256 of the exact mix the diarizer heard. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
@@ -131,22 +132,26 @@ second one for "UI-common" code.
 | `Transcription/AssetDownload.swift` | Downloading a model, with progress and a checksum. |
 | `Transcription/OpenAIKey.swift` | Where the user's key is read from and written to. |
 | `Transcription/VoiceSeparation.swift` | The far end told apart on-device, whatever engine wrote the words: FluidAudio's segments and per-voice prints, lettered and laid over the lines. |
-| `Transcription/VoiceLibrary.swift` | The people anyrec has been told the names of: one record each with aliases, voiceprints and the owner flag, and the cosine match against them. |
-| `Transcription/SpeakerNames.swift` | Speaker letters and `VoiceNaming`, which names voices in the speakers layer from any interface and files prints and aliases in the library. |
+| `Transcription/VoiceLibrary.swift` | The people anyrec has been told the names of: one record each with aliases, voiceprints (each with its `PrintOrigin`, where known), the owner flag and the last display name a call window showed, and the cosine match against them; `retract` and `removePrint` take a print back out. |
+| `Transcription/SpeakerNames.swift` | Speaker letters and `VoiceNaming`, which names voices in the speakers layer from any interface, records that the owner named them (`namedByOwner`) and what it filed (`Voice.filed`), files prints and aliases in the library, and takes back an earlier naming's (`takeBack`). |
+| `Transcription/PersonCompletion.swift` | `PersonSuggestion` and the match of typed text against the library's people; `RecordingSpeakers.completions(for:typing:)` and `person(for:typed:)`, which the Speakers panel's name field and the terminal prompt complete from. |
+| `Transcription/RecordingSpeakers.swift` | Every speaker in the current transcript, as the Speakers panel and the terminal show them: how each was named (`SpeakerBasis`), talk time, up to three `SpeakerClip`s, ordered `SpeakerCandidate`s with reasons, whether it is probably you (`YourVoiceEvidence`, `OwnerToRemember`), pending line corrections, Call lines nobody claims. `SpeakerEditing` names a whole voice, gives lines to another speaker, or gives a whole voice to Me, Call or another speaker (`give`, `giveToMe`), taking back what naming it filed and filing a voice given to Me under the owner; only the ticked remember-me writes the library's owner. |
 | `Transcription/SpeakerSetup.swift` | Whether the speaker models are here, and the one place FluidAudio is let on the network to fetch them. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
-| `anyrec/SpeakersCommand.swift`, `anyrec/SpeakerPrompt.swift` | `anyrec speakers`, and the plain-terminal questions that put names to letters after any transcript. |
+| `anyrec/SpeakersCommand.swift`, `anyrec/SpeakerPrompt.swift` | `anyrec speakers` (with `--people` and `--remove-print` for the library's prints), and the plain-terminal questions that put names to letters after any transcript: clips, numbered candidates from `RecordingSpeakers`, or a typed name. |
+| `AnyRecBar/StatusItem.swift` | The menu bar helper: the status item, its button drawn from the controller through Observation, and the panel hung under it with `MenuPanel` (`Anchor` is where it goes). |
 | `AnyRecBar/RecordingController.swift` | The menu bar's whole state: settings, the live session, and what the last one left behind. |
 | `AnyRecBar/RecordingJobs.swift` | Serial background processing, keyed by recording directory, independent of capture and the saved panel. Within one job the mix is decided first, then the merge and the transcript run side by side. |
 | `Session/CapturedRecording.swift` | Finalized tracks and microphone timing, ready for merging after capture has been released. |
 | `AnyRecBar/SystemPicker.swift` | macOS's on-screen content picker, and the configuration that holds it to windows and displays. |
 | `AnyRecBar/Wording.swift` | The Kit's facts in the panel's words. The tested part of the app. |
 | `AnyRecBar/Preferences.swift` | The few settings that survive a relaunch, mapped onto `UserDefaults`. The Kit has no opinion about persistence. |
-| `AnyRecBar/Commands.swift` | The menu bar's File, View, Playback and Recording commands. The open player reaches them as a focused value. |
-| `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (the merged file, or the masters with a track silenced — the picture from `screen.mov` or, once that is gone, the merged file's video stream), and the ⌘⇧R shortcut. |
-| `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video (or, audio only, the app's icon and title above the waveform), summary and voice naming, with its transcript, tracks and files in the inspector. Reads files the Kit left; writes only voice names (via `VoiceNaming`) and ticks on action items. Summaries are written by the Kit's `SummaryPass`, started by the pass or by `RecordingController`, which outlives the window. |
-| `AnyRecBar/Views/ObservedParticipants.swift` | The recording's roster from the call window, with how long it was readable and the voice facts. |
+| `AnyRecBar/Commands.swift` | The menu bar's File, View, Playback and Recording commands (Recording › Show Speakers scrolls the open recording to its Speakers panel). The open player reaches them as a focused value. |
+| `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (the merged file, or the masters with a track silenced — the picture from `screen.mov` or, once that is gone, the merged file's video stream), which also plays a speaker clip's span and stops (`play(_:)`, `playingClip`), and the ⌘⇧R shortcut. |
+| `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video (or, audio only, the app's icon and title above the waveform), summary and Speakers panel, with its transcript, tracks and files in the inspector; a transcript line's speaker label opens the same chooser as the panel. Reads files the Kit left; writes only who spoke (voice names and line speakers, via `SpeakerEditing`) and ticks on action items. Summaries are written by the Kit's `SummaryPass`, started by the pass or by `RecordingController`, which outlives the window. |
+| `AnyRecBar/Views/SpeakersPanel.swift` | The recording page's Speakers panel (`SpeakerDesk` loads `RecordingSpeakers` off the main thread and makes the changes), the candidate chooser, `GiveToChoices` (Me, Call and the other speakers, for a row and for the popover), clip buttons, and `LineSpeakerChooser`, what a transcript label's popover shows. |
+| `AnyRecBar/Views/ObservedParticipants.swift` | The recording's roster from the call window, with how long it was readable and the voice facts: the Speakers panel's last section, or a box of its own before there is a transcript. |
 | `AnyRecBar/Views/AggregatorSettings.swift` | `ComparisonSettings`: "Review with a second engine" and which engines it runs. |
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
@@ -263,11 +268,28 @@ Invariants worth preserving:
   `.terminateLater` while a recording is running and replies only once the
   writers have finalised. Terminating outright is the same `ftyp`+`mdat` with no
   `moov`, reached by ⌘Q instead of Ctrl-C.
-- `RecordingController` is owned by the app delegate, never by a view. A
-  `.window`-style `MenuBarExtra` tears its content down the moment you click away,
-  and a recording has to outlive that.
-- The menu bar extra shows a panel, not a menu, which the HIG allows only for
-  functionality a menu cannot carry — live meters are that.
+- `RecordingController` is owned by the app delegate, never by a view, and so is
+  `StatusItem`. The panel's `MenuPanel` is made afresh each time it opens and torn down
+  when it closes, and a recording has to outlive that.
+- The menu bar helper shows a panel, not a menu, which the HIG allows only for
+  functionality a menu cannot carry — live meters are that. It is an AppKit
+  `NSStatusItem` and a borderless non-activating `NSPanel` hosting `MenuPanel`, not
+  SwiftUI's `MenuBarExtra`: a `MenuBarExtra` cannot be opened from code (its button has
+  no action or target, and synthetic clicks either did nothing or hung the main thread
+  in its tracking loop), so a launch by hand had nothing to show. The panel hangs from
+  the bottom of the menu bar under the icon, its leading edge at the icon's and kept on
+  the screen; on another display it opens under the pointer in that display's menu bar,
+  because the system draws a copy of the item there while the button's own window is on
+  one screen. The icon's window starts somewhere arbitrary and is moved into the menu bar
+  after launch, so nothing hangs from it until it reaches the top of its screen and holds
+  still. The panel grows downwards with its content (`NSHostingController`'s preferred
+  size, applied a turn of the run loop later), closes when it loses key status, on a
+  click in another app (a global monitor), on Escape and on a Space change, and never
+  activates the app: the app in front keeps its menu bar. Pressing Record closes it
+  before macOS's picker comes up (`willPresentPicker`). Nothing in the panel may use
+  SwiftUI's scene environment: it is outside every scene, where `openWindow` and
+  `openSettings` do nothing, so it goes through the `openLibrary` and `openSettings`
+  closures `AnyRecCommands` leaves on `RecordingController`.
 - The menu bar picks with `SCContentSharingPicker`, not a list of titles. Two
   windows called "Meet — Meeting" are one word apart in a menu and a screen apart
   in front of you. `PickedContent` reads the selection back to a `CaptureTarget`
@@ -313,9 +335,22 @@ Invariants worth preserving:
 - A window opened from the menu bar helper is reached after `NSApplication.activate`:
   the helper is clicked while another app is in front, and the window would open behind
   it otherwise.
-- The app is a regular app (Dock icon, library window at launch), not an `LSUIElement`
-  agent, and closing the last window must not quit it: `applicationShouldTerminateAfterLastWindowClosed`
-  is false, because a recording and the menu bar helper outlive the window.
+- The app is a regular app (Dock icon), not an `LSUIElement` agent, and closing the last
+  window must not quit it: `applicationShouldTerminateAfterLastWindowClosed` is false,
+  because a recording and the menu bar helper outlive the window. The library window is
+  not opened at launch (`.defaultLaunchBehavior(.suppressed)`, and `.restorationBehavior(.disabled)`,
+  or macOS reopens it when it was open at quit): people work from the menu bar, and a
+  window at every launch was one more thing to close. A launch by hand, once setup is
+  complete, drops the menu bar panel open instead, so starting the app is not invisible;
+  with the menu bar item switched off (or nowhere on screen) it opens the library. A
+  launch at login opens nothing — told apart by the launch event's `keyAEPropData` being
+  `keyAELaunchedAsLogInItem`. Before setup the welcome window is the whole launch. The
+  library opens from the Dock icon, the helper's Open AnyRec and the Window menu. A
+  `Window` scene suppressed at launch is not reopened by a Dock click on its own, so
+  `applicationShouldHandleReopen` opens it when nothing but the panel is on screen
+  (closing the panel), through the `openWindow` the menu bar's commands leave on
+  `RecordingController` (`openLibrary`) — commands are built at launch, the window's
+  views are not.
 - The library window does no work in a view's `init` or in a body that redraws often.
   `RecordingDetail` makes its `Playback` in `.task(id:)`: made in `init`, it was a new
   `AVPlayer`, a new time observer and a fresh decode of the call's audio on every redraw
@@ -381,10 +416,11 @@ Invariants worth preserving:
   constants and last widths are remembered in `Preferences`, so the first layout of a
   launch is right rather than walking into place over a second, and a first calibration
   is taken from the first look — only a correction to an existing one waits for two.
-- The menu bar extra can be switched off (Settings › General), because whether an
-  extra is in the menu bar is the person's call, and the system hides extras when the
-  menu bar is full. The Dock menu carries New Recording and Stop Recording for that
-  reason.
+- The menu bar item can be switched off (Settings › General), because whether an
+  item is in the menu bar is the person's call, and the system hides items when the
+  menu bar is full. The switch sets the status item's `isVisible` live, and ⌘-dragging
+  the item out of the menu bar (`.removalAllowed`) turns the switch off. The Dock menu
+  carries New Recording and Stop Recording for that reason.
 - Persistence belongs to `AnyRecBar`, not to the Kit. A recording is configured from
   nothing every time; an app that sits in a menu bar for days is what needs to
   remember. `Preferences` maps a handful of fields onto `UserDefaults`, and the
@@ -399,7 +435,9 @@ Invariants worth preserving:
   the second.
 - The meters poll at 10 Hz; the menu bar clock is held as text and only assigned
   when the second changes, so the status item redraws once a second rather than
-  ten times. Don't drive the label off the tick directly.
+  ten times. `StatusItem` reads the controller's `clock`, never `tick`, inside
+  `withObservationTracking` (re-armed after each change) and sets the button's image and
+  title only when they differ from what it shows. Don't drive the label off the tick.
 - macOS grants TCC to the *bundle*, so the menu bar app is `AnyRec.app` with a
   stable `CFBundleIdentifier` and its own grants — which is what
   `PermissionHost.application` words. TCC keys off the signature too, which is why
@@ -505,10 +543,11 @@ Invariants worth preserving:
   nobody saw is not a call that was muted. The window's own app is watched along
   with the known ones, and a watched id covers the helpers under it, because a
   browser's audio runs in `com.google.Chrome.helper`.
-- A call is detected the way mute is, and offered rather than acted on. `CallWatch`
-  reads Core Audio's process list every two seconds; a known call app running
-  microphone input is a call beginning (Teams holds it from the join, muted or not),
-  and its release is the call ending. Slack and Teams get a persistent banner above
+- A call is detected the way mute is, and offered rather than acted on — unless the
+  owner switched on automatic recording, which only Slack and Teams with a found window
+  get. `CallWatch` reads Core Audio's process list every two seconds; a known call app
+  running microphone input is a call beginning (Teams holds it from the join, muted or
+  not), and its release is the call ending. Slack and Teams get a persistent banner above
   the focused call window, found through its mute control. It follows the window
   and hides when another window is focused. If there is no room above, it sits just
   inside the top edge. Other apps or an unidentified call window use a notification.
@@ -521,6 +560,24 @@ Invariants worth preserving:
   the button is pressed. One offer per call, withdrawn when it ends, only while
   idle, off in Settings › General. Notifications are asked for the first time
   there is one to show, so the dialog arrives with its reason in view.
+  "Record Slack and Teams calls automatically" (Settings › General, off by default,
+  with Window or Audio only beside it, both in `Preferences`) skips the banner: while
+  idle with setup complete, a Slack or Teams call's window is looked for by the banner's
+  own search (`CallReminder.watch`) for as long as the call lasts, and the moment it is
+  found and captured-checked it starts through `RecordingController.start(video:)`, with
+  a notification that says so and carries Stop Recording. The notification offer still
+  appears after three seconds without a window (when offers are on) and is withdrawn if
+  the window turns up. Other apps keep the offer because there is no window to be sure
+  of: an app's display recorded unasked, or a guessed window, is not something to start
+  on a microphone grab. Only a recording started this way is stopped by the call ending,
+  and only after the microphone has stayed released for `CallAutoRecording.endGrace`
+  (10 s): a headset reconnecting or the app restarting its audio drops the microphone for
+  a moment, and a call cut in two is worse than ten seconds of silence at its end. The
+  call taking the microphone back within that cancels the stop. A window closing ends it
+  as `noCaptureSource` like any recording. A manual recording, or one already running or
+  saving, is never started over or stopped. The decisions are `CallAutoRecording`, pure
+  state the controller feeds, and are tested without a call. Turning the switch on
+  mid-call applies from the next call; off while looking hands the call to the offer.
 - `sources` lists microphones even when Screen Recording is denied. Enumerating
   input devices needs no grant, so it must not be gated behind one.
 - Transcription is a separate, optional pass over files that are already closed.
@@ -558,30 +615,123 @@ Invariants worth preserving:
   Short, overlapping or inconsistent samples remain unnamed. Missing models or
   extraction failures retain nameable labels with no reusable print.
 - A voice named once is found on the next call. The diarizer's centroid per voice
-  is its print, the speakers layer keeps each letter's print and longest line beside the
+  is its print, the speakers layer keeps each letter's print beside the
   tracks, and naming a letter — `anyrec speakers`, the prompt after a transcript,
-  the outcome panel — files the print under the name in
+  the Speakers panel — files the print under the name in
   `~/Library/Application Support/anyrec/voices/`. The next recording matches every
   voice against the library by cosine similarity and names what it recognises.
   Nothing caps the library: OpenAI's known-speaker references stop at four, which
   is why they are not used — a meeting here can be twenty people. The 0.5 match
   threshold is provisional, set from FluidAudio's own table, and only ever moves
   up until it has been measured on real calls: the wrong name is the worse mistake.
-- A person is one library record: saved name, aliases, prints, owner flag. A call
-  window's display name that corroborates a voiceprint match is agreement, filed as an
-  alias (names only — call evidence never enrols a print); it is a conflict only when
-  the display name belongs to someone else or two compete. Old library files and
-  `.anyrecvoices` read without aliases or owner; exports never carry the owner flag.
+- A print is filed only by the owner: naming a whole voice, or giving one to Me. And
+  what a naming filed can be taken back, because a wrong pick otherwise goes on matching
+  that voice to that person on every later call — the owner once picked a "sounds like"
+  name for their own voice, and the other person's record then held the owner's print.
+  The voice records what its naming filed (`Voice.filed`: saved name, whether the record
+  was made by it, the alias it added). Renaming an owner-named voice, or giving all its
+  lines to Me, Call or another speaker (`SpeakerEditing.give`), first removes that exact
+  print and that alias (`VoiceNaming.takeBack`); prints from other recordings are never
+  touched; a voice named before `filed` existed is looked up by name and only its exact
+  print removed. A record left empty is removed only when that naming made it; a person
+  who existed before is kept, empty or not. Given to Me, the print joins the library
+  owner's record, and with no owner it is filed nowhere. A print a person already has is
+  not filed twice. Each print filed carries a `PrintOrigin` (recording folder, when;
+  nil folder for an import), older files read without it ("earlier") and exports leave
+  it out; People in Settings, a People row's context menu and `anyrec speakers --people`
+  / `--remove-print` list a person's prints and remove one.
+- Speakers are checked and changed in one place: the recording page's Speakers panel,
+  and the same chooser behind every speaker label in the transcript. It lists every
+  speaker with lines, Me included, those needing a look first (unnamed, conflicting,
+  possibly two people, with pending line corrections, or probably you), each with how it was named,
+  its talk time, up to three clips, candidate names and the review's corrections of its
+  lines; then the Call lines no voice claims and the call window's roster. Every row
+  but Me, once expanded, also offers "Or give every line of … to" Me, Call and every
+  other speaker — `GiveToChoices`, the same component as the label popover's "Or give it
+  to" — through `SpeakerEditing.give`; Me is left out of it where the names above
+  already offer Me, so a probably-you row keeps its one Me button and remember tick. It
+  replaced the naming card, the corrections card and the roster card. Nothing in it
+  sends anything anywhere or calls a model.
+- A clip is a line of that speaker at least 2 s long that no other speaker's line
+  overlaps and that has no pending correction, at most 8 s, centred in the line; up to
+  three, one from each third of the call where one qualifies. Playing one plays exactly
+  its span and stops (a boundary observer, removed by any seek, toggle or other clip),
+  and its line lights up through `currentLine`. A voice's longest line is no longer its
+  sample: it played on into the next speaker and was the line most likely to hold two.
+- Candidate names come from `RecordingSpeakers`, the same list for the app and the
+  terminal, best first: the call window's names for the voice (with "only one left" —
+  the one roster name not yet given to a voice or the owner — ahead of them when the
+  call window named nobody for this voice, and right after when it did), the library
+  match (shown name) and the review's resolution, names the voice introduced itself
+  by, the rest of the roster, the Slack title's first segment (Slack only), and up to
+  two saved voices with similarity in [0.3, 0.5) worded as a question — only people in
+  the roster when the call window was readable for at least half the recording, since
+  anyone else was not in the call. A name another
+  speaker carries (by any of a person's names), the owner's names and the speaker's
+  own name are never offered, and one person is offered once.
+- A speaker is probably you (`YourVoiceEvidence`, read at display time so it holds for
+  transcripts from before the owner merge) when its name or saved person is the library
+  owner, its saved person answers to the owner's name in the call window (their tile, or
+  whoever it showed during Me lines), or the window showed the owner for most of its
+  indicated time. Its first candidate is Me (`.yourVoice`), which gives every line to Me
+  (`SpeakerEditing.giveToMe`); it counts as one to check and is offered no sounds-like
+  names. On call-window evidence, with no library owner yet and a name the owner did
+  not type, a "Remember <name> is me" tick beside Me (on by default) also sets that
+  person as owner and files the window's name as their alias. The owner flag is never
+  set without that tick; the terminal never sets it. A real Slack 1:1 showed the owner's
+  own voice as a third speaker offered two strangers from other calls and no Me. Picking a whole-voice
+  name goes through `VoiceNaming` and marks it `namedByOwner` ("named by you"); the
+  call window's name is learned as an alias only for a typed name or the call window's
+  own. Giving one line to Me, Call or another speaker changes the speakers layer only;
+  giving every line of a voice also takes back what naming it filed (and files it under
+  the owner when given to Me); either way the summary then says it is stale. Naming keeps the
+  voice's identity evidence (conflict cleared) so its candidates survive for "Change…".
+- A typed name completes from everyone already named (`RecordingSpeakers.completions`,
+  matching in `PersonCompletion`), the same list for the "Someone else…" field — the
+  panel's and the transcript label's, a native `textInputSuggestions` list — and the
+  terminal prompt. Every name a person answers to is matched (shown, saved, aliases,
+  display name) ignoring case, diacritics ("ș", "ş" and "s" alike) and spacing: a
+  whole name first, then the start of any word, then anywhere, each tier nearest voice
+  first. The owner, people another speaker carries and the speaker's own person are left
+  out unless the text is exactly one of their names; with nothing typed, the saved voices
+  nearest this one, with no threshold. A name that is exactly one person's
+  (`person(for:typed:)`) — what a picked completion fills in — is filed under that
+  person's saved name through `SpeakerEditing.name(…, person:)` and `VoiceNaming`'s
+  `people`, never as a new record, even when two people are shown under one name; the
+  terminal lists matches as numbered choices first and uses a unique exact match
+  directly. A name nobody answers to is a new person. The call window's alias is filed
+  under the saved name the print went to. Nothing in it calls a model.
+- A person is one library record: saved name, aliases, prints, owner flag, and the
+  display name a call window showed most recently. A call window's display name that
+  corroborates a voiceprint match is agreement, filed as an alias and as that display
+  name (names only — call evidence never enrols a print); it is a conflict only when
+  the display name belongs to someone else or two compete. The saved name stays the key
+  the library is filed and matched under, but transcripts call a person what the call
+  window showed in this recording, else the display name learned on an earlier call,
+  else the saved name — so a nickname typed once ("Andi") reads as the call's name
+  ("Andrei Lungu") from then on, even in calls whose window was unreadable. A name
+  typed for a voice in a recording beats all three. Names are settled when a
+  transcript is written; older transcripts keep theirs. Old library files and
+  `.anyrecvoices` read without aliases, owner or display name; exports carry the
+  display name but never the owner flag, and an import never replaces a display name
+  already learned.
   Call evidence is scored by consistency where it exists, not by coverage: the Slack
   windows in real calls were readable for 13 s and 106 s, and a coverage rule threw
   away evidence that pointed at exactly one person per voice. Polls marking several
   people agree with a name but never supply one.
 - The owner is never two speakers. A diarized voice that is the microphone's speaker
   (mostly inside measured "Me" lines, the library owner's print, or the owner's display
-  name in the call window) gives its lines back: to "Me" only where the microphone was
-  live and carrying speech and the window shows nobody else, otherwise to the person
-  shown or to the call. A real 1:1 had 16 lines as "Me" and 11 under the owner's own
-  nickname.
+  name in the call window) gives its lines back: to the person the window showed when
+  it showed only someone else; to "Me" when the microphone was live (`microphone-live.json`,
+  four fifths of the line) and either carried speech or the window showed the owner
+  speaking; otherwise to the call. The window's clause is for speakerphone: a bleeding
+  microphone is held under the call, so the duck holds it down exactly where the owner
+  talks over or straight after the far end, and "carrying speech" (judged on what the
+  mix heard) failed on every line the diarizer heard as the owner — a Slack 1:1 sent all
+  five to Call; now four go to "Me". Never "Me" while the window showed someone else or
+  the call could not hear the microphone. A real 1:1 had 16 lines as "Me" and 11 under
+  the owner's own nickname. A display name the window showed for the owner is never
+  filed as the alias of a non-owner whose print a voice matched.
 - A transcript is layers, each a file recording what it was built from: sources
   (`transcript-<engine>-<UUID>.json`, one per engine run, never rewritten), speakers
   (`speakers-<UUID>.json`: per-line speakers when they differ from the source, voices,
@@ -652,7 +802,7 @@ Invariants worth preserving:
   Screen Recording granted during a run takes effect for a newly
   launched process, so the window says so and offers a relaunch. Welcome is a
   separate window so it cannot block quitting. Finishing setup opens
-  the library; later launches open the library directly.
+  the library; later launches open no window.
 - Voices travel as one file, `.anyrecvoices`: the library's people and prints as JSON,
   no audio. Importing adds the people a library does not have and the prints it does
   not have under names it does, so a team names each person once. File › Import and

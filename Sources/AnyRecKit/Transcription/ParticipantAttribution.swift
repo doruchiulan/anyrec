@@ -43,7 +43,8 @@ enum ParticipantAttribution {
     struct Result {
         var voices: RecordingVoices?
         var lines: [Utterance]
-        /// Display names a call window showed for a known person, to file as aliases.
+        /// Display names a call window showed for a known person: filed as aliases when new,
+        /// and remembered as the name later transcripts use (`VoiceLibrary.noteCallName`).
         var aliases: [(display: String, person: String)] = []
     }
 
@@ -84,6 +85,9 @@ enum ParticipantAttribution {
                 if let matched {
                     if matched.answers(to: display) {
                         name = matched.name
+                        if VoiceLibrary.normalized(display) != VoiceLibrary.normalized(matched.name) {
+                            aliases.append((display, matched.name))
+                        }
                     } else if let owner, owner.name != matched.name {
                         conflict = true
                         name = nil
@@ -93,6 +97,9 @@ enum ParticipantAttribution {
                     }
                 } else {
                     name = owner?.name ?? display
+                    if let owner, VoiceLibrary.normalized(display) != VoiceLibrary.normalized(owner.name) {
+                        aliases.append((display, owner.name))
+                    }
                 }
             } else if score.candidates.count > 1 {
                 conflict = matched.map { person in !score.candidates.contains(where: person.answers) } ?? true
@@ -108,6 +115,14 @@ enum ParticipantAttribution {
         }
         rejectDuplicateNames(&result)
 
+        /// A display name the call window showed for the person recording is theirs, not the
+        /// alias of whoever a voiceprint matched: unflagged, the owner can look like anyone.
+        let ownDisplayNames = ownerNames(evidence, library: library, lines: lines)
+        aliases.removeAll { alias in
+            ownDisplayNames.contains(VoiceLibrary.normalized(alias.0))
+                && library.people.first(where: { $0.name == alias.1 })?.isOwner != true
+        }
+
         var lines = lines
         if let microphone {
             let owners = ownerLetters(result, lines: lines, evidence: evidence, library: library, scores: scores)
@@ -122,7 +137,29 @@ enum ParticipantAttribution {
         /// Engine labels (OpenAI's) are kept as the engine gave them; only a voice given
         /// back to the owner leaves a gap worth closing.
         if result.ownerMerge != nil { renumber(&lines, &result) }
+        showDisplayNames(&result, library: library)
         return Result(voices: result, lines: lines, aliases: aliases)
+    }
+
+    /// The names a transcript shows, settled last so every check above still compares
+    /// saved names. A person the call window showed in this recording is called what it
+    /// showed; one it did not show takes the display name learned on an earlier call;
+    /// otherwise the saved name stays. A name somebody types later beats all of these.
+    static func showDisplayNames(_ voices: inout RecordingVoices, library: VoiceLibrary) {
+        for index in voices.voices.indices {
+            let voice = voices.voices[index]
+            guard let name = voice.name, voice.identityEvidence?.conflict != true,
+                  let person = library.people.first(where: { $0.name == name }) else { continue }
+            /// Not a conflict, so the call name is this person: one of their aliases, or a new
+            /// one being filed now, but never a name that belongs to somebody else.
+            if let shown = voice.identityEvidence?.callName,
+               !library.people.contains(where: { $0.name != name && $0.answers(to: shown) }),
+               VoiceLibrary.normalized(shown) != VoiceLibrary.normalized(name) {
+                voices.voices[index].name = shown
+            } else if let learned = person.displayName {
+                voices.voices[index].name = learned
+            }
+        }
     }
 
     // MARK: - Scoring
@@ -224,12 +261,32 @@ enum ParticipantAttribution {
     /// library's owner, and whoever the indicators showed while the microphone measured
     /// speech — which is exact, because "Me" is measured, not guessed.
     static func ownerNames(_ evidence: CallParticipants?, library: VoiceLibrary, lines: [Utterance]) -> Set<String> {
-        var names = evidence?.selfNames ?? []
+        var names = callOwnerNames(evidence, lines: lines)
         if let owner = library.owner { names.formUnion([owner.name] + owner.aliases) }
+        return Set(names.map(VoiceLibrary.normalized))
+    }
+
+    /// The owner's display names from the call window alone, as it spelled them: their own
+    /// tile, and whoever it showed speaking during Me lines.
+    static func callOwnerNames(_ evidence: CallParticipants?, lines: [Utterance]) -> Set<String> {
+        var names = evidence?.selfNames ?? []
         if let evidence, let mine = score(lines.filter { $0.speaker == .me }, among: lines, spans: evidence.spans).best {
             names.insert(mine)
         }
-        return Set(names.map(VoiceLibrary.normalized))
+        return names
+    }
+
+    /// Whether the call window showed the person recording over a stretch: one of `owners`
+    /// marked alone speaking for at least half a second, and for at least twice as long as
+    /// anyone else, or several people together, were.
+    static func showsOwner(from start: TimeInterval, to end: TimeInterval, spans: [CallParticipants.Span], owners: Set<String>) -> Bool {
+        var mine = 0.0, others = 0.0
+        for span in spans {
+            let overlap = min(end, span.end) - max(start, span.start)
+            guard overlap > 0 else { continue }
+            if span.names.count == 1, owners.contains(VoiceLibrary.normalized(span.names[0])) { mine += overlap } else { others += overlap }
+        }
+        return mine >= 0.5 && mine >= 2 * others
     }
 
     static func ownerLetters(
@@ -257,10 +314,15 @@ enum ParticipantAttribution {
         return owners
     }
 
-    /// The owner's voice lines go back to "Me" only where the microphone was live and
-    /// carrying speech, and never where the call window showed someone else: putting the
-    /// far end's words in the owner's mouth is the worse mistake, so every other line
-    /// goes to the person shown or to the call.
+    /// A line of the owner's voice goes to the person the call window showed when it showed
+    /// only someone else, and never to "Me" while the call could not hear the microphone:
+    /// putting the far end's words in the owner's mouth is the worse mistake. Otherwise it
+    /// goes back to "Me" when the microphone carried speech or the call window showed the
+    /// owner speaking. The second is for speakerphone: a bleeding microphone is held under
+    /// the call, so where the owner talks over or straight after the far end the mix — what
+    /// "carrying speech" is judged on — holds it down, and those lines failed the first
+    /// test although the diarizer heard the owner's voice in them. Everything else goes to
+    /// the call.
     static func mergeOwner(
         _ owners: Owners, into lines: inout [Utterance], voices: RecordingVoices, spans: [CallParticipants.Span],
         microphone: SpeakerAttribution.Microphone
@@ -274,7 +336,9 @@ enum ParticipantAttribution {
                !owners.names.contains(VoiceLibrary.normalized(shown)) {
                 lines[index].speaker = letters[VoiceLibrary.normalized(shown)].map { .voice($0) } ?? .others
                 toOthers += 1
-            } else if microphone.speaks(from: line.start, to: line.end) {
+            } else if microphone.isLive(from: line.start, to: line.end),
+                      microphone.speaks(from: line.start, to: line.end)
+                        || showsOwner(from: line.start, to: line.end, spans: spans, owners: owners.names) {
                 lines[index].speaker = .me
                 toMe += 1
             } else {

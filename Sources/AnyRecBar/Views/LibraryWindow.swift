@@ -183,6 +183,17 @@ private struct PeopleList: View {
                 } else {
                     Button("This Is Me") { controller.setOwner(person.name) }
                 }
+                if !person.prints.isEmpty {
+                    Menu("Remove Voiceprint") {
+                        ForEach(Array(person.prints.indices), id: \.self) { index in
+                            let origin = person.origin(ofPrint: index)
+                            Button(Wording.printOrigin(origin, number: index + 1,
+                                                       title: controller.recordingTitle(folder: origin?.recording))) {
+                                controller.removePrint(at: index, from: person.name)
+                            }
+                        }
+                    }
+                }
                 Divider()
                 Button("Forget \(person.name)") { controller.forget(person.name) }
             }

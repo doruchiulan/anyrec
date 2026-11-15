@@ -149,6 +149,14 @@ that start that window directly; the notification shown for other call apps has
 Record and Record Audio Only, which open the window picker. Record Window in the
 menu bar still opens the window picker.
 
+Settings › General › Record Slack and Teams calls automatically (off by default)
+skips the reminder: when a Slack or Teams call starts and its call window is found,
+AnyRec starts recording that window, as video or audio only as chosen there, posts a
+notification with Stop Recording, and stops 10 seconds after the call app lets go of
+the microphone. Calls in other apps, and calls whose window can't be found, still
+get the offer. A recording you started yourself is never stopped by it. AnyRec does
+not tell the other people in the call that they are being recorded.
+
 The first launch opens a two-step welcome window: grant Screen Recording,
 Microphone, Accessibility and Notifications, then download an on-device
 transcription engine if you want one. All four permissions must be granted,
@@ -315,11 +323,18 @@ anyrec speakers                    # asks about each lettered voice in the newes
 anyrec speakers --name A=John --name B=Sarah
 ```
 
-The transcript is rewritten with the names in, and each named voice is kept as a
-voiceprint in `~/Library/Application Support/anyrec/voices/`. The next call that
-voice is on comes back already named. There is no limit on how many people the
-library holds, and nothing in it ever leaves the machine. The interactive screen
-and the menu bar app ask the same question right after a transcript.
+Each lettered voice is shown with a few short clips of it and numbered names worth
+choosing: who the call window showed while it spoke, a saved voice that matches or
+sounds close, a name it introduced itself by, and who else was in the call. Answer
+with a number or type a name. The transcript is rewritten with the names in, and
+each named voice is kept as a voiceprint in
+`~/Library/Application Support/anyrec/voices/`. The next call that voice is on comes
+back already named. There is no limit on how many people the library holds, and
+nothing in it ever leaves the machine. The interactive screen asks the same question
+right after a transcript. In the app, a recording's Speakers panel lists every
+speaker with how it was named, clips that play only that speaker, the same names to
+choose from, and the lines the review thinks are someone else's; clicking a speaker's
+name on any transcript line changes that line or the whole voice.
 
 ```markdown
 # rec-2026-07-25-131411

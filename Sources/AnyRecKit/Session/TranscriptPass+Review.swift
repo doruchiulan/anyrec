@@ -23,6 +23,7 @@ extension TranscriptPass {
     static func publish(
         _ candidates: TranscriptionCandidates, in directory: URL, options: TranscriptionOptions,
         summary: SummaryRequest? = nil,
+        library: () -> VoiceLibrary = { VoiceLibrary.load() },
         progress: @escaping @Sendable (String) -> Void,
         complete: @escaping TranscriptReviewer.Completion
     ) async throws -> TranscriptOutcome {
@@ -57,6 +58,12 @@ extension TranscriptPass {
                     voices = try await SpeakerIdentityReview.resolve(
                         voices, transcript: reviewed?.transcript ?? primary.transcript,
                         suggestions: reviewed?.review.suggestions ?? [], using: provider, complete: complete)
+                    /// The review picks between candidate names as written (a saved name such
+                    /// as "Andi"); the transcript shows that person the way any other is shown.
+                    if var resolved = voices {
+                        ParticipantAttribution.showDisplayNames(&resolved, library: library())
+                        voices = resolved
+                    }
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {

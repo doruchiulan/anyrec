@@ -61,6 +61,17 @@ struct GeneralSettings: View {
                 Text("Record from the reminder above a Slack or Teams call window. Notifications for other apps open the window picker.")
                     .settingsFooter()
             }
+            Section {
+                Toggle("Record Slack and Teams calls automatically", isOn: $controller.recordsCallsAutomatically)
+                Picker("Record", selection: $controller.automaticRecordingMode) {
+                    ForEach(Wording.automaticRecordingModes, id: \.0) { mode, name in
+                        Text(name).tag(mode)
+                    }
+                }
+                .disabled(!controller.recordsCallsAutomatically)
+            } footer: {
+                Text(Wording.automaticRecordingFooter).settingsFooter()
+            }
         }
     }
 

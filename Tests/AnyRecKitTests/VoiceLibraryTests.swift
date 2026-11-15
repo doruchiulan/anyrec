@@ -134,7 +134,8 @@ struct VoiceLibraryPeopleTests {
     @Test("files written before aliases and the owner flag read with neither")
     func oldFiles() throws {
         let person = try JSONDecoder().decode(VoiceLibrary.Person.self, from: Data(#"{"name":"Alex","prints":[[1,0]]}"#.utf8))
-        #expect(person.aliases.isEmpty && !person.isOwner)
+        #expect(person.aliases.isEmpty && !person.isOwner && person.displayName == nil)
+        #expect(person.shownName == "Alex")
         var library = VoiceLibrary()
         try library.merge(Data(#"[{"name":"Alex","prints":[[1,0]]}]"#.utf8))
         #expect(library.names == ["Alex"])
@@ -151,6 +152,47 @@ struct VoiceLibraryPeopleTests {
         #expect(library.person(answering: "Maria")?.name == "Maria")
         #expect(library.person(answering: "Nobody") == nil)
         #expect(library.people[0].prints == [[1, 0]])
+    }
+
+    @Test("a call window's name becomes the name shown, and the latest one wins")
+    func callName() throws {
+        var library = VoiceLibrary(people: [.init(name: "Alex", prints: [[1, 0]]), .init(name: "Maria", prints: [[0, 1]])])
+        let first = library.noteCallName("Alex Ionescu", for: "Alex")
+        #expect(first)
+        #expect(library.people[0].shownName == "Alex Ionescu" && library.people[0].aliases == ["Alex Ionescu"])
+        let again = library.noteCallName("Alex Ionescu", for: "Alex")
+        let savedName = library.noteCallName("ALEX", for: "Alex")
+        let someoneElse = library.noteCallName("Maria", for: "Alex")
+        #expect(!again && !savedName && !someoneElse)
+        let newer = library.noteCallName("A. Ionescu", for: "Alex")
+        #expect(newer)
+        #expect(library.people[0].displayName == "A. Ionescu")
+        #expect(library.people[0].aliases == ["Alex Ionescu", "A. Ionescu"])
+        #expect(library.people[0].prints == [[1, 0]])
+
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try library.save(to: folder)
+        #expect(VoiceLibrary.load(from: folder).people[0].displayName == "A. Ionescu")
+
+        var colleague = VoiceLibrary()
+        try colleague.merge(try library.exported())
+        #expect(colleague.people[0].displayName == "A. Ionescu")
+        var mine = VoiceLibrary(people: [.init(name: "Alex", prints: [[1, 0]], aliases: ["Alexandru"], displayName: "Alexandru")])
+        try mine.merge(try library.exported())
+        #expect(mine.people[0].displayName == "Alexandru")
+    }
+
+    @Test("naming a voice with a name someone already answers to adds the print to them")
+    func enrollByShownName() {
+        var library = VoiceLibrary(people: [
+            .init(name: "Alex", prints: [[1, 0]], aliases: ["Alex Ionescu"], displayName: "Alex Ionescu"),
+            .init(name: "Maria", prints: [[0, 1]]),
+        ])
+        library.enroll("alex ionescu", [0.9, 0.1])
+        library.enroll("Sam", [0.5, 0.5])
+        #expect(library.names == ["Alex", "Maria", "Sam"])
+        #expect(library.people[0].prints == [[1, 0], [0.9, 0.1]])
     }
 
     @Test("the owner flag is this library's; exports carry aliases but not who owns them")

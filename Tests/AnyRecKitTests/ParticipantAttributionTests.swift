@@ -45,10 +45,13 @@ struct ParticipantAttributionTests {
         #expect(resolved.aliases.isEmpty)
         result.name("A", "Costin")
         #expect(result.names == ["A": "Costin"])
-        #expect(result.voices[0].identityEvidence == nil)
+        /// The owner's name settles it; the clues stay, so they can still be chosen from.
+        #expect(result.voices[0].identityEvidence?.conflict == false)
+        #expect(result.voices[0].identityEvidence?.callNames == ["Costin Pop"])
+        #expect(result.voices[0].namedByOwner == true)
     }
 
-    @Test("A display name corroborating a voiceprint is agreement: the saved name stays and the display name becomes an alias")
+    @Test("A display name corroborating a voiceprint is agreement: the call window's name is shown and remembered")
     func agreement() {
         let same = ParticipantAttribution.resolve(voices(name: "Costin"), lines: lines, evidence: observations("COSTIN"),
                                                   library: library, microphone: nil)
@@ -56,16 +59,17 @@ struct ParticipantAttributionTests {
         #expect(same.aliases.isEmpty)
         let nickname = ParticipantAttribution.resolve(voices(name: "Alex"), lines: lines, evidence: observations("Alexandru Ionescu"),
                                                       library: library, microphone: nil)
-        #expect(nickname.voices?.names == ["A": "Alex"])
+        #expect(nickname.voices?.names == ["A": "Alexandru Ionescu"])
         #expect(nickname.voices?.voices[0].identityEvidence?.conflict == false)
-        #expect(nickname.voices?.voices[0].identityEvidence?.callName == "Alexandru Ionescu")
+        #expect(nickname.voices?.voices[0].identityEvidence?.voiceprintName == "Alex")
         #expect(nickname.aliases.map(\.display) == ["Alexandru Ionescu"] && nickname.aliases.map(\.person) == ["Alex"])
         let known = ParticipantAttribution.resolve(voices(name: "Costin"), lines: lines, evidence: observations("Costin Pop"),
                                                    library: library, microphone: nil)
-        #expect(known.voices?.names == ["A": "Costin"] && known.aliases.isEmpty)
+        #expect(known.voices?.names == ["A": "Costin Pop"])
+        #expect(known.aliases.map(\.display) == ["Costin Pop"] && known.aliases.map(\.person) == ["Costin"])
     }
 
-    @Test("A voice named only by the call window takes the display name, or the saved name it is an alias of, and files nothing")
+    @Test("A voice named only by the call window takes the display name, and a known one's is remembered")
     func callOnly() {
         let display = ParticipantAttribution.resolve(voices(), lines: lines, evidence: observations("Sam Rivers"),
                                                      library: library, microphone: nil)
@@ -73,7 +77,34 @@ struct ParticipantAttributionTests {
         #expect(display.aliases.isEmpty)
         let alias = ParticipantAttribution.resolve(voices(), lines: lines, evidence: observations("Costin Pop"),
                                                    library: library, microphone: nil)
-        #expect(alias.voices?.names == ["A": "Costin"])
+        #expect(alias.voices?.names == ["A": "Costin Pop"])
+        #expect(alias.aliases.map(\.person) == ["Costin"])
+    }
+
+    @Test("Without the call window, a person is called the display name learned on an earlier call")
+    func learnedDisplayName() {
+        var learned = library
+        let noted = learned.noteCallName("Costin Pop", for: "Costin")
+        #expect(noted)
+        let quiet = ParticipantAttribution.resolve(voices(name: "Costin"), lines: lines, evidence: nil,
+                                                   library: learned, microphone: nil)
+        #expect(quiet.voices?.names == ["A": "Costin Pop"])
+        let unlearned = ParticipantAttribution.resolve(voices(name: "Costin"), lines: lines, evidence: nil,
+                                                       library: library, microphone: nil)
+        #expect(unlearned.voices?.names == ["A": "Costin"])
+        /// What the window shows in this recording beats what was learned before.
+        let shown = ParticipantAttribution.resolve(voices(name: "Costin"), lines: lines, evidence: observations("C. Pop"),
+                                                   library: learned, microphone: nil)
+        #expect(shown.voices?.names == ["A": "C. Pop"])
+    }
+
+    @Test("A conflict shows neither name, whatever was learned")
+    func conflictIgnoresLearnedName() {
+        var learned = library
+        learned.noteCallName("Alex Smith", for: "Alex")
+        let resolved = ParticipantAttribution.resolve(voices(name: "Alex"), lines: lines, evidence: observations("Costin Pop"),
+                                                      library: learned, microphone: nil)
+        #expect(resolved.voices?.names.isEmpty == true)
     }
 
     @Test("Evidence is scored where it exists: a window readable only at the start still names the voice")
@@ -159,6 +190,67 @@ struct ParticipantAttributionTests {
         #expect(resolved.lines.allSatisfy { $0.speaker == .me })
         #expect(resolved.voices?.voices.isEmpty == true)
         #expect(resolved.voices?.ownerMerge?.evidence == [.callWindow])
+    }
+
+    @Test("With the microphone held under the call, an owner line goes to Me where the window showed the owner, to the person it showed instead, and never while the call could not hear the mic")
+    func ownerVoiceDucked() throws {
+        var owner = RecordingVoices.Voice(letter: "A", print: [1, 0], sample: "Mine", start: 0, end: 6)
+        owner.microphoneShare = 0.8
+        owner.microphoneSeconds = 20
+        let sam = RecordingVoices.Voice(letter: "B", print: [0, 1], sample: "Theirs", start: 50, end: 56)
+        let lines = [
+            Utterance(start: 0, end: 6, text: "Mic carries this", speaker: .voice("A")),
+            Utterance(start: 10, end: 16, text: "Ducked, window shows me", speaker: .voice("A")),
+            Utterance(start: 20, end: 26, text: "Ducked, window shows Sam", speaker: .voice("A")),
+            Utterance(start: 30, end: 36, text: "Muted, window shows me", speaker: .voice("A")),
+            Utterance(start: 40, end: 46, text: "Ducked, nobody shown", speaker: .voice("A")),
+            Utterance(start: 50, end: 56, text: "Sam speaking", speaker: .voice("B")),
+            Utterance(start: 57, end: 63, text: "Sam again", speaker: .voice("B")),
+        ]
+        /// The duck leaves the mic loud only where nothing came down the call.
+        let frames = (0..<3_500).map { Double($0) * 0.02 < 6 ? 3_000.0 : 10 }
+        let microphone = SpeakerAttribution.Microphone(heard: AudioEnvelope(frames: frames), talking: 100,
+                                                       live: [0..<28, 37..<70])
+        let speaking: (Int) -> [String] = { second in
+            switch second {
+            case 10...16, 30...36: ["Doru Chiulan"]
+            case 20...26, 50...63: ["Sam"]
+            default: []
+            }
+        }
+        let evidence = CallParticipants(observations: (0...64).map {
+            .init(at: Double($0), source: "slack:1:2", participants: ["Doru Chiulan", "Sam"], speaking: speaking($0), me: "Doru Chiulan")
+        })
+        let resolved = ParticipantAttribution.resolve(RecordingVoices(voices: [owner, sam]), lines: lines, evidence: evidence,
+                                                      library: VoiceLibrary(), microphone: microphone)
+        #expect(resolved.lines.map(\.speaker) == [.me, .me, .voice("A"), .others, .others, .voice("A"), .voice("A")])
+        #expect(resolved.voices?.names == ["A": "Sam"])
+        #expect(resolved.voices?.ownerMerge?.toMe == 2)
+        #expect(resolved.voices?.ownerMerge?.toOthers == 3)
+    }
+
+    @Test("A microphone with no mute record is live throughout; with one, a line has to lie mostly inside it")
+    func microphoneLive() {
+        let always = SpeakerAttribution.Microphone(heard: AudioEnvelope(frames: []), talking: 1)
+        #expect(always.isLive(from: 10, to: 20))
+        let some = SpeakerAttribution.Microphone(heard: AudioEnvelope(frames: []), talking: 1, live: [0..<15, 30..<40])
+        #expect(some.isLive(from: 2, to: 12))
+        #expect(!some.isLive(from: 10, to: 20))
+        #expect(some.isLive(from: 29.5, to: 39))
+    }
+
+    @Test("The owner's call name is never filed as the alias of a non-owner whose saved print a voice matched")
+    func ownerNameIsNoAlias() {
+        let library = VoiceLibrary(people: [.init(name: "Costi", prints: [[1, 0]])])
+        let evidence = CallParticipants(observations: (0...13).map {
+            .init(at: Double($0), source: "slack:1:2", participants: ["Doru Chiulan", "Ana"], speaking: ["Doru Chiulan"], me: "Doru Chiulan")
+        })
+        let resolved = ParticipantAttribution.resolve(voices(name: "Costi"), lines: lines, evidence: evidence,
+                                                      library: library, microphone: nil)
+        #expect(resolved.aliases.isEmpty)
+        let owned = VoiceLibrary(people: [.init(name: "Doru", prints: [[1, 0]], isOwner: true)])
+        let mine = ParticipantAttribution.resolve(voices(name: "Doru"), lines: lines, evidence: evidence, library: owned, microphone: nil)
+        #expect(mine.aliases.map(\.display) == ["Doru Chiulan"])
     }
 
     @Test("Brief evidence, one turn and missing observations cannot override a saved name")
