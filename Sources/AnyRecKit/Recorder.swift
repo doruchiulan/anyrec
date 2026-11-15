@@ -475,7 +475,7 @@ public final class Recorder: NSObject {
         let (tracks, error, cleanTrack) = queue.sync { (writers, failure ?? streamFailure, cleanWriter) }
         for track in tracks.values { await track.finish() }
         let cleanSamples = await cleanTrack?.finish() ?? 0
-        let timing = queue.sync { () -> CaptureTiming in
+        let capturedTiming = queue.sync { () -> CaptureTiming in
             for (type, track) in tracks where !track.gaps.isEmpty {
                 timing.streams[Self.streamName(type)]?.gaps = track.gaps.map { .init(at: $0.at, seconds: $0.seconds) }
             }
@@ -498,7 +498,7 @@ public final class Recorder: NSObject {
             endedEarly: ended,
             audioOnly: !options.recordsVideo,
             cleanMicrophoneSamples: cleanSamples,
-            timing: timing
+            timing: capturedTiming
         )
     }
 
