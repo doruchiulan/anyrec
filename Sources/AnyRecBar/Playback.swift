@@ -200,7 +200,16 @@ final class Playback {
                     let range = try? await source.load(.timeRange),
                     let slot = composition.addMutableTrack(withMediaType: kind, preferredTrackID: kCMPersistentTrackID_Invalid)
                 else { continue }
-                try? slot.insertTimeRange(range, of: source, at: .zero)
+                /// The call's track is moved into line with the microphone and the picture,
+                /// as the merged file has it, by the offset the mix measured from the echo.
+                let advance = track == .callAudio ? (MixDecision.read(in: entry.directory)?.alignment.systemAudio ?? 0) : 0
+                let shift = CMTime(seconds: abs(advance), preferredTimescale: 48_000)
+                if advance > 0, range.duration > shift {
+                    try? slot.insertTimeRange(CMTimeRange(start: range.start + shift, duration: range.duration - shift),
+                                              of: source, at: .zero)
+                } else {
+                    try? slot.insertTimeRange(range, of: source, at: advance < 0 ? shift : .zero)
+                }
                 if kind == .audio {
                     let parameters = AVMutableAudioMixInputParameters(track: slot)
                     parameters.setVolume(enabled.contains(track) ? 1 : 0, at: .zero)

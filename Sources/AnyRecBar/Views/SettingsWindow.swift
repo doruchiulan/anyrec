@@ -95,6 +95,10 @@ struct RecordingSettings: View {
             Section {
                 RecordingInputSettings(controller: controller)
                 Toggle("Record system audio", isOn: $controller.configuration.systemAudio)
+                Toggle(isOn: $controller.configuration.echoCancellation) {
+                    Text("Cancel echo from the speakers")
+                    Text("Also records the microphone through macOS voice processing, so a call on speakers is not heard twice. The microphone as recorded is kept too.")
+                }
                 if !controller.ffmpegReady {
                     LabeledContent {
                         SetupControl(controller: controller, target: .ffmpeg, size: FFmpegSetup.downloadSize) {

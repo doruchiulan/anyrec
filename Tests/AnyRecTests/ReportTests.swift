@@ -40,3 +40,12 @@ struct ReportTests {
         #expect(SummaryReport.merge(.ffmpegMissing).contains("screen.mov"))
     }
 }
+
+@Suite("anyrec record --echo-cancellation")
+struct EchoCancellationFlagTests {
+    @Test("on unless --no-echo-cancellation is passed")
+    func flag() throws {
+        #expect(try Record.parse(["--window", "1"]).echoCancellation)
+        #expect(try !Record.parse(["--window", "1", "--no-echo-cancellation"]).echoCancellation)
+    }
+}
