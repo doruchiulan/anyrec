@@ -19,6 +19,9 @@ public struct CaptureOptions: Sendable {
     public var captureSystemAudio: Bool
     public var captureMicrophone: Bool
     public var microphoneDeviceID: String?
+    /// The microphone was not picked: it is the system default, and follows the default
+    /// when that changes mid-recording. Off, `microphoneDeviceID` is kept while connected.
+    public var followsDefaultMicrophone: Bool
     public var showsCursor: Bool
     /// Off, no `screen.mov` is written: the window is still captured for its filter, its
     /// title, its participants and its mute button, but only the audio is kept.
@@ -33,6 +36,7 @@ public struct CaptureOptions: Sendable {
         captureSystemAudio: Bool = true,
         captureMicrophone: Bool = true,
         microphoneDeviceID: String? = nil,
+        followsDefaultMicrophone: Bool = false,
         showsCursor: Bool = true,
         recordsVideo: Bool = true,
         cleanMicrophone: Bool = true
@@ -42,6 +46,7 @@ public struct CaptureOptions: Sendable {
         self.captureSystemAudio = captureSystemAudio
         self.captureMicrophone = captureMicrophone
         self.microphoneDeviceID = microphoneDeviceID
+        self.followsDefaultMicrophone = followsDefaultMicrophone
         self.showsCursor = showsCursor
         self.recordsVideo = recordsVideo
         self.cleanMicrophone = cleanMicrophone

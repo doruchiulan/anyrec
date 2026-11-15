@@ -130,6 +130,8 @@ struct SetupScreen {
         guard let picked = Picker.run(title: "Microphone", items: items, selected: current)
         else { return }
         configuration.microphone = picked < devices.count ? devices[picked] : nil
+        /// Picked, so kept for the whole recording rather than following the default.
+        configuration.followsDefaultMicrophone = false
     }
 
     private func render() -> String {

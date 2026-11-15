@@ -212,6 +212,8 @@ final class RecordingController {
         get { configuration.microphone }
         set {
             configuration.microphone = newValue
+            /// Picked by hand, so kept for the whole recording rather than following the default.
+            configuration.followsDefaultMicrophone = false
             Preferences.saveMicrophone(newValue)
         }
     }
@@ -491,8 +493,8 @@ final class RecordingController {
     /// *value*, and a menu matching on the whole value would draw itself empty. A
     /// device that has gone falls out to nil, which is Off.
     ///
-    /// `pinDefaultMicrophone` is deliberately not re-run here: once someone has used
-    /// the menu, nil means Off, and re-pinning would quietly undo them.
+    /// `pinDefaultMicrophone` is re-run only for a microphone nobody picked: once someone
+    /// has used the menu, nil means Off, and re-pinning would quietly undo them.
     func refresh() async {
         guard phase == .idle || phase == .finished else { return }
         await reloadLibrary()
@@ -501,7 +503,12 @@ final class RecordingController {
         /// Before the Screen Recording gate: listing inputs needs no grant, so a denied
         /// screen must not hide the microphones too.
         microphones = await Task.detached { AudioDevices.inputs() }.value
-        if let chosen = configuration.microphone {
+        if configuration.followsDefaultMicrophone {
+            /// Never picked: it is whatever the default is now, which the AirPods going in
+            /// since launch may have moved.
+            configuration.microphone = nil
+            configuration.pinDefaultMicrophone(from: microphones)
+        } else if let chosen = configuration.microphone {
             configuration.microphone = microphones.first { $0.id == chosen.id }
         }
 

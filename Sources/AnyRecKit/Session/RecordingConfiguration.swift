@@ -31,9 +31,15 @@ public struct RecordingConfiguration: Sendable {
     /// Nil until a window or display is picked: recording the wrong thing is worse
     /// than recording nothing, so there is no default.
     public var capture: CaptureChoice?
-    /// Nil means the microphone is not recorded. The device is always explicit, so
-    /// another app switching the system default mid-call cannot redirect the capture.
+    /// Nil means the microphone is not recorded. A device picked by hand is kept for the
+    /// whole recording while it is connected; the system default, pinned here as a
+    /// starting point, is followed when the default changes (`followsDefaultMicrophone`).
     public var microphone: AudioInputDevice?
+    /// The microphone was filled in from the system default rather than picked, so a
+    /// recording follows the default input when it changes mid-call: switch the call to
+    /// AirPods and the microphone track switches with it. Set by `pinDefaultMicrophone`,
+    /// cleared by `selectMicrophone` and by any interface that writes a picked device.
+    public var followsDefaultMicrophone = false
     public var systemAudio = true
     public var stopAfter: TimeInterval?
     public var mux = true
@@ -74,6 +80,7 @@ public struct RecordingConfiguration: Sendable {
             captureSystemAudio: systemAudio,
             captureMicrophone: microphone != nil,
             microphoneDeviceID: microphone?.id,
+            followsDefaultMicrophone: followsDefaultMicrophone,
             showsCursor: showsCursor,
             recordsVideo: video,
             cleanMicrophone: echoCancellation
@@ -86,10 +93,11 @@ public struct RecordingConfiguration: Sendable {
 
     public var outputDirectory: URL { URL(filePath: outputRoot.expandingTilde) }
 
-    /// The system default is only a starting point; it is pinned as an explicit device
-    /// so another app changing the default mid-call cannot redirect the capture. It
-    /// only ever fills an unset microphone, so running it after someone has chosen
-    /// "off" would not undo them — but there is no reason to.
+    /// The system default is only a starting point: it fills an unset microphone so every
+    /// interface shows a device, and marks it as followed, so a recording moves with the
+    /// default input when the call does. It only ever fills an unset microphone, so
+    /// running it after someone has chosen "off" would not undo them — but there is no
+    /// reason to.
     ///
     /// Callers that have just listed the inputs pass them back in. Enumerating twice
     /// risks pinning a device that differs from the listed one by more than its id —
@@ -99,6 +107,7 @@ public struct RecordingConfiguration: Sendable {
         guard microphone == nil else { return }
         let inputs = inputs ?? AudioDevices.inputs()
         microphone = inputs.first(where: \.isDefault) ?? inputs.first
+        followsDefaultMicrophone = microphone != nil
     }
 
     /// False when no input device carries that id, which is worth saying rather than
@@ -106,6 +115,7 @@ public struct RecordingConfiguration: Sendable {
     public mutating func selectMicrophone(id: String) -> Bool {
         guard let device = AudioDevices.inputs().first(where: { $0.id == id }) else { return false }
         microphone = device
+        followsDefaultMicrophone = false
         return true
     }
 }

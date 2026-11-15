@@ -45,16 +45,31 @@ final class CleanMicrophone {
 
     private let engine = AVAudioEngine()
     private let fold = AVAudioMixerNode()
-    private let deviceUID: String?
+    let deviceUID: String?
     private let deliver: (CMSampleBuffer, Double) -> Void
+    private let interrupted: () -> Void
     private var running = false
+    private var observer: NSObjectProtocol?
 
     /// `deliver` is called on the audio thread with each buffer, stamped on the host
     /// clock, and the host clock when it arrived. It must hand the buffer off at once.
-    init(deviceUID: String?, deliver: @escaping (CMSampleBuffer, Double) -> Void) {
+    ///
+    /// `interrupted` is called when the engine stops itself: `AVAudioEngine` stops on any
+    /// change to its devices' configuration — the default input or output moving, the
+    /// device going, its format changing — and never starts again on its own. The owner
+    /// starts a new one on whichever device the microphone is on by then
+    /// (`MicrophoneRoute`), continuing the same file.
+    init(deviceUID: String?, deliver: @escaping (CMSampleBuffer, Double) -> Void,
+         interrupted: @escaping () -> Void = {}) {
         self.deviceUID = deviceUID
         self.deliver = deliver
+        self.interrupted = interrupted
     }
+
+    deinit { stop() }
+
+    /// Whether the engine is still running. False once a configuration change stopped it.
+    var isRunning: Bool { running && engine.isRunning }
 
     func start() throws {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw Problem.notAuthorized }
@@ -88,14 +103,21 @@ final class CleanMicrophone {
             deliver(sample, arrival)
         }
         engine.prepare()
+        let interrupted = interrupted
+        observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { _ in interrupted() }
         do { try engine.start() } catch {
             fold.removeTap(onBus: 0)
+            observer.map(NotificationCenter.default.removeObserver)
+            observer = nil
             throw Problem.start(error)
         }
         running = true
     }
 
     func stop() {
+        observer.map(NotificationCenter.default.removeObserver)
+        observer = nil
         guard running else { return }
         fold.removeTap(onBus: 0)
         engine.stop()
@@ -106,26 +128,7 @@ final class CleanMicrophone {
     /// A copy of `buffer` as a sample buffer presented at `hostTime`. The data is copied,
     /// so the engine may reuse its buffer as soon as this returns.
     static func sampleBuffer(_ buffer: AVAudioPCMBuffer, hostTime: UInt64) -> CMSampleBuffer? {
-        guard buffer.frameLength > 0 else { return nil }
-        var format: CMAudioFormatDescription?
-        guard CMAudioFormatDescriptionCreate(
-            allocator: kCFAllocatorDefault, asbd: buffer.format.streamDescription, layoutSize: 0, layout: nil,
-            magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format) == noErr,
-            let format else { return nil }
-        var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: CMTimeScale(buffer.format.sampleRate)),
-            presentationTimeStamp: CMClockMakeHostTimeFromSystemUnits(hostTime),
-            decodeTimeStamp: .invalid)
-        var sample: CMSampleBuffer?
-        guard CMSampleBufferCreate(
-            allocator: kCFAllocatorDefault, dataBuffer: nil, dataReady: false, makeDataReadyCallback: nil,
-            refcon: nil, formatDescription: format, sampleCount: CMItemCount(buffer.frameLength),
-            sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 0,
-            sampleSizeArray: nil, sampleBufferOut: &sample) == noErr, let sample else { return nil }
-        guard CMSampleBufferSetDataBufferFromAudioBufferList(
-            sample, blockBufferAllocator: kCFAllocatorDefault, blockBufferMemoryAllocator: kCFAllocatorDefault,
-            flags: 0, bufferList: buffer.audioBufferList) == noErr else { return nil }
-        return sample
+        AudioBuffers.sample(buffer, at: CMClockMakeHostTimeFromSystemUnits(hostTime))
     }
 
     /// Whether a recorded clean track can stand in for the raw one: it carries sound, it
