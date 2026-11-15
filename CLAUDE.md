@@ -85,13 +85,16 @@ second one for "UI-common" code.
 | `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `thumbnail.jpg`, for the library's list rows. None for an audio-only recording, decided from `recording.json` without trying. |
 | `Session/Waveform.swift` | A recording's loudness cut into columns for drawing, read with AVFoundation so it needs no ffmpeg. |
 | `Transcription/Summary.swift` | A summary as data (overview, decisions, actions with the second they were said), its `Basis` and `Staleness`, labels filled from names at display (`named`), `SummaryProvider` (Claude Code, Codex, OpenAI API, Gemini CLI) and `Summarizer.summary`. |
-| `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s — two for audio only, whose screen frames arrive at 2×2 and 1 fps and are dropped before the clock. Also runs `CleanMicrophone` and writes its buffers on the same queue, and notes each output's buffer stamps and the devices into `CaptureTiming`. |
-| `CleanMicrophone.swift` | The microphone through `AVAudioEngine` voice processing (other-audio ducking at its minimum), stamped with the tap's host time, written as `microphone-clean.m4a`; `usable` decides whether a recorded clean track can stand in for the raw one. |
-| `CaptureTiming.swift` | Each output's first eight buffers (presentation time, host-clock arrival, length), its last and its count; the default output and input devices (name, transport, latency, safety offset, stream latency, buffer size) via `AudioDeviceFacts`; `stampingGap`. Kept in `recording.json`. |
-| `TrackAlignment.swift` | `TrackOffset` and its measurement: the change in log loudness, correlated over up to eight 50 s windows at lags within ±2 s, refined between frames, accepted only when strong windows agree. `AudioEnvelope.advanced(by:)`. |
+| `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s — two for audio only, whose screen frames arrive at 2×2 and 1 fps and are dropped before the clock. Also runs `CleanMicrophone` and writes its buffers on the same queue, and notes each output's buffer stamps, formats and the devices into `CaptureTiming`. Follows device changes on its `devices` queue: moves the microphone (`updateConfiguration`), restarts the clean microphone, and restarts a stream a change stopped. |
+| `MicrophoneRoute.swift` | Which device each microphone records from as devices come and go: the default followed, a picked one kept while connected, a vanished one replaced. Pure; says what has to move. |
+| `DeviceWatch.swift` | Core Audio listeners on the default input, default output and device list. |
+| `AudioBuffers.swift` | `CMSampleBuffer` ↔ `AVAudioPCMBuffer`, silence, and `AudioConformer`, which converts a buffer to a track's first format. |
+| `CleanMicrophone.swift` | The microphone through `AVAudioEngine` voice processing (other-audio ducking at its minimum), stamped with the tap's host time, written as `microphone-clean.m4a`; reports its engine stopping on a configuration change; `usable` decides whether a recorded clean track can stand in for the raw one. |
+| `CaptureTiming.swift` | Each output's first eight buffers (presentation time, host-clock arrival, length), its last and its count; the default output and input devices (name, transport, latency, safety offset, stream latency, buffer size) via `AudioDeviceFacts`; `stampingGap`; each `DeviceChange` (session-clock time, reason, devices before and after, streams affected, problem), and per stream the gaps written as silence and the formats it arrived in. Kept in `recording.json`; all of it optional. |
+| `TrackAlignment.swift` | `TrackOffset` and its measurement, per stretch between device changes (`sections`): the change in log loudness, correlated over up to eight 50 s windows a stretch at lags within ±2 s, refined between frames, accepted only when strong windows agree, a straight line when they drift. `TrackShift`, the lag over the call. `AudioEnvelope.advanced(by:)`. |
 | `EchoCheck.swift` | `EchoReport`: the offsets, echo left in the raw microphone, under the duck before and after alignment, in the clean track, the owner's level raw and clean, and the verdict. What `anyrec echo` prints. |
 | `TimingCheck.swift` | The test signal and the offset read from a check's tracks, for `anyrec timing`. |
-| `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description. |
+| `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description; later buffers are converted to it, and a gap in the stamps is written as silence. |
 | `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
 | `CallApps.swift` | The bundle-id registry that orders windows and puts the `*` marks in `sources`. |
 | `ContentInventory.swift` | Read-only listing of windows and displays, filtered to what apps actually draw. |
@@ -101,7 +104,7 @@ second one for "UI-common" code.
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. `job(for:)` takes the picture from `screen.mov`, or from the merged file once that has replaced it; with no picture it makes an audio-only `.m4a` from the same `MixPlan`. Writes a hidden temporary file, verifies it, moves it into place, records the name, then deletes `screen.mov` and any older merged file. |
 | `MergeVerification.swift` | `MediaFacts` (video codec, size, frame count from a sample cursor, audio lengths, read with AVFoundation) and the check a merge's result must pass before it replaces anything. |
 | `LoudnessMatch.swift` | Measures both audio tracks (ffmpeg `ebur128=peak=true`) and balances them for the merge. |
-| `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks', the clean microphone's and `microphone-live.json`'s size and modification time: the system track's offset, the clean track's offset, which microphone is used, bleed, loudness. Also the mix's envelope worked out from the two (aligned) track envelopes. |
+| `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks', the clean microphone's and `microphone-live.json`'s size and modification time: the system track's offset and the clean track's offset (each per stretch, version 3), which microphone is used, bleed, loudness. Also the mix's envelope worked out from the two (aligned) track envelopes. |
 | `MixPlan.swift` | How the two audio tracks go together — each moved onto the raw microphone's timeline (`Alignment`), the raw or clean microphone (`MicrophoneTrack`), matched by loudness or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it; `aligned` lines up the envelopes everything else compares. |
 | `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
@@ -203,9 +206,13 @@ Invariants worth preserving:
   reports is a live check, because whisper and ffmpeg can be installed from the
   setup screen mid-session and a cached "missing" would outlive the fix.
 - All stream outputs use one serial queue, which is why `Recorder`'s writer
-  table and session clock need no locking. Don't add a second queue. The clean
-  microphone's tap runs on the audio engine's thread and only copies each buffer and
-  hands it to that queue; it is written there.
+  table and session clock need no locking. Don't add a second queue for anything the
+  writers own. The clean microphone's tap runs on the audio engine's thread and only
+  copies each buffer and hands it to that queue; it is written there. Device changes are
+  followed on `Recorder`'s `devices` queue, which owns the stream, the route and the clean
+  microphone and never touches a writer, the clock or the timing facts except by handing
+  work to the capture queue: starting a voice-processing engine can take most of a
+  second, and the capture queue must not wait on it.
 - All writers start their session at the *same* timestamp — the first
   buffer written on any ScreenCaptureKit output. Per-writer session starts would silently
   destroy A/V sync. The clean microphone never starts the clock: its buffers wait for it,
@@ -225,15 +232,30 @@ Invariants worth preserving:
   quiet) drags a level correlation to zero. Echo windows correlate at 0.53–0.80, headphone calls at about
   0.05 and never above 0.27, so a lag is accepted only from windows above 0.35 when at
   least two and a third of all windows agree (within 40 ms) and they are most of the strong
-  ones; otherwise "not measurable" and nothing moves. It is kept in `mix.json` (version 2;
-  version 1 is decided again, which is how existing recordings are lined up). The
-  *system* track moves (advanced by the lag: trimmed in ffmpeg, shifted on the envelope),
+  ones; otherwise "not measurable" and nothing moves. The lag is measured per stretch:
+  the call is cut at the device changes in `recording.json` (`CaptureTiming.changeTimes`),
+  since a change can move it, and each stretch gets its own windows (kept 2 s clear of its
+  edges) and the rules above. Within a stretch it is a straight line when at least four
+  windows agree around one and it moves more than 10 ms across the stretch (and less than
+  0.5 s an hour); otherwise held. The measured drift is 12–34 ms an hour, so only calls
+  past about twenty minutes follow it; on the ten-minute Cipri call forcing it on changed
+  nothing in `anyrec echo` (−34.6 dB, 4%, 1% either way). A stretch with no echo
+  (switched to AirPods) takes the lag its nearest measured neighbour has at their shared
+  edge, so one measured stretch is one constant for the call, the simple case. Kept in
+  `mix.json` as `TrackOffset.sections` (version 3; older versions are decided again, which
+  is how existing recordings are lined up; an offset without sections reads as one lag).
+  The *system* track moves (advanced by the lag, a `TrackShift`; a constant one trimmed or
+  delayed in ffmpeg, a changing one restamped with `asetpts` and followed by
+  `aresample=async=100:min_hard_comp=0.02:first_pts=0`, which cuts or pads a step over
+  20 ms and resamples anything smaller; shifted on the envelope),
   because the microphone, the video and the call window's times share the clock, and the
   far end is then placed where it was heard in the room, which is where its lips are in a
   WebRTC call's video. The microphone stays fixed. Applied in both mixes' filter graphs, the bleed
   check, the mix envelope speech regions are found on, `SpeakerAttribution`, the owner
-  merge, and the masters player's call track; the merge is verified against each track's
-  length once moved. The cause is not established. Each output's first buffer stamps
+  merge, the echo check, and the masters player's call track (cut into held stretches no
+  more than 5 ms off the line); the merge is verified against each track's
+  length once moved. The echo check's mic-only ducked graph has no branch ending in a sink:
+  with a drifting shift ffmpeg 7.1 asserted on one (`best_input >= 0`). The cause is not established. Each output's first buffer stamps
   against the host clock, and the default devices' reported latencies, go into
   `recording.json` (`CaptureTiming`). On the machine they were checked on, ScreenCaptureKit
   stamps on the host clock (screen frames arrive within a few ms of their stamp, audio
@@ -250,15 +272,70 @@ Invariants worth preserving:
   same device as the raw one (`kAudioOutputUnitProperty_CurrentDevice`, or no clean track),
   folded to mono through a silent mixer, stamped with the tap's `AVAudioTime.hostTime`
   (the mach clock ScreenCaptureKit's stamps are on), and lined up against the raw track
-  afterwards from the owner's voice, which both carry (`cleanMicrophoneOffset`), because
-  voice processing's own latency may not be in the stamp. Failing to start costs the
-  recording nothing: the reason goes into `CaptureTiming.cleanMicrophoneProblem`. When
+  afterwards from the owner's voice, which both carry (`cleanMicrophoneOffset`, per stretch
+  like the system track's, because a restart on another device brings another latency),
+  because voice processing's own latency may not be in the stamp. Failing to start costs the
+  recording nothing: the reason goes into `CaptureTiming.cleanMicrophoneProblem`.
+  `AVAudioEngine` stops itself on any device configuration change (the default input or
+  output moving, the device going) and never restarts; `CleanMicrophone` reports it and the
+  recorder starts a new engine on the raw microphone's current device, writing on into the
+  same file on the same clock (see the device-change invariant). When
   the clean track carries sound (`CleanMicrophone.usable`: loud enough, 90% of the raw
   track's length, not 30 dB quieter), both mixes and attribution use it instead of the raw
   track, and the duck applies only if the bleed check still finds echo in it. Otherwise
   the raw track is used as before. `anyrec echo` reports the echo left each way and the
   owner's level change, for the owner's rule: if cancelling at capture beats the aligned
   duck, nothing more is built after the fact (no offline canceller, no reworked duck).
+- A device change during a recording never restarts the session, starts a new writer or
+  ends the recording. What follows: the raw microphone follows the system default input
+  when nobody picked one (`RecordingConfiguration.followsDefaultMicrophone`, set by
+  `pinDefaultMicrophone`, cleared by `selectMicrophone`, the app's microphone setting, the
+  TUI's picker and `--mic`); a picked device is kept while it is connected. A microphone that
+  disappears moves to the default input, else the device it is on, else the first input
+  left, and a picked one moves back when it returns (`MicrophoneRoute`). The clean
+  microphone always goes where the raw one goes. The output is never followed: ScreenCaptureKit takes
+  app audio before any output device; checked live by switching the default output twice
+  during an audio-only recording, the system track's stamps ran on with no gap and the
+  file was as long as they span (the playing app, afplay, went silent for a moment at each
+  switch, which is what it rendered). An output change is still recorded and still a
+  stretch boundary, because the echo's path changes.
+  How: `DeviceWatch` listens on the default input, default output and device list; the
+  recorder reads the devices 0.3 s after the last notification and asks the route. The raw
+  microphone is moved with `SCStream.updateConfiguration` on the running stream (the SDK
+  header limits no property; if refused, microphone capture is switched off and on with the
+  new device). 2.5 s later the buffers are checked: a microphone that delivered before and
+  has delivered nothing since, or one still at the old device's rate when the new device
+  runs at another (ScreenCaptureKit delivers a microphone in its device's own format),
+  did not move, and the stream is started again. A stream that stops with an error while
+  its microphone has gone, within 10 s of a change, or with
+  `failedToStartMicrophoneCapture` is started again too: a new `SCStream` with the same
+  filter and outputs on the same capture queue, on the device the route names now, without
+  the microphone if that will not start, at most five times a recording. If it cannot be
+  started at all, the recording *ends* there (`RecorderError.deviceChangeEnded`, reported
+  like a closed window), never fails. The clean microphone restarts at most twenty times.
+  Gap as silence: AVAssetWriter packs audio back to back whatever the stamps say (measured:
+  5 s, a 2 s gap in the stamps, 5 s, and the file ran 10 s with no silence), so without
+  help a microphone that paused to switch would pull everything after it early. Every audio
+  `TrackWriter` writes a gap of more than 50 ms between one buffer's end and the next
+  one's stamp as that much silence, skips a buffer stamped wholly inside what is already
+  written, and converts each buffer to the track's first format (`AudioConformer`):
+  measured, 24 kHz buffers appended to a 48 kHz track were encoded at double speed, and
+  mono to stereo failed the writer and left a file with no `moov`. Bluetooth inputs change
+  both. Small jitter is left alone, so a track's timeline is what it was before.
+  Facts: each change goes into `recording.json` as `CaptureTiming.DeviceChange` (seconds on
+  the session clock, reason — `default-changed`, `device-gone`, `device-back`,
+  `output-changed`, `clean-interrupted`, `stream-restarted` — input and output before and
+  after with name, transport and reported latencies, the streams affected, and any
+  problem), with each stream's `gaps` and `formats`; `anyrec echo` prints them. All optional;
+  older files read without them. The alignment measures each stretch between these times on
+  its own (see the alignment invariant). Mute and call watching are untouched by it:
+  `MicrophoneLive` and `CallWatch` read the call app's process, not a device; a call app
+  that lets go of the microphone while it switches reads, for that moment, as not
+  listening (true: the call heard nothing) and as `.ended` then `.started` for the same app,
+  which an automatic recording rides out within `endGrace` (10 s); released for longer, it
+  stops, as for any call that ended. Not verified live: whether `updateConfiguration`
+  really moves ScreenCaptureKit's microphone, and what ScreenCaptureKit does when the
+  microphone vanishes. The terminal this was built in had no microphone grant.
 - Audio only still picks a window (or a display), and still captures it. The window's
   filter is what carries the call's sound; its title and app go into `recording.json`;
   its accessibility tree is where the participant monitor reads names and where
@@ -492,7 +569,10 @@ Invariants worth preserving:
   a resolution that found nothing writing itself back would forget a headset for good
   the first time it was unplugged. An empty stored id is Off — a choice — as against
   no id at all, which is why `pinDefaultMicrophone` is skipped for the first and not
-  the second.
+  the second. A microphone nobody picked is pinned again from the current default each
+  time the panel reopens, because it stands for "the default", which may have moved since
+  launch; one picked is only re-resolved. Settings has no "System default" row, so once a
+  device is picked there the recording keeps it rather than following the default.
 - The meters poll at 10 Hz; the menu bar clock is held as text and only assigned
   when the second changes, so the status item redraws once a second rather than
   ten times. `StatusItem` reads the controller's `clock`, never `tick`, inside
