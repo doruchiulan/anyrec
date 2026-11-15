@@ -49,6 +49,7 @@ is over rather than after:
   Huddle with Costi – Slack – 2026-07-25 13.14.mp4   everything together — play this one
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
+  microphone-clean.m4a  the same microphone, echo cancelled by macOS
   transcript-apple-<id>.md  who said what, in order
   transcript-apple-<id>.srt subtitles for the merged file
 ```
@@ -72,13 +73,27 @@ two peak alike but average around 13 dB apart — a raw sum leaves you inaudible
 under whoever else is talking. The gain is static, so nothing is compressed, and
 it is applied only to the merged file: the two audio tracks are never rewritten.
 
-Wear headphones. On speakers, your microphone records the call as well, so
-the merged file carries the far end twice — once cleanly and once through the room a
-few milliseconds later, which sounds hollow and phasey. anyrec detects this
-and leaves the microphone gain alone rather than amplifying the echo, but it
-cannot undo it. The transcript is unaffected: an echo is always quieter than
-what caused it, so an echoed line still scores for the caller. Only headphones
-fix the audio.
+Headphones are still best. On speakers, your microphone records the call as well, so
+a raw sum carries the far end twice: once cleanly and once through the room, which
+sounds hollow and doubled. anyrec deals with that in two ways.
+
+- **At capture.** Alongside the raw microphone, anyrec records the same microphone a
+  second time through macOS voice processing, the echo cancellation FaceTime and browsers
+  use, as `microphone-clean.m4a`. The call audio is still captured untouched. When the
+  clean track carries sound, the merged file and the transcript are built from it; the
+  raw `microphone.m4a` is kept as recorded. Switch it off with
+  `--no-echo-cancellation` or in Settings › Recording.
+- **After capture.** If the microphone the mix uses still bleeds, it is held down
+  whenever the call is talking, so every word survives once.
+
+The two audio tracks are also lined up before anything combines them. ScreenCaptureKit
+does not stamp call audio and microphone the same way: on one speakerphone call the far
+end's echo sat half a second *ahead* of the same words in the call track, which no room
+can do. anyrec measures that offset from the echo and moves the call track to match
+the microphone, the video and the call window's names. It does this in the merged file,
+in the transcript's mix, and wherever the transcript compares the two tracks. Without an
+echo (headphones) there is nothing to measure from, so nothing is moved.
+`anyrec echo <folder>` prints the offset and how much echo each method leaves.
 
 `screen.mov`, while it exists, deliberately carries no audio track. On its own it
 plays silent — that is the design, not a fault.
@@ -272,6 +287,7 @@ truncated `.mov`.
 | `--[no-]mux` | on | Merge with ffmpeg afterwards into one file named after the call, which replaces `screen.mov` once it is verified. |
 | `--[no-]video` | on | Record the picture. `--no-video` still needs `--window` or `--display`, for the sound, title, names and mute, and writes no `screen.mov`. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
+| `--[no-]echo-cancellation` | on | Also record the microphone through macOS voice processing as `microphone-clean.m4a`. The raw microphone is kept either way. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
 | `--mic` | system default | The input device id, from `anyrec sources`. |
@@ -462,8 +478,19 @@ channel before you start.
 One `SCStream` produces all three outputs — `.screen`, `.audio` and
 `.microphone` — on a single serial queue, and each is written by its own
 `AVAssetWriter`. All three writers share one session start timestamp, so the
-relative offsets between video, call audio and your voice survive into the
-files and the tracks line up without further work.
+offsets between the stamps ScreenCaptureKit gives each output survive into the files.
+Those stamps do not always agree between call audio and microphone (60 ms on one call,
+half a second on another), so the offset is measured afterwards from the echo and
+corrected where the tracks are combined. The masters are never rewritten. Each
+output's first buffer stamps against the host clock, and the audio devices' reported
+latencies, are kept in `recording.json` to trace where the offset comes from.
+`anyrec timing` plays a test signal through the speakers and measures the offset on
+this Mac's devices without a call.
+
+The echo-cancelled microphone runs through `AVAudioEngine` with voice processing on,
+beside ScreenCaptureKit's own microphone. Its buffers carry host-clock times and are
+written against the same session start. They are then lined up against the raw
+microphone from your voice, which both tracks carry.
 
 An app is captured by application filter rather than by window id. A huddle's
 screen-share often opens as its own window, and a filter pinned to one window
