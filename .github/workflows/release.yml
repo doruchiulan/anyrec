@@ -55,7 +55,7 @@ jobs:
           xcodebuild -version
           swift --version
           python3 scripts/tests/test-release.py
-          swift test
+          swift test --no-parallel
 
       - name: Prepare signing keychain
         env:
