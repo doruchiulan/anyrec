@@ -140,7 +140,7 @@ struct TrackWriterDeviceChangeTests {
 
         #expect(writer.gaps.count == 1)
         #expect(abs((writer.gaps.first?.at ?? 0) - 3) < 0.03 && abs((writer.gaps.first?.seconds ?? 0) - 2) < 0.03)
-        let levels = try Self.levels(url)
+        let levels = try await Self.levels(url)
         #expect(abs(Double(levels.count) / 10 - 8) < 0.1, "8 s long, not 6")
         #expect(levels[5..<25].allSatisfy { $0 > 0.1 })
         #expect(levels[33..<48].allSatisfy { $0 < 0.001 }, "the gap is silent")
@@ -161,7 +161,7 @@ struct TrackWriterDeviceChangeTests {
         #expect(await writer.finish() > 0)
         #expect(writer.samplesDropped == 0)
 
-        let levels = try Self.levels(url)
+        let levels = try await Self.levels(url)
         #expect(abs(Double(levels.count) / 10 - 6.5) < 0.1, "the 24 kHz part runs its own three seconds")
         #expect(levels[33..<34].allSatisfy { $0 < 0.001 })
         #expect(levels[37..<63].allSatisfy { $0 > 0.1 })
@@ -178,7 +178,7 @@ struct TrackWriterDeviceChangeTests {
         _ = Self.feed(writer, from: t, seconds: 1, rate: 48_000, channels: 1, frames: 1_024, start: start)
         _ = await writer.finish()
         #expect(writer.gaps.isEmpty)
-        let count = try Self.levels(url).count
+        let count = try await Self.levels(url).count
         #expect(abs(count - 30) <= 1 && writer.samplesWritten == 139, "\(count) tenths, \(writer.samplesWritten) written")
     }
 
@@ -219,16 +219,10 @@ struct TrackWriterDeviceChangeTests {
     }
 
     /// RMS of each tenth of a second of the file, decoded to 48 kHz mono float.
-    static func levels(_ url: URL) throws -> [Float] {
+    static func levels(_ url: URL) async throws -> [Float] {
         let asset = AVURLAsset(url: url)
         let reader = try AVAssetReader(asset: asset)
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var track: AVAssetTrack?
-        Task {
-            track = try? await asset.loadTracks(withMediaType: .audio).first
-            semaphore.signal()
-        }
-        semaphore.wait()
+        let track = try await asset.loadTracks(withMediaType: .audio).first
         let output = AVAssetReaderTrackOutput(track: try #require(track), outputSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 48_000, AVNumberOfChannelsKey: 1,
             AVLinearPCMBitDepthKey: 32, AVLinearPCMIsFloatKey: true, AVLinearPCMIsNonInterleaved: false,
