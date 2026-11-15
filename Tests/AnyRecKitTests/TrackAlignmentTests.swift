@@ -21,6 +21,12 @@ private struct SyntheticCall {
 
     /// `late`: frames the system track's stamps trail the room (positive = system late).
     init(seconds: Double = 300, late: Int, echo: Double?, seed: UInt64 = 7) {
+        self.init(seconds: seconds, lag: { _ in Double(late) * AudioEnvelope.frameDuration }, echo: echo, seed: seed)
+    }
+
+    /// `lag`: seconds the system track trails the room at each moment, which may step or
+    /// drift over the call.
+    init(seconds: Double = 300, lag: (Double) -> Double, echo: Double?, seed: UInt64 = 7) {
         var random = Seeded(state: seed)
         let count = Int(seconds / AudioEnvelope.frameDuration)
         var far = [Double](repeating: 0, count: count)
@@ -43,7 +49,12 @@ private struct SyntheticCall {
             if random.next() < 0.6 { farTurn.toggle() }
         }
         /// The system track holds the far end as heard in the room, stamped `late` frames later.
-        let stamped = (0..<count).map { frame in frame - late >= 0 && frame - late < count ? far[frame - late] : 0 }
+        let stamped = (0..<count).map { frame -> Double in
+            let position = Double(frame) - lag(AudioEnvelope.time(of: frame)) / AudioEnvelope.frameDuration
+            let low = Int(position.rounded(.down)), fraction = position - Double(low)
+            let at = { (i: Int) in i >= 0 && i < count ? far[i] : 0 }
+            return at(low) * (1 - fraction) + at(low + 1) * fraction
+        }
         system = AudioEnvelope(frames: stamped.map { $0 + 2 })
         microphone = AudioEnvelope(frames: (0..<count).map { frame in
             let room = 30 + 20 * random.next()
@@ -155,8 +166,8 @@ struct AlignedMixTests {
     func microphoneOnly() {
         let ducked = MixPlan(balance: .duckedMicrophone, alignment: .init(systemAudio: 0.5))
         #expect(ducked.microphoneFilter(systemAudio: 0, microphone: 1)
-                == "[0:a]atrim=start=0.5000,asetpts=PTS-STARTPTS[sys];[sys]asplit[key][call];"
-                + "[1:a][key]\(MixPlan.duck)[mic];[call]anullsink;[mic]anull[a]")
+                == "[0:a]atrim=start=0.5000,asetpts=PTS-STARTPTS[sys];[sys]anull[key];"
+                + "[1:a][key]\(MixPlan.duck)[mic];[mic]anull[a]")
         let matched = MixPlan(balance: .matched(.none), alignment: .init(systemAudio: 0.5, microphone: 0.01))
         #expect(matched.microphoneFilter(systemAudio: 0, microphone: 1)
                 == "[1:a]atrim=start=0.0100,asetpts=PTS-STARTPTS[mic0];[mic0]anull[a]")
@@ -253,5 +264,113 @@ struct AlignedAttributionTests {
         let microphone = try #require(SpeakerAttribution.Microphone(
             microphone: lined.microphone, systemAudio: lined.systemAudio, mix: plan))
         #expect(microphone.speaks(from: 1.0, to: 2.0))
+    }
+}
+
+@Suite("Track alignment per stretch")
+struct PiecewiseAlignmentTests {
+    @Test("a device change that moves the offset is measured as two stretches, each with its own lag")
+    func step() throws {
+        /// 0.5 s late on the built-in microphone, 0.12 s once the call moved at 300 s.
+        let call = SyntheticCall(seconds: 600, lag: { $0 < 300 ? 0.5 : 0.12 }, echo: 0.2)
+        let offset = TrackAlignment.measure(reference: call.microphone, other: call.system, boundaries: [300])
+        let sections = try #require(offset.sections)
+        #expect(sections.count == 2 && sections.allSatisfy(\.isMeasured))
+        #expect(abs((sections[0].seconds ?? 0) - 0.5) < 0.005 && abs((sections[1].seconds ?? 0) - 0.12) < 0.005)
+        #expect(sections[0].start == 0 && sections[0].end == 300 && sections[1].start == 300)
+        let shift = try #require(offset.shift)
+        #expect(shift.constant == nil && shift.pieces.count == 2)
+        #expect(abs(shift.offset(at: 100) - 0.5) < 0.005 && abs(shift.offset(at: 400) - 0.12) < 0.005)
+
+        /// Measured as one stretch, the same call has no lag the windows agree on.
+        let whole = TrackAlignment.measure(reference: call.microphone, other: call.system)
+        #expect(whole.sections?.count == 1)
+        #expect(whole.seconds == nil || whole.shift?.constant != nil)
+    }
+
+    @Test("a clock drifting within a stretch is followed as a straight line")
+    func drift() throws {
+        /// 60 ms an hour over 90 minutes: 90 ms from start to end, beyond what the windows'
+        /// agreement allows around one median.
+        let call = SyntheticCall(seconds: 5_400, lag: { 0.4 + 0.06 / 3_600 * $0 }, echo: 0.2)
+        let offset = TrackAlignment.measure(reference: call.microphone, other: call.system)
+        let section = try #require(offset.sections?.first)
+        #expect(abs((section.driftPerHour ?? 0) - 0.06) < 0.01)
+        #expect(abs((section.seconds ?? 0) - 0.4) < 0.005)
+        /// Every strong window, the first among them 90 ms from the last: more than one median
+        /// and its 40 ms agreement would have kept.
+        #expect(section.windowsUsed >= TrackAlignment.windowsForDrift)
+        let shift = try #require(offset.shift)
+        #expect(abs(shift.offset(at: 5_000) - (0.4 + 0.06 / 3_600 * 5_000)) < 0.006)
+    }
+
+    @Test("drift too small to matter over the stretch leaves one constant lag")
+    func smallDrift() throws {
+        /// 34 ms an hour over ten minutes: six milliseconds end to end.
+        let call = SyntheticCall(seconds: 600, lag: { 0.5 + 0.034 / 3_600 * $0 }, echo: 0.2)
+        let offset = TrackAlignment.measure(reference: call.microphone, other: call.system)
+        #expect(offset.sections?.first?.driftPerHour == nil)
+        let constant = try #require(offset.shift?.constant)
+        #expect(abs(constant - 0.503) < 0.005)
+    }
+
+    @Test("a stretch without echo takes its measured neighbour's lag at the change; one measured stretch is one constant")
+    func unmeasuredStretch() throws {
+        /// Speakers for the first five minutes, AirPods after: no echo to measure from.
+        let speakers = SyntheticCall(seconds: 600, late: 25, echo: 0.2)
+        let airpods = SyntheticCall(seconds: 600, late: 25, echo: nil)
+        let cut = Int(300 / AudioEnvelope.frameDuration)
+        let mic = AudioEnvelope(frames: Array(speakers.microphone.frames[..<cut]) + airpods.microphone.frames[cut...])
+        let offset = TrackAlignment.measure(reference: mic, other: speakers.system, boundaries: [300])
+        let sections = try #require(offset.sections)
+        #expect(sections[0].isMeasured && !sections[1].isMeasured)
+        let shift = try #require(offset.shift)
+        #expect(abs((shift.constant ?? 0) - 0.5) < 0.005, "the simple case: one lag for the call")
+    }
+
+    @Test("a stretch too short to measure is not measured, and nothing at all is measurable without echo")
+    func shortAndSilent() {
+        let call = SyntheticCall(seconds: 300, late: 25, echo: 0.2)
+        let offset = TrackAlignment.measure(reference: call.microphone, other: call.system, boundaries: [290])
+        #expect(offset.sections?.count == 2 && offset.sections?[1].isMeasured == false && offset.sections?[1].windowsTried == 0)
+        #expect(abs((offset.shift?.constant ?? 0) - 0.5) < 0.005)
+
+        let quiet = SyntheticCall(seconds: 600, late: 25, echo: nil)
+        let none = TrackAlignment.measure(reference: quiet.microphone, other: quiet.system, boundaries: [300])
+        #expect(none.seconds == nil && none.shift == nil && none.sections?.count == 2)
+    }
+
+    @Test("older mix.json offsets, with no stretches, still read as one lag")
+    func olderOffsets() throws {
+        let data = Data(#"{"seconds":0.505,"confidence":0.6,"windowsUsed":8,"windowsTried":8,"driftPerHour":0.034}"#.utf8)
+        let offset = try JSONDecoder().decode(TrackOffset.self, from: data)
+        #expect(offset.sections == nil && offset.shift == TrackShift(constant: 0.505))
+    }
+
+    @Test("a shift steps between pieces and drifts within one, and maps the track's time back exactly")
+    func shiftArithmetic() {
+        let shift = TrackShift(pieces: [.init(start: 0, seconds: 0.5), .init(start: 300, seconds: 0.1, driftPerHour: 0.036)])
+        #expect(shift.offset(at: 299.9) == 0.5)
+        #expect(abs(shift.offset(at: 300) - 0.1) < 1e-12 && abs(shift.offset(at: 400) - 0.101) < 1e-12)
+        #expect(abs(shift.referenceTime(of: 100.5) - 100) < 1e-9)
+        #expect(abs(shift.referenceTime(of: 400.101) - 400) < 1e-6)
+        #expect(TrackShift(pieces: [.init(start: 0, seconds: 0.2), .init(start: 50, seconds: 0.2)]).constant == 0.2,
+                "neighbours that say the same are one piece")
+
+        let stretches = shift.stretches(until: 600, resolution: 0.005)
+        #expect(stretches.first?.start == 0 && stretches.first?.end == 300 && stretches.first?.seconds == 0.5)
+        #expect(stretches.last?.end == 600)
+        /// 36 ms an hour moves 5 ms in 500 s: the drifting piece's 300 s is one stretch, held
+        /// at its middle.
+        #expect(stretches.count == 2 && abs((stretches.last?.seconds ?? 0) - 0.1015) < 1e-9)
+        #expect(shift.stretches(until: 3_600).count == 8, "3,300 s of drift in 500 s stretches")
+    }
+
+    @Test("an envelope moved by a stepping shift reads each side with its own lag")
+    func envelopeStep() {
+        let step = AudioEnvelope.frameDuration
+        let envelope = AudioEnvelope(frames: (0..<10).map(Double.init))
+        let shift = TrackShift(pieces: [.init(start: 0, seconds: 2 * step), .init(start: 5 * step, seconds: step)])
+        #expect(envelope.advanced(by: shift).frames == [2, 3, 4, 5, 6, 6, 7, 8, 9, 0])
     }
 }

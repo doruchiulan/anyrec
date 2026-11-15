@@ -201,15 +201,10 @@ final class Playback {
                     let slot = composition.addMutableTrack(withMediaType: kind, preferredTrackID: kCMPersistentTrackID_Invalid)
                 else { continue }
                 /// The call's track is moved into line with the microphone and the picture,
-                /// as the merged file has it, by the offset the mix measured from the echo.
-                let advance = track == .callAudio ? (MixDecision.read(in: entry.directory)?.alignment.systemAudio ?? 0) : 0
-                let shift = CMTime(seconds: abs(advance), preferredTimescale: 48_000)
-                if advance > 0, range.duration > shift {
-                    try? slot.insertTimeRange(CMTimeRange(start: range.start + shift, duration: range.duration - shift),
-                                              of: source, at: .zero)
-                } else {
-                    try? slot.insertTimeRange(range, of: source, at: advance < 0 ? shift : .zero)
-                }
+                /// as the merged file has it, by the offset the mix measured from the echo:
+                /// a stretch at a time when the offset changed over the call.
+                let advance = track == .callAudio ? (MixDecision.read(in: entry.directory)?.alignment.systemAudio ?? .zero) : .zero
+                Self.place(source, range: range, shifted: advance, into: slot)
                 if kind == .audio {
                     let parameters = AVMutableAudioMixInputParameters(track: slot)
                     parameters.setVolume(enabled.contains(track) ? 1 : 0, at: .zero)
@@ -224,5 +219,25 @@ final class Playback {
         player.replaceCurrentItem(with: item)
         await player.seek(to: CMTime(seconds: resume, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         if wasPlaying { player.rate = rate }
+    }
+
+    /// The track laid into `slot` on the microphone's timeline: each held stretch of
+    /// `shift` read from where it lies in the file, with silence where it would start
+    /// before the file does. One stretch for a constant offset.
+    private static func place(_ source: AVAssetTrack, range: CMTimeRange, shifted shift: TrackShift,
+                              into slot: AVMutableCompositionTrack) {
+        guard !shift.isZero else {
+            try? slot.insertTimeRange(range, of: source, at: .zero)
+            return
+        }
+        let length = range.duration.seconds
+        let time = { (seconds: Double) in CMTime(seconds: seconds, preferredTimescale: 48_000) }
+        for stretch in shift.stretches(until: shift.referenceTime(of: length)) {
+            let from = stretch.start + stretch.seconds, to = min(length, stretch.end + stretch.seconds)
+            let start = max(0, from)
+            guard to > start else { continue }
+            try? slot.insertTimeRange(CMTimeRange(start: range.start + time(start), duration: time(to - start)),
+                                      of: source, at: time(stretch.start + (start - from)))
+        }
     }
 }

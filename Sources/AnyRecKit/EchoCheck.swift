@@ -71,14 +71,14 @@ public enum EchoCheck {
         guard exists(plan.systemAudio), exists(plan.microphone) else { throw MuxError.nothingToMerge }
         let clean = exists(plan.cleanMicrophone) ? plan.cleanMicrophone : nil
         let decision = MixPlan.decide(systemAudio: plan.systemAudio, microphone: plan.microphone, clean: clean,
-                                      basis: .of(plan), using: ffmpeg)
+                                      basis: .of(plan), boundaries: MixPlan.boundaries(in: plan.directory), using: ffmpeg)
         let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone] + (clean.map { [$0] } ?? []), using: ffmpeg)
         guard let system = envelopes[0], let raw = envelopes[1] else { throw MuxError.unreadable(plan.microphone, "it could not be decoded") }
         let cleaned = clean == nil ? nil : envelopes[2]
         let live = MicrophoneLive.read(plan.microphoneLive)
 
-        let systemShift = decision.systemAudioOffset?.seconds ?? 0
-        let cleanShift = decision.cleanMicrophoneOffset?.seconds ?? 0
+        let systemShift = decision.systemAudioOffset?.shift ?? .zero
+        let cleanShift = decision.cleanMicrophoneOffset?.shift ?? .zero
         let far = system.advanced(by: systemShift)
         let measuredEcho = decision.systemAudioOffset?.isMeasured == true
         let talking = farTalking(far)

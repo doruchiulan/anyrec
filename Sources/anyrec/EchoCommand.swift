@@ -44,8 +44,10 @@ enum EchoReportText {
     static func render(_ report: EchoReport) -> String {
         var lines: [String] = []
         lines.append("Track offset   " + offset(report.systemAudioOffset, what: "call audio behind the microphone"))
+        lines += stretches(report.systemAudioOffset)
         if let clean = report.cleanMicrophoneOffset {
             lines.append("Clean mic      " + offset(clean, what: "echo-cancelled behind the raw microphone"))
+            lines += stretches(clean)
         }
         if let timing = report.timing {
             lines += self.timing(timing)
@@ -97,8 +99,45 @@ enum EchoReportText {
         return text
     }
 
+    /// The lag of each stretch between device changes, and whether its drift is followed.
+    /// Nothing when the call was one stretch with one lag.
+    static func stretches(_ offset: TrackOffset?) -> [String] {
+        guard let sections = offset?.sections, sections.count > 1 || sections.first?.driftPerHour != nil
+        else { return [] }
+        return sections.map { section in
+            let span = String(format: "  %@–%@  ", clock(section.start), clock(section.end))
+            guard let seconds = section.seconds else {
+                return span + String(format: "not measurable (best correlation %.2f), takes its neighbour's", section.confidence)
+            }
+            var text = span + String(format: "%+.0f ms (%d of %d windows)", seconds * 1000,
+                                     section.windowsUsed, section.windowsTried)
+            if let drift = section.driftPerHour { text += String(format: ", followed drifting %+.0f ms an hour", drift * 1000) }
+            return text
+        }
+    }
+
+    private static func clock(_ seconds: Double) -> String {
+        String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60)
+    }
+
     static func timing(_ timing: CaptureTiming) -> [String] {
         var lines: [String] = []
+        for change in timing.deviceChanges ?? [] {
+            var text = "Device change  " + clock(change.at) + "  " + change.reason.rawValue
+            if change.from != nil || change.to != nil {
+                text += ": " + (change.from.map { "\($0.name) (\($0.transport))" } ?? "none")
+                    + " → " + (change.to.map { "\($0.name) (\($0.transport), \(Int(($0.totalLatency * 1000).rounded())) ms)" } ?? "none")
+            }
+            if let output = change.outputTo { text += "; output → \(output.name)" }
+            if !change.affected.isEmpty { text += "; moved " + change.affected.joined(separator: ", ") }
+            if let problem = change.problem { text += "; " + problem }
+            lines.append(text)
+        }
+        for (name, stream) in timing.streams.sorted(by: { $0.key < $1.key }) {
+            for gap in stream.gaps ?? [] {
+                lines.append(String(format: "Gap            %@ in %@: %.0f ms written as silence", clock(gap.at), name, gap.seconds * 1000))
+            }
+        }
         if let gap = timing.stampingGap {
             lines.append(String(format: "Stamping gap   %+.0f ms between the outputs' stamps at arrival", gap * 1000))
         }

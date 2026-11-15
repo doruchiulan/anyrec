@@ -39,8 +39,9 @@ public struct MixDecision: Codable, Equatable, Sendable {
 
     public static let fileName = "mix.json"
     /// 2 added the track alignment and the echo-cancelled microphone; a version-1 file is
-    /// decided again, which is how an existing recording gets lined up.
-    static let version = 2
+    /// decided again, which is how an existing recording gets lined up. 3 measures the
+    /// alignment per stretch between device changes, and follows drift within one.
+    static let version = 3
 
     public var version = MixDecision.version
     public let basis: Basis
@@ -80,8 +81,8 @@ public struct MixDecision: Codable, Equatable, Sendable {
     /// microphone moves only when it is the one used.
     public var alignment: MixPlan.Alignment {
         MixPlan.Alignment(
-            systemAudio: systemAudioOffset?.seconds ?? 0,
-            microphone: microphoneTrack == .clean ? cleanMicrophoneOffset?.seconds ?? 0 : 0)
+            systemAudio: systemAudioOffset?.shift ?? .zero,
+            microphone: microphoneTrack == .clean ? cleanMicrophoneOffset?.shift ?? .zero : .zero)
     }
 
     func plan(live: MicrophoneLive?) -> MixPlan {
@@ -117,22 +118,33 @@ extension MixPlan {
         }
         let clean = exists(plan.cleanMicrophone) ? plan.cleanMicrophone : nil
         let decision = decide(systemAudio: plan.systemAudio, microphone: plan.microphone, clean: clean,
-                              basis: basis, using: ffmpeg)
+                              basis: basis, boundaries: boundaries(in: plan.directory), using: ffmpeg)
         decision.write(in: plan.directory)
         return decision.plan(live: live)
     }
 
+    /// Where the alignment's stretches end: the device changes capture recorded in
+    /// `recording.json`. None for older recordings, which are measured as one stretch.
+    static func boundaries(in directory: URL) -> [TimeInterval] {
+        RecordingInfo.read(directory)?.timing?.changeTimes ?? []
+    }
+
     /// Lines the tracks up first — the system track against the raw microphone, from the
     /// far end's echo; the clean microphone against the raw one, from the owner's voice —
-    /// then picks the microphone, then checks it for bleed on the aligned envelopes, then
-    /// measures loudness only if it does not bleed.
+    /// each stretch between device changes on its own, then picks the microphone, then
+    /// checks it for bleed on the aligned envelopes, then measures loudness only if it does
+    /// not bleed.
     static func decide(systemAudio: URL, microphone: URL, clean: URL?, basis: MixDecision.Basis,
-                       using ffmpeg: String) -> MixDecision {
+                       boundaries: [TimeInterval] = [], using ffmpeg: String) -> MixDecision {
         let envelopes = AudioEnvelope.of([systemAudio, microphone] + (clean.map { [$0] } ?? []), using: ffmpeg)
         let (system, raw) = (envelopes[0], envelopes[1])
         let cleaned = clean == nil ? nil : envelopes[2]
-        let systemOffset = system.flatMap { s in raw.map { TrackAlignment.measure(reference: $0, other: s) } }
-        let cleanOffset = cleaned.flatMap { c in raw.map { TrackAlignment.measure(reference: $0, other: c) } }
+        let systemOffset = system.flatMap { s in
+            raw.map { TrackAlignment.measure(reference: $0, other: s, boundaries: boundaries) }
+        }
+        let cleanOffset = cleaned.flatMap { c in
+            raw.map { TrackAlignment.measure(reference: $0, other: c, boundaries: boundaries) }
+        }
         let track: MicrophoneTrack = CleanMicrophone.usable(cleaned, besideRaw: raw) ? .clean : .raw
 
         var decision = MixDecision(basis: basis, bleeding: false, microphoneLoudness: nil, systemAudioLoudness: nil,

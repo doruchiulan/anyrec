@@ -15,15 +15,22 @@ public struct MixPlan: Sendable, Equatable {
     }
 
     /// How far each track is moved so both sit on the raw microphone's timeline, which
-    /// is also the video's and the call window's. Seconds earlier; negative is later.
+    /// is also the video's and the call window's. Seconds earlier; negative is later. Each
+    /// is a `TrackShift`: one lag for the call, or a lag per stretch between device
+    /// changes, drifting where it was measured drifting.
     public struct Alignment: Sendable, Equatable, Codable {
         /// The system track, by the lag of the far end's echo behind it.
-        public var systemAudio: TimeInterval
+        public var systemAudio: TrackShift
         /// The microphone the mix uses: zero for the raw track, the measured lag of the
         /// echo-cancelled one behind the raw one when that is used.
-        public var microphone: TimeInterval
+        public var microphone: TrackShift
 
         public init(systemAudio: TimeInterval = 0, microphone: TimeInterval = 0) {
+            self.systemAudio = TrackShift(constant: systemAudio)
+            self.microphone = TrackShift(constant: microphone)
+        }
+
+        public init(systemAudio: TrackShift, microphone: TrackShift = .zero) {
             self.systemAudio = systemAudio
             self.microphone = microphone
         }
@@ -148,7 +155,13 @@ public struct MixPlan: Sendable, Equatable {
         let whole = filter(systemAudio: systemAudio, microphone: microphone)
         switch balance {
         case .duckedMicrophone:
-            return whole.replacingOccurrences(of: "[call][mic]" + Self.sum(2), with: "[call]anullsink;[mic]anull[a]")
+            /// The call only keys the duck, so it is not split off at all. Split off and
+            /// sent to `anullsink`, a drifting shift on the call made ffmpeg 7.1's scheduler
+            /// assert (`best_input >= 0`) and the check lost its lined-up row; summed in at
+            /// nothing, a mono microphone was upmixed against the stereo call, 3 dB down.
+            return whole
+                .replacingOccurrences(of: "asplit[key][call]", with: "anull[key]")
+                .replacingOccurrences(of: "[call][mic]" + Self.sum(2), with: "[mic]anull[a]")
         case .matched:
             var stages: [String] = []
             var mic = "[\(microphone):a]"
@@ -166,9 +179,37 @@ public struct MixPlan: Sendable, Equatable {
     /// zero, so the gate's `t` and the sum read the microphone's timeline. Nothing under
     /// half a millisecond, which is less than a sample's worth of anything audible here.
     static func shift(_ seconds: TimeInterval) -> String? {
-        guard abs(seconds) >= 0.0005 else { return nil }
+        guard abs(seconds) >= TrackShift.negligible else { return nil }
         if seconds > 0 { return String(format: "atrim=start=%.4f,asetpts=PTS-STARTPTS", seconds) }
         return String(format: "adelay=delays=%.3f:all=1", -seconds * 1000)
+    }
+
+    /// A track moved by a lag that changes over the call. One lag is the trim or delay
+    /// above. Otherwise each frame is restamped where it belongs on the microphone's
+    /// timeline (`asetpts`, the lag of the piece it falls in, exact for a drifting piece)
+    /// and `aresample` makes the audio follow its stamps: a step of more than 20 ms is cut
+    /// or padded with silence at once, anything smaller — a clock's drift, a few samples a
+    /// minute — is absorbed by resampling at most 100 samples a second, a pitch change of
+    /// a fraction of a cent. `first_pts=0` trims or pads the start as the constant case
+    /// does, so the gate's `t` and the sum read the microphone's timeline. Checked on clicks
+    /// a second apart: a 200 ms step lands within a millisecond, and a drift thirty times
+    /// the worst measured is followed to within one.
+    static func shift(_ shift: TrackShift) -> String? {
+        if let constant = shift.constant { return Self.shift(constant) }
+        var expression = ""
+        for (index, piece) in shift.pieces.enumerated().reversed() {
+            let k = piece.slope
+            let mapped = k == 0 ? String(format: "(T-%.6f)", piece.seconds)
+                : String(format: "(T-%.6f+%.12f*%.4f)/(1+%.12f)", piece.seconds, k, piece.start, k)
+            if index == shift.pieces.count - 1 {
+                expression = mapped
+            } else {
+                let next = shift.pieces[index + 1]
+                let boundary = next.start + piece.seconds + k * (next.start - piece.start)
+                expression = String(format: "if(lt(T,%.4f),%@,%@)", boundary, mapped, expression)
+            }
+        }
+        return "asetpts='(\(expression))/TB',aresample=async=100:min_hard_comp=0.02:first_pts=0"
     }
 
     /// The two envelopes as the mixes line them up: each track advanced by its offset, so
@@ -180,7 +221,7 @@ public struct MixPlan: Sendable, Equatable {
 
     /// How long a track of `length` seconds runs once moved.
     public func length(of length: TimeInterval, systemAudio: Bool) -> TimeInterval {
-        max(0, length - (systemAudio ? alignment.systemAudio : alignment.microphone))
+        max(0, (systemAudio ? alignment.systemAudio : alignment.microphone).referenceTime(of: length))
     }
 
     /// Silence wherever the call was not listening. `enable` is evaluated per frame

@@ -137,7 +137,7 @@ struct EncodedAlignmentTests {
                                  "-f", "lavfi", "-i", "anoisesrc=color=white:amplitude=0.002:duration=70:sample_rate=48000",
                                  "-filter_complex", "[0:a][1:a]amix=inputs=2:normalize=0", "-c:a", "aac", plan.microphone.path]))
         let decided = MixPlan.decided(for: plan, using: try #require(Muxer.ffmpegPath()))
-        #expect(abs(decided.alignment.systemAudio - 0.3) < 0.01)
+        #expect(abs((decided.alignment.systemAudio.constant ?? 0) - 0.3) < 0.01)
         let stored = try #require(MixDecision.read(in: plan.directory)?.systemAudioOffset)
         #expect(stored.windowsUsed == stored.windowsTried && stored.confidence > 0.45)
     }
