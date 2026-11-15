@@ -158,6 +158,10 @@ enum Preferences {
         return inputs.first { $0.id == id }
     }
 
+    static func followDefaultMicrophone() {
+        defaults.removeObject(forKey: Key.microphone)
+    }
+
     /// True when Off was chosen, as against never having chosen anything — the one case
     /// where not resolving a device is the answer rather than a fallback.
     static var microphoneIsOff: Bool { defaults.string(forKey: Key.microphone) == "" }
