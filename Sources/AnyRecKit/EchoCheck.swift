@@ -1,0 +1,172 @@
+import Foundation
+
+/// How much of the far end is left in the microphone, measured four ways on one recording:
+/// the raw track, the duck as it was before the tracks were lined up, the duck lined up, and
+/// the echo-cancelled track. Answers one question after a call on speakers: does cancelling
+/// at capture beat holding the microphone down afterwards? If it does, nothing more is
+/// built after the fact.
+///
+/// "Echo left" is the microphone's level against the far end's at the moments the far end
+/// was talking, in dB, with the far end read off the system track moved onto the
+/// microphone's timeline. Lower is better; the room alone is about −30 dB here, the lined-up
+/// duck about −45. The owner's level is read where only the owner talks, so it shows what
+/// voice processing does to their voice.
+public struct EchoReport: Sendable {
+    public struct Echo: Sendable, Equatable {
+        /// Median dB under the far end, over the frames the far end talks in.
+        public let median: Double
+        /// Share of those frames less than 20 dB under the far end: audible echo.
+        public let audible: Double
+        /// Share of frames in the first half-second of each far-end phrase less than
+        /// 12 dB under it: the leak a late duck lets through.
+        public let onsetLoud: Double
+        public let phrases: Int
+    }
+
+    public let systemAudioOffset: TrackOffset?
+    public let cleanMicrophoneOffset: TrackOffset?
+    /// Nil when that track or measurement is not there.
+    public let raw: Echo?
+    public let duckedBefore: Echo?
+    public let duckedAligned: Echo?
+    public let clean: Echo?
+    /// The clean track held down too, which is what the mixes do if it still bleeds.
+    public let cleanDucked: Echo?
+    /// The owner's median level, dBFS, where only they talk, in each microphone track.
+    public let ownerRaw: Double?
+    public let ownerClean: Double?
+    /// Whether the mix would hold the clean track down, as `MixDecision` decides it.
+    public let cleanStillBleeds: Bool?
+    public let timing: CaptureTiming?
+
+    public enum Verdict: Sendable, Equatable {
+        /// No echo to measure from: headphones, or a far end that never spoke.
+        case noEcho
+        /// No echo-cancelled track was recorded.
+        case noCleanTrack
+        case captureWins
+        case duckWins
+    }
+
+    /// Capture-time cancellation wins when it leaves no more echo than the lined-up duck,
+    /// in the middle and at phrase starts, and does not take more than 10 dB off the owner.
+    public var verdict: Verdict {
+        guard let aligned = duckedAligned, systemAudioOffset?.isMeasured == true else { return .noEcho }
+        guard let clean else { return .noCleanTrack }
+        let best = cleanStillBleeds == true ? (cleanDucked ?? clean) : clean
+        let voiceKept = (ownerClean ?? 0) - (ownerRaw ?? 0) > -10
+        return best.median <= aligned.median + 1 && best.onsetLoud <= aligned.onsetLoud + 0.02 && voiceKept
+            ? .captureWins : .duckWins
+    }
+
+    public var ownerChange: Double? {
+        guard let ownerRaw, let ownerClean else { return nil }
+        return ownerClean - ownerRaw
+    }
+}
+
+public enum EchoCheck {
+    public static func measure(_ plan: OutputPlan, using ffmpeg: String) throws -> EchoReport {
+        let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
+        guard exists(plan.systemAudio), exists(plan.microphone) else { throw MuxError.nothingToMerge }
+        let clean = exists(plan.cleanMicrophone) ? plan.cleanMicrophone : nil
+        let decision = MixPlan.decide(systemAudio: plan.systemAudio, microphone: plan.microphone, clean: clean,
+                                      basis: .of(plan), using: ffmpeg)
+        let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone] + (clean.map { [$0] } ?? []), using: ffmpeg)
+        guard let system = envelopes[0], let raw = envelopes[1] else { throw MuxError.unreadable(plan.microphone, "it could not be decoded") }
+        let cleaned = clean == nil ? nil : envelopes[2]
+        let live = MicrophoneLive.read(plan.microphoneLive)
+
+        let systemShift = decision.systemAudioOffset?.seconds ?? 0
+        let cleanShift = decision.cleanMicrophoneOffset?.seconds ?? 0
+        let far = system.advanced(by: systemShift)
+        let measuredEcho = decision.systemAudioOffset?.isMeasured == true
+        let talking = farTalking(far)
+
+        let duck = { (alignment: MixPlan.Alignment, track: MixPlan.MicrophoneTrack) -> AudioEnvelope? in
+            let mix = MixPlan(balance: .duckedMicrophone, microphoneLive: nil, alignment: alignment, microphoneTrack: track)
+            return ducked(systemAudio: plan.systemAudio, microphone: track.url(besideRaw: plan.microphone), plan: mix, using: ffmpeg)
+        }
+        let before = duck(.none, .raw)
+        let aligned = duck(MixPlan.Alignment(systemAudio: systemShift), .raw)
+        let cleanAligned = cleaned.map { $0.advanced(by: cleanShift) }
+        let cleanDucked = clean == nil ? nil : duck(MixPlan.Alignment(systemAudio: systemShift, microphone: cleanShift), .clean)
+
+        let alone = ownerAlone(raw: raw, far: far, live: live)
+        let echo = { (track: AudioEnvelope?) in track.flatMap { echoLeft($0, far: far, talking: talking) } }
+        return EchoReport(
+            systemAudioOffset: decision.systemAudioOffset, cleanMicrophoneOffset: decision.cleanMicrophoneOffset,
+            raw: echo(raw), duckedBefore: echo(before), duckedAligned: measuredEcho ? echo(aligned) : nil,
+            clean: echo(cleanAligned), cleanDucked: echo(cleanDucked),
+            ownerRaw: level(raw, at: alone), ownerClean: cleanAligned.flatMap { level($0, at: alone) },
+            cleanStillBleeds: clean == nil ? nil : (decision.microphoneTrack == .clean ? decision.bleeding : nil),
+            timing: RecordingInfo.read(plan.directory)?.timing)
+    }
+
+    /// The microphone as a ducking mix hears it, through the same filter graph the mixes
+    /// use. Nil when ffmpeg could not make it.
+    static func ducked(systemAudio: URL, microphone: URL, plan: MixPlan, using ffmpeg: String) -> AudioEnvelope? {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-echo-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let arguments = [
+            "-nostdin", "-y", "-v", "error", "-i", systemAudio.path, "-i", microphone.path,
+            "-filter_complex", plan.microphoneFilter(systemAudio: 0, microphone: 1),
+            "-map", "[a]", "-ac", "1", "-ar", "\(AudioEnvelope.sampleRate)", scratch.path,
+        ]
+        guard let result = try? Shell.run(ffmpeg, arguments), result.succeeded else { return nil }
+        return AudioEnvelope.of(scratch, using: ffmpeg)
+    }
+
+    /// The far end talking: above its own speech line and above the 60th percentile, so a
+    /// call that is mostly silence is not judged on its comfort noise.
+    static func farTalking(_ far: AudioEnvelope) -> [Bool] {
+        guard !far.isEmpty else { return [] }
+        let sorted = far.frames.sorted()
+        let line = max(SpeechRegions.threshold(for: far), sorted[Int(Double(sorted.count) * 0.6)])
+        return far.frames.map { $0 > line && $0 > 0 }
+    }
+
+    static func echoLeft(_ track: AudioEnvelope, far: AudioEnvelope, talking: [Bool]) -> EchoReport.Echo? {
+        let count = min(track.frames.count, far.frames.count, talking.count)
+        let decibels = { (value: Double) in 20 * log10(max(value, 1e-3)) }
+        var relative: [Double] = []
+        var onset: [Double] = []
+        var phrases = 0
+        let onsetFrames = AudioEnvelope.index(at: 0.5)
+        var phraseStart = 0
+        for index in 0..<count where talking[index] {
+            if index == 0 || !talking[index - 1] {
+                phraseStart = index
+                phrases += 1
+            }
+            let difference = decibels(track.frames[index]) - decibels(far.frames[index])
+            relative.append(difference)
+            if index - phraseStart < onsetFrames { onset.append(difference) }
+        }
+        guard !relative.isEmpty else { return nil }
+        return EchoReport.Echo(
+            median: TrackAlignment.median(relative),
+            audible: Double(relative.filter { $0 > -20 }.count) / Double(relative.count),
+            onsetLoud: onset.isEmpty ? 0 : Double(onset.filter { $0 > -12 }.count) / Double(onset.count),
+            phrases: phrases)
+    }
+
+    /// Frames where the owner talks and the far end does not, while the call could hear them.
+    static func ownerAlone(raw: AudioEnvelope, far: AudioEnvelope, live: MicrophoneLive?) -> [Int] {
+        let speaking = SpeechRegions.threshold(for: raw)
+        let quiet = far.noiseFloor * SpeechRegions.overFloor
+        let count = min(raw.frames.count, far.frames.count)
+        return (0..<count).filter { index in
+            guard raw.frames[index] > speaking, far.frames[index] <= quiet else { return false }
+            guard let live else { return true }
+            let time = AudioEnvelope.time(of: index)
+            return live.spans.contains { $0.contains(time) }
+        }
+    }
+
+    /// Median dBFS over the given frames.
+    static func level(_ track: AudioEnvelope, at frames: [Int]) -> Double? {
+        let values = frames.filter { $0 < track.frames.count }.map { 20 * log10(max(track.frames[$0], 1e-3) / Double(Int16.max)) }
+        return values.isEmpty ? nil : TrackAlignment.median(values)
+    }
+}

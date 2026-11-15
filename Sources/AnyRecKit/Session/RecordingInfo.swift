@@ -21,10 +21,14 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
     /// written before merged files were named, whose merge is `call.mp4`. Read through
     /// `RecordingMedia`, which falls back when the named file is not there.
     public var mergedFile: String?
+    /// When each output's buffers were stamped and arrived, and the audio devices in use,
+    /// written when capture stops. Nil in files written before this was recorded and for a
+    /// recording whose capture never finished.
+    public var timing: CaptureTiming?
 
     public init(
         title: String, bundleID: String?, width: Int, height: Int, fps: Int, audioOnly: Bool = false,
-        mergedFile: String? = nil
+        mergedFile: String? = nil, timing: CaptureTiming? = nil
     ) {
         self.title = title
         self.bundleID = bundleID
@@ -33,10 +37,11 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
         self.fps = fps
         self.audioOnly = audioOnly
         self.mergedFile = mergedFile
+        self.timing = timing
     }
 
     private enum CodingKeys: String, CodingKey {
-        case title, bundleID, width, height, fps, audioOnly, mergedFile
+        case title, bundleID, width, height, fps, audioOnly, mergedFile, timing
     }
 
     public init(from decoder: Decoder) throws {
@@ -48,6 +53,9 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
         fps = try container.decode(Int.self, forKey: .fps)
         audioOnly = try container.decodeIfPresent(Bool.self, forKey: .audioOnly) ?? false
         mergedFile = try container.decodeIfPresent(String.self, forKey: .mergedFile)
+        /// Evidence, never needed to read a recording: a file it cannot be read from is
+        /// read without it.
+        timing = try? container.decodeIfPresent(CaptureTiming.self, forKey: .timing)
     }
 
     /// The registry's name for the app, else nil: a bundle id is not something to show.

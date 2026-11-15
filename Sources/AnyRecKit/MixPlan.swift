@@ -14,15 +14,51 @@ public struct MixPlan: Sendable, Equatable {
         case duckedMicrophone
     }
 
+    /// How far each track is moved so both sit on the raw microphone's timeline, which
+    /// is also the video's and the call window's. Seconds earlier; negative is later.
+    public struct Alignment: Sendable, Equatable, Codable {
+        /// The system track, by the lag of the far end's echo behind it.
+        public var systemAudio: TimeInterval
+        /// The microphone the mix uses: zero for the raw track, the measured lag of the
+        /// echo-cancelled one behind the raw one when that is used.
+        public var microphone: TimeInterval
+
+        public init(systemAudio: TimeInterval = 0, microphone: TimeInterval = 0) {
+            self.systemAudio = systemAudio
+            self.microphone = microphone
+        }
+
+        public static let none = Alignment()
+    }
+
+    /// Which microphone recording the mix is built from. The raw track is the master and
+    /// always there; the echo-cancelled one is used when it was recorded and carries sound.
+    public enum MicrophoneTrack: String, Sendable, Equatable, Codable {
+        case raw, clean
+
+        /// The file for this track beside the raw microphone `raw`.
+        public func url(besideRaw raw: URL) -> URL {
+            switch self {
+            case .raw: raw
+            case .clean: raw.deletingLastPathComponent().appendingPathComponent(OutputPlan.cleanMicrophoneName)
+            }
+        }
+    }
+
     public var balance: Balance
     /// When the call could hear the microphone. Outside these spans it is silenced,
     /// because nothing on it reached anyone. Nil when nobody watched, and it is left
     /// alone.
     public var microphoneLive: MicrophoneLive?
+    public var alignment: Alignment
+    public var microphoneTrack: MicrophoneTrack
 
-    public init(balance: Balance, microphoneLive: MicrophoneLive? = nil) {
+    public init(balance: Balance, microphoneLive: MicrophoneLive? = nil, alignment: Alignment = .none,
+                microphoneTrack: MicrophoneTrack = .raw) {
         self.balance = balance
         self.microphoneLive = microphoneLive
+        self.alignment = alignment
+        self.microphoneTrack = microphoneTrack
     }
 
     public static let plain = MixPlan(balance: .matched(.none))
@@ -50,9 +86,9 @@ public struct MixPlan: Sendable, Equatable {
             decided.microphoneLive = live
             return decided
         }
-        let decision = decide(systemAudio: systemAudio, microphone: microphone,
+        let decision = decide(systemAudio: systemAudio, microphone: microphone, clean: nil,
                               basis: .init(microphone: nil, systemAudio: nil, microphoneLive: nil), using: ffmpeg)
-        return MixPlan(balance: decision.balance, microphoneLive: live)
+        return decision.plan(live: live)
     }
 
     /// A sidechain compressor keyed on the call, which needs no estimate of how loud
@@ -70,10 +106,20 @@ public struct MixPlan: Sendable, Equatable {
     static let duckRelease: TimeInterval = 0.3
 
     /// The `filter_complex` graph summing ffmpeg inputs `systemAudio` and `microphone`
-    /// into `[a]`.
+    /// into `[a]`. Each track is first moved onto the raw microphone's timeline; the
+    /// microphone input is whichever `microphoneTrack` names.
     public func filter(systemAudio: Int, microphone: Int) -> String {
         var stages: [String] = []
+        var system = "[\(systemAudio):a]"
+        if let shift = Self.shift(alignment.systemAudio) {
+            stages.append(system + shift + "[sys]")
+            system = "[sys]"
+        }
         var mic = "[\(microphone):a]"
+        if let shift = Self.shift(alignment.microphone) {
+            stages.append(mic + shift + "[mic0]")
+            mic = "[mic0]"
+        }
         if let live = microphoneLive {
             stages.append(mic + Self.gate(live) + "[live]")
             mic = "[live]"
@@ -82,17 +128,59 @@ public struct MixPlan: Sendable, Equatable {
         switch balance {
         case .matched(let gains):
             stages += Self.matched([
-                (systemAudio, "[\(systemAudio):a]", gains.systemAudio),
+                (systemAudio, system, gains.systemAudio),
                 (microphone, mic, gains.microphone),
             ])
         case .duckedMicrophone:
             stages += [
-                "[\(systemAudio):a]asplit[key][call]",
+                system + "asplit[key][call]",
                 mic + "[key]" + Self.duck + "[mic]",
                 "[call][mic]" + Self.sum(2),
             ]
         }
         return stages.joined(separator: ";")
+    }
+
+    /// The graph that leaves only the microphone as the mix hears it, in `[a]`: moved,
+    /// gated, and held under the call when the plan ducks. What the echo check measures,
+    /// so it hears exactly the duck the mixes apply.
+    public func microphoneFilter(systemAudio: Int, microphone: Int) -> String {
+        let whole = filter(systemAudio: systemAudio, microphone: microphone)
+        switch balance {
+        case .duckedMicrophone:
+            return whole.replacingOccurrences(of: "[call][mic]" + Self.sum(2), with: "[call]anullsink;[mic]anull[a]")
+        case .matched:
+            var stages: [String] = []
+            var mic = "[\(microphone):a]"
+            if let shift = Self.shift(alignment.microphone) {
+                stages.append(mic + shift + "[mic0]")
+                mic = "[mic0]"
+            }
+            if let live = microphoneLive { stages.append(mic + Self.gate(live) + "[live]"); mic = "[live]" }
+            stages.append(mic + "anull[a]")
+            return stages.joined(separator: ";")
+        }
+    }
+
+    /// A track moved `seconds` earlier (later when negative). Trimmed, it starts again at
+    /// zero, so the gate's `t` and the sum read the microphone's timeline. Nothing under
+    /// half a millisecond, which is less than a sample's worth of anything audible here.
+    static func shift(_ seconds: TimeInterval) -> String? {
+        guard abs(seconds) >= 0.0005 else { return nil }
+        if seconds > 0 { return String(format: "atrim=start=%.4f,asetpts=PTS-STARTPTS", seconds) }
+        return String(format: "adelay=delays=%.3f:all=1", -seconds * 1000)
+    }
+
+    /// The two envelopes as the mixes line them up: each track advanced by its offset, so
+    /// both read on the raw microphone's timeline. Everything that compares the two —
+    /// speech regions, attribution, the owner merge — reads them through this.
+    public func aligned(systemAudio: AudioEnvelope, microphone: AudioEnvelope) -> (systemAudio: AudioEnvelope, microphone: AudioEnvelope) {
+        (systemAudio.advanced(by: alignment.systemAudio), microphone.advanced(by: alignment.microphone))
+    }
+
+    /// How long a track of `length` seconds runs once moved.
+    public func length(of length: TimeInterval, systemAudio: Bool) -> TimeInterval {
+        max(0, length - (systemAudio ? alignment.systemAudio : alignment.microphone))
     }
 
     /// Silence wherever the call was not listening. `enable` is evaluated per frame

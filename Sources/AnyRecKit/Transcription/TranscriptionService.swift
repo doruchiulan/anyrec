@@ -135,12 +135,16 @@ public enum TranscriptionService {
 
         /// Each track is decoded once and read three ways — bleed, speech and who said
         /// each line. Speech is found on the mix as the plan builds it, worked out from
-        /// the two envelopes rather than by decoding the mix a third time.
-        let envelopes = AudioEnvelope.of([microphone, systemAudio].compactMap { $0 }, using: ffmpeg)
-        let (mic, system) = (envelopes[0], envelopes[1])
+        /// the two envelopes rather than by decoding the mix a third time. The microphone
+        /// is the one the mix took, and both are moved into line as the mix moved them,
+        /// so everything after this reads one timeline: the raw microphone's.
+        let envelopes = AudioEnvelope.of([mix.microphone, systemAudio].compactMap { $0 }, using: ffmpeg)
+        var (mic, system) = (envelopes[0], envelopes[1])
         let regions: [Range<TimeInterval>]
-        if let mic, let system {
-            regions = SpeechRegions.detect(in: mix.plan.envelope(systemAudio: system, microphone: mic))
+        if let heard = mic, let call = system {
+            let lined = mix.plan.aligned(systemAudio: call, microphone: heard)
+            (system, mic) = (lined.systemAudio, lined.microphone)
+            regions = SpeechRegions.detect(in: mix.plan.envelope(systemAudio: lined.systemAudio, microphone: lined.microphone))
         } else {
             regions = AudioEnvelope.of(mix.url, using: ffmpeg).map(SpeechRegions.detect) ?? []
         }

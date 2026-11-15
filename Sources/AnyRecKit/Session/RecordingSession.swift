@@ -145,6 +145,10 @@ public final class RecordingSession {
         let live = microphone.stop()
         let evidence = participants.stop()
         let summary = try await recorder.stop()
+        if var info = RecordingInfo.read(plan.directory), let timing = summary.timing {
+            info.timing = timing
+            try? info.write(to: plan.directory)
+        }
         try? live?.write(to: plan.microphoneLive)
         if evidence.observations.contains(where: { !$0.participants.isEmpty }) {
             try? evidence.write(in: plan.directory)

@@ -28,6 +28,10 @@ public struct RecordingSummary: Sendable {
     public let endedEarly: String?
     /// No screen track was asked for, so its absence is not a shortfall.
     public var audioOnly = false
+    /// Buffers written to `microphone-clean.m4a`; zero when it was off or could not run.
+    public var cleanMicrophoneSamples = 0
+    /// When each output's buffers were stamped and arrived, and the devices in use.
+    public var timing: CaptureTiming?
 
     public func peak(for track: AudioTrack) -> Float {
         switch track {
@@ -83,6 +87,11 @@ public final class Recorder: NSObject {
     private var timelineAnchor: (seconds: TimeInterval, uptime: TimeInterval)?
     private var failure: Error?
     private var streamFailure: Error?
+    /// The echo-cancelled microphone. Its buffers are handed to `queue` and written there,
+    /// like every other output, so the writer table and the session clock stay single-queue.
+    private var clean: CleanMicrophone?
+    private var cleanWriter: TrackWriter?
+    private var timing = CaptureTiming()
 
     public var captureEnded: Bool { queue.sync { streamFailure != nil } }
 
@@ -116,6 +125,66 @@ public final class Recorder: NSObject {
         }
         try await stream.startCapture()
         self.stream = stream
+        noteDevices()
+        if options.captureMicrophone, options.cleanMicrophone { startCleanMicrophone() }
+    }
+
+    /// The devices as they stand when capture starts: the default output, the default
+    /// input, and the microphone recorded when it is another device.
+    private func noteDevices() {
+        let output = AudioDeviceFacts.defaultOutput(), input = AudioDeviceFacts.defaultInput()
+        let microphone = options.microphoneDeviceID.flatMap { uid in uid == input?.uid ? nil : AudioDeviceFacts.input(uid: uid) }
+        queue.sync {
+            timing.output = output
+            timing.input = input
+            timing.microphone = microphone
+        }
+    }
+
+    /// A clean microphone that will not start costs the recording nothing: the reason is
+    /// kept in the timing facts and the raw track is all there is, as before.
+    private func startCleanMicrophone() {
+        let microphone = CleanMicrophone(deviceUID: options.microphoneDeviceID) { [weak self] sample, arrival in
+            guard let self else { return }
+            self.queue.async { self.writeClean(sample, arrival: arrival) }
+        }
+        do {
+            try microphone.start()
+            clean = microphone
+        } catch {
+            queue.sync { timing.cleanMicrophoneProblem = error.localizedDescription }
+        }
+    }
+
+    /// Clean buffers wait for the session clock that ScreenCaptureKit's first written
+    /// buffer starts, and never start it, so the clock, the timeline anchor and the
+    /// participant times are exactly what they were without this track.
+    private func writeClean(_ sample: CMSampleBuffer, arrival: Double) {
+        guard let start = sessionStart else { return }
+        note(sample, arrival: arrival, as: CaptureTiming.cleanMicrophone)
+        do {
+            if cleanWriter == nil {
+                cleanWriter = try TrackWriter(url: plan.cleanMicrophone, kind: .audio,
+                                              formatHint: CMSampleBufferGetFormatDescription(sample))
+            }
+            cleanWriter?.append(sample, sessionStart: start)
+        } catch {
+            timing.cleanMicrophoneProblem = timing.cleanMicrophoneProblem ?? error.localizedDescription
+            clean?.stop()
+        }
+    }
+
+    private func note(_ sample: CMSampleBuffer, arrival: Double, as stream: String) {
+        let presentation = CMSampleBufferGetPresentationTimeStamp(sample).seconds
+        /// JSON has no NaN, and a buffer without a time says nothing about timing.
+        guard presentation.isFinite, arrival.isFinite else { return }
+        let duration = CMSampleBufferGetDuration(sample).seconds
+        let frames = Double(CMSampleBufferGetNumSamples(sample))
+        let rate = CMSampleBufferGetFormatDescription(sample)
+            .flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mSampleRate } ?? 0
+        let length = duration.isFinite && duration > 0 ? duration : (rate > 0 ? frames / rate : 0)
+        timing.streams[stream, default: .init()].note(
+            .init(presentation: presentation, arrival: arrival, duration: length))
     }
 
     @discardableResult
@@ -124,8 +193,12 @@ public final class Recorder: NSObject {
             try? await stream.stopCapture()
             self.stream = nil
         }
-        let (tracks, error) = queue.sync { (writers, failure ?? streamFailure) }
+        clean?.stop()
+        clean = nil
+        /// Anything the clean microphone handed over before it stopped is written first.
+        let (tracks, error, cleanTrack, timing) = queue.sync { (writers, failure ?? streamFailure, cleanWriter, self.timing) }
         for track in tracks.values { await track.finish() }
+        let cleanSamples = await cleanTrack?.finish() ?? 0
 
         let ended = error.flatMap(Self.endOfRecording)
         if let error, ended == nil { throw RecorderError.streamStopped(error) }
@@ -138,7 +211,9 @@ public final class Recorder: NSObject {
             systemAudioPeak: levels.sessionPeak(for: .systemAudio),
             microphonePeak: levels.sessionPeak(for: .microphone),
             endedEarly: ended,
-            audioOnly: !options.recordsVideo
+            audioOnly: !options.recordsVideo,
+            cleanMicrophoneSamples: cleanSamples,
+            timing: timing
         )
     }
 
@@ -240,6 +315,15 @@ public final class Recorder: NSObject {
         return created
     }
 
+    static func streamName(_ type: SCStreamOutputType) -> String {
+        switch type {
+        case .screen: CaptureTiming.screen
+        case .audio: CaptureTiming.systemAudio
+        case .microphone: CaptureTiming.microphoneStream
+        @unknown default: "unknown"
+        }
+    }
+
     /// SCK emits idle and blank frames when nothing on screen changed; writing those
     /// would pad the video with duplicate frames and drift it out of sync with audio.
     private func isCompleteFrame(_ buffer: CMSampleBuffer) -> Bool {
@@ -261,7 +345,9 @@ extension Recorder: SCStreamOutput {
         of type: SCStreamOutputType
     ) {
         guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        let arrival = CaptureTiming.now()
         guard accepts(type, complete: isCompleteFrame(sampleBuffer)) else { return }
+        note(sampleBuffer, arrival: arrival, as: Self.streamName(type))
 
         if let track = AudioTrack(type), let level = AudioLevelMeter.measure(sampleBuffer) {
             levels.record(level, for: track)
@@ -271,6 +357,7 @@ extension Recorder: SCStreamOutput {
             let track = try writer(for: type, buffer: sampleBuffer)
             let presentation = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             let start = sessionStart ?? presentation
+            if sessionStart == nil { timing.sessionStart = start.seconds }
             sessionStart = start
             let seconds = CMTimeGetSeconds(presentation - start)
             if seconds.isFinite, seconds >= (timelineAnchor?.seconds ?? 0) {

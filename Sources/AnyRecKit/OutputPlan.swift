@@ -14,6 +14,11 @@ public struct OutputPlan: Sendable, Equatable {
     public let microphone: URL
     /// When the call could hear the microphone. Absent when nothing watched.
     public let microphoneLive: URL
+    /// The same microphone through macOS voice processing, echo cancelled, recorded beside
+    /// the raw track. Absent when it was switched off or could not run.
+    public let cleanMicrophone: URL
+
+    public static let cleanMicrophoneName = "microphone-clean.m4a"
 
     public init(directory: URL) {
         let directory = URL(fileURLWithPath: directory.path, isDirectory: true)
@@ -23,6 +28,7 @@ public struct OutputPlan: Sendable, Equatable {
         systemAudio = directory.appendingPathComponent("system-audio.m4a")
         microphone = directory.appendingPathComponent("microphone.m4a")
         microphoneLive = directory.appendingPathComponent("microphone-live.json")
+        cleanMicrophone = directory.appendingPathComponent(Self.cleanMicrophoneName)
     }
 
     public static func folderName(for date: Date) -> String {

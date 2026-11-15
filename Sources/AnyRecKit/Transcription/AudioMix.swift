@@ -11,12 +11,13 @@ public enum AudioMix {
     static let sampleRate = 16_000
     static let name = "mix.wav"
 
-    /// The file, plus how the tracks went into it. Nil when there is nothing to mix,
-    /// so the caller can transcribe the one track it has instead.
+    /// The file, plus how the tracks went into it and which microphone file it took.
+    /// Nil when there is nothing to mix, so the caller can transcribe the one track it has
+    /// instead.
     public static func build(
         microphone: URL?, systemAudio: URL?, live: MicrophoneLive?, into directory: URL,
         using ffmpeg: String
-    ) throws -> (url: URL, plan: MixPlan)? {
+    ) throws -> (url: URL, plan: MixPlan, microphone: URL)? {
         guard let microphone, let systemAudio else { return nil }
 
         /// The same decision the playable mix makes. Summing raw buries whoever is
@@ -24,17 +25,20 @@ public enum AudioMix {
         /// every word twice — which it transcribes twice, under two speakers.
         let plan = MixPlan.decide(
             systemAudio: systemAudio, microphone: microphone, live: live, using: ffmpeg)
+        let heard = plan.microphoneTrack.url(besideRaw: microphone)
         let output = directory.appendingPathComponent(name)
-        let arguments = [
+        let result = try Shell.run(ffmpeg, arguments(microphone: heard, systemAudio: systemAudio, plan: plan, output: output))
+        guard result.succeeded else {
+            throw TranscriptionError.engineFailed(engine: "ffmpeg", log: result.combined)
+        }
+        return (output, plan, heard)
+    }
+
+    static func arguments(microphone: URL, systemAudio: URL, plan: MixPlan, output: URL) -> [String] {
+        [
             "-nostdin", "-y", "-v", "error", "-i", microphone.path, "-i", systemAudio.path,
             "-filter_complex", plan.filter(systemAudio: 1, microphone: 0),
             "-map", "[a]", "-ar", "\(sampleRate)", "-ac", "1", output.path,
         ]
-
-        let result = try Shell.run(ffmpeg, arguments)
-        guard result.succeeded else {
-            throw TranscriptionError.engineFailed(engine: "ffmpeg", log: result.combined)
-        }
-        return (output, plan)
     }
 }
