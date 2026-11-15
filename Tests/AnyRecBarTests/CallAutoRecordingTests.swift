@@ -203,3 +203,78 @@ struct CallAutoRecordingTests {
         #expect(r34 == .stopAt(start.addingTimeInterval(CallAutoRecording.endGrace)))
     }
 }
+
+/// A call app moving to another microphone mid-call — AirPods put in, a USB headset pulled
+/// out — releases the microphone and takes it again. What `CallWatch` reports for that,
+/// fed to the automatic recording's decisions.
+@Suite("Automatic recording across a device switch")
+struct CallAutoRecordingDeviceSwitchTests {
+    let slack = CallApps.known.first { $0.name == "Slack" }!
+    let start = Date(timeIntervalSinceReferenceDate: 1_000)
+    let context = CallAutoRecording.Context(enabled: true, mode: .window, canStart: true)
+
+    private func process(holding: Bool) -> [AudioProcess] {
+        [AudioProcess(bundleID: slack.bundleID, pid: 1, runningInput: holding, runningOutput: true)]
+    }
+
+    /// Plays one scan every `CallWatch.interval` through `CallWatch.events`, the way the
+    /// controller feeds the policy, and says whether the recording stopped.
+    private func run(_ holding: [Bool], policy: inout CallAutoRecording) -> Bool {
+        /// The call was already holding the microphone when its recording started.
+        var current: CallApp? = slack
+        var deadline: Date?
+        for (index, held) in holding.enumerated() {
+            let now = start.addingTimeInterval(Double(index) * CallWatch.interval)
+            if let deadline, now >= deadline, policy.deadlinePassed(at: deadline) { return true }
+            let found = CallWatch.app(holding: process(holding: held), among: CallApps.known)
+            for event in CallWatch.events(from: current, to: found) {
+                switch event {
+                case .started(let app):
+                    /// While recording, the controller can no longer start one.
+                    let busy = CallAutoRecording.Context(enabled: true, mode: .window, canStart: false)
+                    if policy.callStarted(app, context: busy) == .resume { deadline = nil }
+                case .ended:
+                    if case .stopAt(let at) = policy.callEnded(at: now) { deadline = at }
+                }
+            }
+            current = found
+        }
+        if let deadline { return policy.deadlinePassed(at: deadline) }
+        return false
+    }
+
+    private func recording() -> CallAutoRecording {
+        var policy = CallAutoRecording()
+        _ = policy.callStarted(slack, context: context)
+        _ = policy.windowFound(context: context)
+        return policy
+    }
+
+    @Test("the call app letting go of the microphone for a scan while it switches does not stop the recording")
+    func survivesSwitch() {
+        var policy = recording()
+        /// Held, released for one scan (two seconds), held again for the rest of the call.
+        #expect(!run([true, true, false, true, true, true, true, true, true, true], policy: &policy))
+        #expect(policy.recording == slack && policy.endedAt == nil && policy.watching == nil)
+    }
+
+    @Test("a switch that takes up to the grace period is still one call")
+    func slowSwitch() {
+        var policy = recording()
+        /// Released for eight seconds: a Bluetooth headset connecting.
+        #expect(!run([true, false, false, false, false, true, true, true, true, true], policy: &policy))
+    }
+
+    @Test("released for longer than the grace period, the call is over and the recording stops")
+    func longerIsTheEnd() {
+        var policy = recording()
+        #expect(run([true, false, false, false, false, false, false, false, true], policy: &policy))
+    }
+
+    @Test("a switch inside one scan interval is never seen")
+    func unseenSwitch() {
+        #expect(CallWatch.events(from: slack, to: slack).isEmpty)
+        #expect(CallWatch.events(from: slack, to: nil) == [.ended])
+        #expect(CallWatch.events(from: nil, to: slack) == [.started(slack)])
+    }
+}

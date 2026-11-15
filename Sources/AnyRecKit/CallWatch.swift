@@ -50,10 +50,19 @@ public final class CallWatch {
 
     private func scan(_ handler: (Event) -> Void) {
         let found = Self.app(holding: AudioProcesses.snapshot(), among: apps)
-        guard found != current else { return }
-        if current != nil { handler(.ended) }
-        if let found { handler(.started(found)) }
+        Self.events(from: current, to: found).forEach(handler)
         current = found
+    }
+
+    /// What one scan reports, given the call app holding the microphone at the last scan
+    /// and now. A call app moving to another microphone lets go of the old one and takes
+    /// the new: seen between the two, that is `.ended` and then `.started` for the same app
+    /// a scan later, which is why an automatic recording waits out `endGrace` before it
+    /// counts a call as over. Switching from one device to the other inside one interval
+    /// is not seen at all: the app holds input at both scans.
+    public static func events(from current: CallApp?, to found: CallApp?) -> [Event] {
+        guard found != current else { return [] }
+        return (current != nil ? [.ended] : []) + (found.map { [.started($0)] } ?? [])
     }
 
     /// The first known app running microphone input. A browser's audio runs in a
