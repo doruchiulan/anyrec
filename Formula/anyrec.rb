@@ -15,6 +15,16 @@ class Anyrec < Formula
     prefix.install "Frameworks"
   end
 
+  # Homebrew rewrites the framework's install name to a path in the keg and signs it ad
+  # hoc, and a hardened-runtime binary carrying a Team ID refuses to load a library
+  # without that Team ID, so the binary would not start. Both are signed ad hoc, without
+  # the hardened runtime, after that rewrite, so they load together. Formulae are not
+  # quarantined, so notarization does not apply here; the cask's app keeps it.
+  def post_install
+    system "/usr/bin/codesign", "--force", "--sign", "-", prefix/"Frameworks/whisper.framework"
+    system "/usr/bin/codesign", "--force", "--sign", "-", bin/"anyrec"
+  end
+
   def caveats
     <<~EOS
       anyrec needs two macOS permissions, granted to the terminal you run it
