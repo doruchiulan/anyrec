@@ -270,7 +270,10 @@ Invariants worth preserving:
   `echoCancellation`, with the system audio still captured untouched. Other-audio ducking is set to its
   minimum, advanced ducking off, so the call is not turned down. The clean track is on the
   same device as the raw one (`kAudioOutputUnitProperty_CurrentDevice`, or no clean track),
-  folded to mono through a silent mixer, stamped with the tap's `AVAudioTime.hostTime`
+  folded to mono through a silent mixer. The main mixer connects to the output explicitly
+  at the microphone rate: mismatched client rates make VoiceProcessingIO fail with -10875.
+  The live regression is `ANYREC_LIVE_AUDIO_TEST=1 swift test --no-parallel --filter VoiceProcessingFormatTests`.
+  Clean buffers are stamped with the tap's `AVAudioTime.hostTime`
   (the mach clock ScreenCaptureKit's stamps are on), and lined up against the raw track
   afterwards from the owner's voice, which both carry (`cleanMicrophoneOffset`, per stretch
   like the system track's, because a restart on another device brings another latency),

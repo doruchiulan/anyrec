@@ -21,17 +21,18 @@ struct SpeakerRecognitionTests {
     @Test("OpenAI retains every segment and label while saved people are recognised")
     func openAI() async throws {
         let transcript = Transcript(utterances: lines, language: nil, engine: "openai")
+        let library = VoiceLibrary(people: [.init(name: "Alex", prints: [print(0)])])
         let result = await TranscriptionService.separate(transcript, in: source, progress: { _ in },
             modelsReady: true, recognizeVoices: { _, heard in
                 let voices = try #require(VoiceSeparation.lettersOnly(heard))
                 return SpeakerRecognition.enrich(voices, utterances: heard,
-                    library: VoiceLibrary(people: [.init(name: "Alex", prints: [print(0)])])) { span in
+                    library: library) { span in
                         print(span.lowerBound < 5 || span.lowerBound > 10 ? 0 : 1)
                     }
             }, diarize: { _ in
                 Issue.record("OpenAI must not run local diarization")
                 return ([], [:])
-            })
+            }, library: library, learn: { _ in Issue.record("Recognition must not enroll a voice") })
         #expect(result.0 == lines)
         #expect(result.1?.names == ["B": "Alex"])
         #expect(result.1?.voices.first(where: { $0.letter == "A" })?.print == print(1))

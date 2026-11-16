@@ -87,15 +87,7 @@ final class CleanMicrophone {
         input.voiceProcessingOtherAudioDuckingConfiguration =
             AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
 
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw Problem.noInput }
-        /// Voice processing can present several channels; one is what is kept. A mixer
-        /// folds them, and its silence is what reaches the speakers.
-        let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1)!
-        engine.attach(fold)
-        engine.connect(input, to: fold, format: format)
-        engine.connect(fold, to: engine.mainMixerNode, format: mono)
-        fold.outputVolume = 0
+        let mono = try Self.connect(engine, through: fold)
         let deliver = deliver
         fold.installTap(onBus: 0, bufferSize: 1_024, format: mono) { buffer, time in
             let arrival = CaptureTiming.now()
@@ -113,6 +105,20 @@ final class CleanMicrophone {
             throw Problem.start(error)
         }
         running = true
+    }
+
+    static func connect(_ engine: AVAudioEngine, through fold: AVAudioMixerNode) throws -> AVAudioFormat {
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw Problem.noInput }
+        let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1)!
+        engine.attach(fold)
+        engine.connect(input, to: fold, format: format)
+        engine.connect(fold, to: engine.mainMixerNode, format: mono)
+        // VoiceProcessingIO requires matching client rates even when the hardware rates differ.
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: mono)
+        fold.outputVolume = 0
+        return mono
     }
 
     func stop() {
