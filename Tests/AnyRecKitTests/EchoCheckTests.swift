@@ -9,26 +9,17 @@ struct EchoCheckTests {
         EchoReport.Echo(median: median, audible: 0, onsetLoud: onset, phrases: 10)
     }
 
-    private func report(clean: EchoReport.Echo?, aligned: EchoReport.Echo? = nil, measured: Bool = true,
-                        ownerClean: Double? = -33, bleeds: Bool? = false) -> EchoReport {
+    private func report(aligned: EchoReport.Echo? = nil, measured: Bool = true) -> EchoReport {
         EchoReport(
             systemAudioOffset: TrackOffset(seconds: measured ? 0.5 : nil, confidence: 0.9, windowsUsed: 8, windowsTried: 8),
-            cleanMicrophoneOffset: nil, raw: echo(1), duckedBefore: echo(-31, onset: 0.26),
-            duckedAligned: aligned ?? echo(-35, onset: 0.01), clean: clean, cleanDucked: clean.map { echo($0.median - 5) },
-            ownerRaw: -32, ownerClean: ownerClean, cleanStillBleeds: bleeds, timing: nil)
+            raw: echo(1), duckedBefore: echo(-31, onset: 0.26),
+            duckedAligned: measured ? (aligned ?? echo(-35, onset: 0.01)) : nil, ownerRaw: -32, timing: nil)
     }
 
-    @Test("capture-time cancellation wins when it leaves no more echo than the lined-up duck and keeps the voice")
-    func verdict() {
-        #expect(report(clean: echo(-40)).verdict == .captureWins)
-        #expect(report(clean: echo(-20)).verdict == .duckWins)
-        #expect(report(clean: echo(-40, onset: 0.2)).verdict == .duckWins)
-        /// Echo gone, and the owner with it.
-        #expect(report(clean: echo(-40), ownerClean: -50).verdict == .duckWins)
-        /// Still bleeding, so it is judged held down, as the mixes would use it.
-        #expect(report(clean: echo(-32), bleeds: true).verdict == .captureWins)
-        #expect(report(clean: nil).verdict == .noCleanTrack)
-        #expect(report(clean: echo(-40), measured: false).verdict == .noEcho)
+    @Test("there is echo to speak of only when the lag was measured from it")
+    func noEcho() {
+        #expect(!report().noEcho)
+        #expect(report(measured: false).noEcho)
     }
 
     @Test("echo left is read where the far end talks, and phrase starts are their first half-second")

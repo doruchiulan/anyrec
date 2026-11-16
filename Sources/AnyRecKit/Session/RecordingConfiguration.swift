@@ -57,9 +57,6 @@ public struct RecordingConfiguration: Sendable {
     /// carries the audio, and its title, call participants and mute button are read as
     /// usual — but no `screen.mov` is written. A choice made per recording, never kept.
     public var video = true
-    /// Record the microphone a second time through macOS voice processing, echo cancelled,
-    /// beside the raw track; the mixes and attribution use it when it carries sound.
-    public var echoCancellation = false
     public var outputRoot: String
 
     /// What each interface offers for the two settings that are a choice from a list
@@ -82,8 +79,7 @@ public struct RecordingConfiguration: Sendable {
             microphoneDeviceID: microphone?.id,
             followsDefaultMicrophone: followsDefaultMicrophone,
             showsCursor: showsCursor,
-            recordsVideo: video,
-            cleanMicrophone: echoCancellation
+            recordsVideo: video
         )
     }
 

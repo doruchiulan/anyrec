@@ -18,22 +18,17 @@ public enum TimingCheck {
     }
 
     public struct Result: Sendable {
-        /// The call track's lag behind the raw microphone.
+        /// The call track's lag behind the microphone.
         public let systemAudio: TrackOffset?
-        /// The echo-cancelled microphone's lag behind the raw one, when it was recorded.
-        public let cleanMicrophone: TrackOffset?
         public let timing: CaptureTiming?
     }
 
     /// Reads the offsets off a finished check's tracks.
     public static func measure(_ plan: OutputPlan, using ffmpeg: String) -> Result {
-        let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
-        let clean = exists(plan.cleanMicrophone) ? plan.cleanMicrophone : nil
-        let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone] + (clean.map { [$0] } ?? []), using: ffmpeg)
+        let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone], using: ffmpeg)
         let raw = envelopes[1]
         return Result(
             systemAudio: envelopes[0].flatMap { s in raw.map { TrackAlignment.measure(reference: $0, other: s) } },
-            cleanMicrophone: clean == nil ? nil : envelopes[2].flatMap { c in raw.map { TrackAlignment.measure(reference: $0, other: c) } },
             timing: RecordingInfo.read(plan.directory)?.timing)
     }
 }

@@ -23,9 +23,6 @@ struct Timing: AsyncParsableCommand {
     @Option(name: .long, help: "Microphone device id (see `anyrec sources`). The default input otherwise.")
     var mic: String?
 
-    @Flag(inversion: .prefixedNo, help: "Record the echo-cancelled microphone too.")
-    var echoCancellation = false
-
     func run() async throws {
         guard let ffmpeg = Muxer.ffmpegPath() else { throw ValidationError(MuxError.ffmpegNotFound.description) }
         try await Permissions.preflight(needsMicrophone: true, host: .terminal)
@@ -37,7 +34,6 @@ struct Timing: AsyncParsableCommand {
         recording.capture = CaptureChoice(target: .display(index: 0))
         recording.video = false
         recording.mux = false
-        recording.echoCancellation = echoCancellation
         if let mic {
             guard recording.selectMicrophone(id: mic) else { throw ValidationError("No input device with id \(mic).") }
         } else {
@@ -54,9 +50,6 @@ struct Timing: AsyncParsableCommand {
         let result = TimingCheck.measure(session.plan, using: ffmpeg)
         print("Folder         \(session.plan.directory.path)")
         print("Track offset   " + EchoReportText.offset(result.systemAudio, what: "call audio behind the microphone"))
-        if let clean = result.cleanMicrophone {
-            print("Clean mic      " + EchoReportText.offset(clean, what: "echo-cancelled behind the raw microphone"))
-        }
         if let timing = result.timing { EchoReportText.timing(timing).forEach { print($0) } }
     }
 }

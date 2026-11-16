@@ -22,7 +22,7 @@ struct PiecewiseMixTests {
         let alignment = MixPlan.Alignment(systemAudio: stepped, microphone: TrackShift(pieces: [
             .init(start: 0, seconds: 0.02), .init(start: 30, seconds: 0.035)]))
         for balance in [MixPlan.Balance.duckedMicrophone, .matched(.none)] {
-            let plan = MixPlan(balance: balance, alignment: alignment, microphoneTrack: .clean)
+            let plan = MixPlan(balance: balance, alignment: alignment)
             let filter = plan.filter(systemAudio: 0, microphone: 1)
             #expect(filter.contains("[0:a]asetpts=") && filter.contains("[1:a]asetpts="))
             #expect(plan.microphoneFilter(systemAudio: 0, microphone: 1).contains("[1:a]asetpts="))
@@ -131,8 +131,7 @@ struct PiecewiseFFmpegTests {
         let plan = MixPlan(balance: ducked ? .duckedMicrophone : .matched(.init(systemAudio: -3, microphone: 4)),
                            microphoneLive: MicrophoneLive(duration: 60, transitions: [.init(at: 0, live: true)]),
                            alignment: .init(systemAudio: shift, microphone: TrackShift(pieces: [
-                               .init(start: 0, seconds: 0.01), .init(start: 30, seconds: 0.03, driftPerHour: 0.02)])),
-                           microphoneTrack: .clean)
+                               .init(start: 0, seconds: 0.01), .init(start: 30, seconds: 0.03, driftPerHour: 0.02)])))
         for graph in [plan.filter(systemAudio: 0, microphone: 1), plan.microphoneFilter(systemAudio: 0, microphone: 1)] {
             let output = directory.appendingPathComponent("mix-\(UUID()).wav")
             let result = try Shell.run(try #require(Muxer.ffmpegPath()), [

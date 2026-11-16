@@ -42,8 +42,7 @@ struct CaptureTimingTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        var timing = CaptureTiming(sessionStart: 1_000.25, output: device, input: device,
-                                   cleanMicrophoneProblem: "microphone access has not been granted")
+        var timing = CaptureTiming(sessionStart: 1_000.25, output: device, input: device)
         timing.streams[CaptureTiming.systemAudio] = .init(first: [.init(presentation: 1_000.5, arrival: 1_000.52, duration: 0.02)], count: 1)
         let info = RecordingInfo(title: "Design review", bundleID: "com.tinyspeck.slackmacgap", width: 10, height: 10,
                                  fps: 30, timing: timing)

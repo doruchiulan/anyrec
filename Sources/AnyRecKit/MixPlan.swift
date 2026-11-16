@@ -21,8 +21,7 @@ public struct MixPlan: Sendable, Equatable {
     public struct Alignment: Sendable, Equatable, Codable {
         /// The system track, by the lag of the far end's echo behind it.
         public var systemAudio: TrackShift
-        /// The microphone the mix uses: zero for the raw track, the measured lag of the
-        /// echo-cancelled one behind the raw one when that is used.
+        /// The microphone: zero. It is the timeline everything else is moved onto.
         public var microphone: TrackShift
 
         public init(systemAudio: TimeInterval = 0, microphone: TimeInterval = 0) {
@@ -38,34 +37,17 @@ public struct MixPlan: Sendable, Equatable {
         public static let none = Alignment()
     }
 
-    /// Which microphone recording the mix is built from. The raw track is the master and
-    /// always there; the echo-cancelled one is used when it was recorded and carries sound.
-    public enum MicrophoneTrack: String, Sendable, Equatable, Codable {
-        case raw, clean
-
-        /// The file for this track beside the raw microphone `raw`.
-        public func url(besideRaw raw: URL) -> URL {
-            switch self {
-            case .raw: raw
-            case .clean: raw.deletingLastPathComponent().appendingPathComponent(OutputPlan.cleanMicrophoneName)
-            }
-        }
-    }
-
     public var balance: Balance
     /// When the call could hear the microphone. Outside these spans it is silenced,
     /// because nothing on it reached anyone. Nil when nobody watched, and it is left
     /// alone.
     public var microphoneLive: MicrophoneLive?
     public var alignment: Alignment
-    public var microphoneTrack: MicrophoneTrack
 
-    public init(balance: Balance, microphoneLive: MicrophoneLive? = nil, alignment: Alignment = .none,
-                microphoneTrack: MicrophoneTrack = .raw) {
+    public init(balance: Balance, microphoneLive: MicrophoneLive? = nil, alignment: Alignment = .none) {
         self.balance = balance
         self.microphoneLive = microphoneLive
         self.alignment = alignment
-        self.microphoneTrack = microphoneTrack
     }
 
     public static let plain = MixPlan(balance: .matched(.none))
@@ -93,7 +75,7 @@ public struct MixPlan: Sendable, Equatable {
             decided.microphoneLive = live
             return decided
         }
-        let decision = decide(systemAudio: systemAudio, microphone: microphone, clean: nil,
+        let decision = decide(systemAudio: systemAudio, microphone: microphone,
                               basis: .init(microphone: nil, systemAudio: nil, microphoneLive: nil), using: ffmpeg)
         return decision.plan(live: live)
     }

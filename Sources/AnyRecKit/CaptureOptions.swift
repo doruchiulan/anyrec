@@ -26,9 +26,6 @@ public struct CaptureOptions: Sendable {
     /// Off, no `screen.mov` is written: the window is still captured for its filter, its
     /// title, its participants and its mute button, but only the audio is kept.
     public var recordsVideo: Bool
-    /// Also record the microphone through macOS voice processing, echo cancelled, as
-    /// `microphone-clean.m4a`. Only with the microphone on; the raw track is kept either way.
-    public var cleanMicrophone: Bool
 
     public init(
         fps: Int = 30,
@@ -38,8 +35,7 @@ public struct CaptureOptions: Sendable {
         microphoneDeviceID: String? = nil,
         followsDefaultMicrophone: Bool = false,
         showsCursor: Bool = true,
-        recordsVideo: Bool = true,
-        cleanMicrophone: Bool = false
+        recordsVideo: Bool = true
     ) {
         self.fps = max(1, min(fps, 60))
         self.codec = codec
@@ -49,6 +45,5 @@ public struct CaptureOptions: Sendable {
         self.followsDefaultMicrophone = followsDefaultMicrophone
         self.showsCursor = showsCursor
         self.recordsVideo = recordsVideo
-        self.cleanMicrophone = cleanMicrophone
     }
 }

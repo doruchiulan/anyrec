@@ -13,7 +13,6 @@ enum Preferences {
         let defaults = UserDefaults.standard
         defaults.register(defaults: [
             Key.systemAudio: true,
-            Key.echoCancellation: false,
             Key.transcribe: TranscriptionEngine.auto.rawValue,
             Key.offerToRecord: true,
             Key.summarize: true,
@@ -26,7 +25,6 @@ enum Preferences {
 
     private enum Key {
         static let systemAudio = "systemAudio"
-        static let echoCancellation = "echoCancellation"
         static let transcribe = "transcribe"
         static let stopAfter = "stopAfterSeconds"
         static let microphone = "microphoneID"
@@ -127,7 +125,6 @@ enum Preferences {
     /// engine is stored as an empty string rather than left absent.
     static func loaded(into configuration: inout RecordingConfiguration) {
         configuration.systemAudio = defaults.bool(forKey: Key.systemAudio)
-        configuration.echoCancellation = defaults.bool(forKey: Key.echoCancellation)
         configuration.mux = true
         configuration.transcribe = TranscriptionEngine(
             rawValue: defaults.string(forKey: Key.transcribe) ?? "")
@@ -140,7 +137,6 @@ enum Preferences {
     /// and a resolution that found nothing must not overwrite what was remembered.
     static func save(_ configuration: RecordingConfiguration) {
         defaults.set(configuration.systemAudio, forKey: Key.systemAudio)
-        defaults.set(configuration.echoCancellation, forKey: Key.echoCancellation)
         defaults.set(configuration.transcribe?.rawValue ?? "", forKey: Key.transcribe)
         defaults.set(configuration.stopAfter ?? 0, forKey: Key.stopAfter)
     }

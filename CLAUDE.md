@@ -4,9 +4,7 @@
 
 macOS tool that records a call as three separate tracks: one window or display,
 system audio output, and microphone input — or, audio only, the two audio tracks
-with the window still picked but no picture kept. If enabled, it also records
-the same microphone through macOS voice processing (`microphone-clean.m4a`), echo
-cancelled, which the mixes use when it carries sound. Built on ScreenCaptureKit, so no
+with the window still picked but no picture kept. Built on ScreenCaptureKit, so no
 virtual audio driver is required. Windows belonging to Slack, Teams, Zoom, Meet,
 Discord and browsers are listed first; everything else follows.
 
@@ -85,14 +83,13 @@ second one for "UI-common" code.
 | `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `thumbnail.jpg`, for the library's list rows. None for an audio-only recording, decided from `recording.json` without trying. |
 | `Session/Waveform.swift` | A recording's loudness cut into columns for drawing, read with AVFoundation so it needs no ffmpeg. |
 | `Transcription/Summary.swift` | A summary as data (overview, decisions, actions with the second they were said), its `Basis` and `Staleness`, labels filled from names at display (`named`), `SummaryProvider` (Claude Code, Codex, OpenAI API, Gemini CLI) and `Summarizer.summary`. |
-| `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s — two for audio only, whose screen frames arrive at 2×2 and 1 fps and are dropped before the clock. Also runs `CleanMicrophone` and writes its buffers on the same queue, and notes each output's buffer stamps, formats and the devices into `CaptureTiming`. Follows device changes on its `devices` queue: moves the microphone (`updateConfiguration`), restarts the clean microphone, and restarts a stream a change stopped. |
+| `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s — two for audio only, whose screen frames arrive at 2×2 and 1 fps and are dropped before the clock. Notes each output's buffer stamps, formats and the devices into `CaptureTiming`. Follows device changes on its `devices` queue: moves the microphone (`updateConfiguration`) and restarts a stream a change stopped. |
 | `MicrophoneRoute.swift` | Which device each microphone records from as devices come and go: the default followed, a picked one kept while connected, a vanished one replaced. Pure; says what has to move. |
 | `DeviceWatch.swift` | Core Audio listeners on the default input, default output and device list. |
 | `AudioBuffers.swift` | `CMSampleBuffer` ↔ `AVAudioPCMBuffer`, silence, and `AudioConformer`, which converts a buffer to a track's first format. |
-| `CleanMicrophone.swift` | The microphone through `AVAudioEngine` voice processing (other-audio ducking at its minimum), stamped with the tap's host time, written as `microphone-clean.m4a`; reports its engine stopping on a configuration change; `usable` decides whether a recorded clean track can stand in for the raw one. |
 | `CaptureTiming.swift` | Each output's first eight buffers (presentation time, host-clock arrival, length), its last and its count; the default output and input devices (name, transport, latency, safety offset, stream latency, buffer size) via `AudioDeviceFacts`; `stampingGap`; each `DeviceChange` (session-clock time, reason, devices before and after, streams affected, problem), and per stream the gaps written as silence and the formats it arrived in. Kept in `recording.json`; all of it optional. |
 | `TrackAlignment.swift` | `TrackOffset` and its measurement, per stretch between device changes (`sections`): the change in log loudness, correlated over up to eight 50 s windows a stretch at lags within ±2 s, refined between frames, accepted only when strong windows agree, a straight line when they drift. `TrackShift`, the lag over the call. `AudioEnvelope.advanced(by:)`. |
-| `EchoCheck.swift` | `EchoReport`: the offsets, echo left in the raw microphone, under the duck before and after alignment, in the clean track, the owner's level raw and clean, and the verdict. What `anyrec echo` prints. |
+| `EchoCheck.swift` | `EchoReport`: the offset, echo left in the raw microphone and under the duck before and after alignment, and the owner's level. What `anyrec echo` prints. |
 | `TimingCheck.swift` | The test signal and the offset read from a check's tracks, for `anyrec timing`. |
 | `TrackWriter.swift` | One `AVAssetWriter` + input. Audio inputs are built from the first buffer's format description; later buffers are converted to it, and a gap in the stamps is written as silence. |
 | `TargetResolver.swift` | `CaptureTarget` → `SCContentFilter` plus pixel dimensions. |
@@ -104,8 +101,8 @@ second one for "UI-common" code.
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. `job(for:)` takes the picture from `screen.mov`, or from the merged file once that has replaced it; with no picture it makes an audio-only `.m4a` from the same `MixPlan`. Writes a hidden temporary file, verifies it, moves it into place, records the name, then deletes `screen.mov` and any older merged file. |
 | `MergeVerification.swift` | `MediaFacts` (video codec, size, frame count from a sample cursor, audio lengths, read with AVFoundation) and the check a merge's result must pass before it replaces anything. |
 | `LoudnessMatch.swift` | Measures both audio tracks (ffmpeg `ebur128=peak=true`) and balances them for the merge. |
-| `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks', the clean microphone's and `microphone-live.json`'s size and modification time: the system track's offset and the clean track's offset (each per stretch, version 3), which microphone is used, bleed, loudness. Also the mix's envelope worked out from the two (aligned) track envelopes. |
-| `MixPlan.swift` | How the two audio tracks go together — each moved onto the raw microphone's timeline (`Alignment`), the raw or clean microphone (`MicrophoneTrack`), matched by loudness or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it; `aligned` lines up the envelopes everything else compares. |
+| `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks' and `microphone-live.json`'s size and modification time: the system track's offset (per stretch, version 3), bleed, loudness. Files written while the echo-cancelled microphone existed read with its keys ignored. Also the mix's envelope worked out from the two (aligned) track envelopes. |
+| `MixPlan.swift` | How the two audio tracks go together — the system track moved onto the microphone's timeline (`Alignment`), matched by loudness or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it; `aligned` lines up the envelopes everything else compares. |
 | `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
 | `MuteButton.swift` | The call app's own mute control, found in its accessibility tree and re-read four times a second. What Teams's mute is read from. |
@@ -118,7 +115,7 @@ second one for "UI-common" code.
 | `Transcription/DiarizationCache.swift` | Diarization segments and prints kept as `diarization.json`, keyed by a SHA-256 of the exact mix the diarizer heard. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
-| `OutputPlan.swift` | The recording folder and the track paths, `microphone-clean.m4a` included. |
+| `OutputPlan.swift` | The recording folder and the track paths. |
 | `Transcription/Transcript.swift` | `Utterance`, turn folding, Markdown and SRT rendering. The tested part. |
 | `Transcription/TranscriptStore.swift` | Publishes sources and layers, selects them, migrates older generations when changed, and renders Markdown and SRT. |
 | `Transcription/TranscriptLayers.swift` | `SpeakerLayer`, `WordingLayer` and `RecordingTranscript`, the transcript as it reads now — what every interface shows. |
@@ -215,16 +212,12 @@ Invariants worth preserving:
   setup screen mid-session and a cached "missing" would outlive the fix.
 - All stream outputs use one serial queue, which is why `Recorder`'s writer
   table and session clock need no locking. Don't add a second queue for anything the
-  writers own. The clean microphone's tap runs on the audio engine's thread and only
-  copies each buffer and hands it to that queue; it is written there. Device changes are
-  followed on `Recorder`'s `devices` queue, which owns the stream, the route and the clean
-  microphone and never touches a writer, the clock or the timing facts except by handing
-  work to the capture queue: starting a voice-processing engine can take most of a
-  second, and the capture queue must not wait on it.
+  writers own. Device changes are followed on `Recorder`'s `devices` queue, which owns
+  the stream and the route and never touches a writer, the clock or the timing facts
+  except by handing work to the capture queue, so the capture queue never waits on a device.
 - All writers start their session at the *same* timestamp — the first
   buffer written on any ScreenCaptureKit output. Per-writer session starts would silently
-  destroy A/V sync. The clean microphone never starts the clock: its buffers wait for it,
-  so the clock, the timeline anchor and the participant times are what they were without it.
+  destroy A/V sync.
 - The two audio tracks are lined up wherever they are combined or compared, and nowhere
   are the masters rewritten. ScreenCaptureKit stamps `.audio` and `.microphone` buffers
   differently: on a speakerphone Slack call the far end's echo in `microphone.m4a` sat
@@ -271,42 +264,28 @@ Invariants worth preserving:
   the Teams call's offset, but nothing confirms that call used it. Until a speaker
   call's timing facts tie the offset to a device figure, it is measured from echo only.
   Headphone recordings have no echo to measure from, so they are not moved.
-- The microphone is recorded twice when echo cancellation is enabled (off by default;
-  Settings › Recording, kept in `Preferences`; `anyrec record --echo-cancellation`): raw by
-  ScreenCaptureKit, which stays the master, and through `AVAudioEngine` with voice
-  processing on, as `microphone-clean.m4a`. This is the same approach as a browser's
-  `echoCancellation`, with the system audio still captured untouched. Other-audio ducking is set to its
-  minimum with advanced ducking off. A reported call-volume drop is why this is opt-in.
-  The track is tapped off the fold mixer, so the silencing is on the main mixer (a zero
-  fold volume made every clean track digital silence until 2026-11-16). The clean track is on the same device as the raw one
-  (`kAudioOutputUnitProperty_CurrentDevice`, or no clean track),
-  folded to mono through a silent mixer. The main mixer connects to the output explicitly
-  at the microphone rate: mismatched client rates make VoiceProcessingIO fail with -10875.
-  The live regression is `ANYREC_LIVE_AUDIO_TEST=1 swift test --no-parallel --filter VoiceProcessingFormatTests`.
-  Clean buffers are stamped with the tap's `AVAudioTime.hostTime`
-  (the mach clock ScreenCaptureKit's stamps are on), and lined up against the raw track
-  afterwards from the owner's voice, which both carry (`cleanMicrophoneOffset`, per stretch
-  like the system track's, because a restart on another device brings another latency),
-  because voice processing's own latency may not be in the stamp. Failing to start costs the
-  recording nothing: the reason goes into `CaptureTiming.cleanMicrophoneProblem`.
-  `AVAudioEngine` stops itself on any device configuration change (the default input or
-  output moving, the device going) and never restarts; `CleanMicrophone` reports it and the
-  recorder starts a new engine on the raw microphone's current device, writing on into the
-  same file on the same clock (see the device-change invariant). When
-  the clean track carries sound (`CleanMicrophone.usable`: loud enough, 90% of the raw
-  track's length, not 30 dB quieter), both mixes and attribution use it instead of the raw
-  track, and the duck applies only if the bleed check still finds echo in it. Otherwise
-  the raw track is used as before. `anyrec echo` reports the echo left each way and the
-  owner's level change, for the owner's rule: if cancelling at capture beats the aligned
-  duck, nothing more is built after the fact (no offline canceller, no reworked duck).
+- There is no capture-time echo cancellation, and it is not to be added back without
+  solving what removed it (0.7.2). Recording the microphone a second time through
+  `AVAudioEngine` voice processing (`microphone-clean.m4a`, the approach of a browser's
+  `echoCancellation`) was tried and measured: while voice processing runs, macOS lowers the
+  microphone 20 to 45 dB for every other client of the device, ScreenCaptureKit's raw track
+  and the call app included, so the people on the call heard the owner much quieter (a
+  colleague's "I can't hear you since you started recording"); turning AGC off or bypassing
+  the processing did not restore it, only stopping did. Its own track came out silent
+  (voice processing delivers nine unlabelled channels, which an `AVAudioMixerNode` folds to
+  nothing). Offline cancellation of the files with the call track as the reference was
+  prototyped too, on a speakerphone call: ffmpeg's NLMS and SpeexDSP took 2 to 4 dB off the
+  echo, because the echo is only 0.43 correlated with the call track (the MacBook's speaker
+  processing is not linear). The aligned duck stays the echo handling; WebRTC's AEC3, with
+  its non-linear suppression, is the one candidate left (see `docs/ideas.md`). Older
+  recordings that have a `microphone-clean.m4a` keep it on disk; nothing reads it.
 - A device change during a recording never restarts the session, starts a new writer or
   ends the recording. What follows: the raw microphone follows the system default input
   when nobody picked one (`RecordingConfiguration.followsDefaultMicrophone`, set by
   `pinDefaultMicrophone`, cleared by `selectMicrophone`, the app's microphone setting, the
   TUI's picker and `--mic`); a picked device is kept while it is connected. A microphone that
   disappears moves to the default input, else the device it is on, else the first input
-  left, and a picked one moves back when it returns (`MicrophoneRoute`). The clean
-  microphone always goes where the raw one goes. The output is never followed: ScreenCaptureKit takes
+  left, and a picked one moves back when it returns (`MicrophoneRoute`). The output is never followed: ScreenCaptureKit takes
   app audio before any output device; checked live by switching the default output twice
   during an audio-only recording, the system track's stamps ran on with no gap and the
   file was as long as they span (the playing app, afplay, went silent for a moment at each
@@ -325,7 +304,7 @@ Invariants worth preserving:
   filter and outputs on the same capture queue, on the device the route names now, without
   the microphone if that will not start, at most five times a recording. If it cannot be
   started at all, the recording *ends* there (`RecorderError.deviceChangeEnded`, reported
-  like a closed window), never fails. The clean microphone restarts at most twenty times.
+  like a closed window), never fails.
   Gap as silence: AVAssetWriter packs audio back to back whatever the stamps say (measured:
   5 s, a 2 s gap in the stamps, 5 s, and the file ran 10 s with no silence), so without
   help a microphone that paused to switch would pull everything after it early. Every audio
@@ -337,7 +316,7 @@ Invariants worth preserving:
   both. Small jitter is left alone, so a track's timeline is what it was before.
   Facts: each change goes into `recording.json` as `CaptureTiming.DeviceChange` (seconds on
   the session clock, reason — `default-changed`, `device-gone`, `device-back`,
-  `output-changed`, `clean-interrupted`, `stream-restarted` — input and output before and
+  `output-changed`, `stream-restarted`, and `clean-interrupted` in older files — input and output before and
   after with name, transport and reported latencies, the streams affected, and any
   problem), with each stream's `gaps` and `formats`; `anyrec echo` prints them. All optional;
   older files read without them. The alignment measures each stretch between these times on
@@ -656,8 +635,7 @@ Invariants worth preserving:
 - There is no output-device setting to add: ScreenCaptureKit taps app audio
   before any output device.
 - The audio tracks are masters and are never rewritten: `microphone.m4a`,
-  `system-audio.m4a` and `microphone-clean.m4a`. The alignment, the choice of microphone,
-  the loudness match and the mix exist only in the merged file and the transcript's mix. The video is stored once. `screen.mov` is the
+  `system-audio.m4a`. The alignment, the loudness match and the mix exist only in the merged file and the transcript's mix. The video is stored once. `screen.mov` is the
   picture's master only until a merge is verified: the merge stream-copies its video
   (never re-encodes it) beside the mix into a hidden temporary file, and checks with
   AVFoundation that the result has exactly one video stream with `screen.mov`'s codec,
@@ -687,7 +665,7 @@ Invariants worth preserving:
 - Balance by loudness, never by peak: speech peaks as high as continuous call
   audio and averages ~13 dB below it, so peak-matching leaves the mic buried.
 - Speaker bleed is checked before the mic is boosted, on the aligned envelopes of the
-  microphone the mix uses (the clean one when it is used), and a bleeding mic is held
+  microphone, and a bleeding mic is held
   under the call rather than summed with it. On speakers the far end is already in
   the mic track: boosting it doubles the echo, and summing it as-is hands the engine
   every word twice — a 5-minute call came back as 503 lines over six "speakers",

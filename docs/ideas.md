@@ -187,3 +187,28 @@ ffmpeg subprocesses, and device testing for model memory use and background work
 Imported recordings could provide a smaller first version.
 
 Parked for later; no iPad implementation started.
+
+## Offline echo cancellation with WebRTC AEC3
+
+Speakerphone calls are handled by holding the microphone down while the call talks (the
+duck), which loses anything said over the other side. Cancelling the echo instead would
+keep it. Tried so far, on the 2026-11-16 08:39 call (MacBook speakers), scored with
+`anyrec echo` (echo left while the far end talks, median; lower is better):
+
+| | echo left | audible |
+|---|---|---|
+| raw microphone | +5.7 dB | 100% |
+| the duck, tracks lined up | −24.7 dB | 39% |
+| ffmpeg NLMS (`anlms`), call track as reference | +1.3 dB | 100% |
+| SpeexDSP echo canceller | +3.7 dB | 100% |
+| NLMS, then the duck | −29.7 dB | 36% |
+
+The echo is only 0.43 correlated with the call track at its lag (572 ms, measured at
+sample level): the call track is the app's audio before the MacBook's speaker processing,
+which is not linear, so a linear canceller removes little. macOS voice processing at
+capture was removed (0.7.2) because it turns the microphone down for every app,
+the call included.
+
+WebRTC's AEC3 adds a non-linear residual-echo suppressor built for laptop speakers and is
+the one candidate left. It is a large C++ dependency to build and ship. Worth a prototype
+only if speakerphone echo becomes a bigger problem than the duck's cost.

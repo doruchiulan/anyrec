@@ -25,13 +25,12 @@ public enum AudioMix {
         /// every word twice — which it transcribes twice, under two speakers.
         let plan = MixPlan.decide(
             systemAudio: systemAudio, microphone: microphone, live: live, using: ffmpeg)
-        let heard = plan.microphoneTrack.url(besideRaw: microphone)
         let output = directory.appendingPathComponent(name)
-        let result = try Shell.run(ffmpeg, arguments(microphone: heard, systemAudio: systemAudio, plan: plan, output: output))
+        let result = try Shell.run(ffmpeg, arguments(microphone: microphone, systemAudio: systemAudio, plan: plan, output: output))
         guard result.succeeded else {
             throw TranscriptionError.engineFailed(engine: "ffmpeg", log: result.combined)
         }
-        return (output, plan, heard)
+        return (output, plan, microphone)
     }
 
     static func arguments(microphone: URL, systemAudio: URL, plan: MixPlan, output: URL) -> [String] {

@@ -61,13 +61,11 @@ public enum Muxer {
     /// What a merge of this folder reads and where it writes. The picture comes from
     /// `screen.mov` while it exists; after a verified merge has deleted it, from the
     /// merged file, so a merge can be run again without the video ever being lost.
-    /// The microphone is the one the mix uses: the echo-cancelled track when the mix
-    /// decided on it, the raw track otherwise.
-    public static func job(for plan: OutputPlan, microphone: MixPlan.MicrophoneTrack = .raw) async throws -> MergeJob {
+    public static func job(for plan: OutputPlan) async throws -> MergeJob {
         let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
         let info = RecordingInfo.read(plan.directory)
         let merged = RecordingMedia.merged(in: plan.directory, info: info)
-        let audio = [plan.systemAudio, microphone.url(besideRaw: plan.microphone)].filter(exists)
+        let audio = [plan.systemAudio, plan.microphone].filter(exists)
 
         var video: (url: URL, facts: MediaFacts.Video)?
         if exists(plan.screen) {
@@ -126,7 +124,7 @@ public enum Muxer {
     public static func mux(_ plan: OutputPlan) async throws -> MuxOutcome {
         guard let ffmpeg = ffmpegPath() else { throw MuxError.ffmpegNotFound }
         let mix = decision(for: plan, using: ffmpeg)
-        let job = try await job(for: plan, microphone: mix.microphoneTrack)
+        let job = try await job(for: plan)
         let expectedAudio = try await audioLength(of: job.audio, systemAudio: plan.systemAudio, mix: mix)
         let temporary = plan.directory.appendingPathComponent(
             ".merge-\(UUID().uuidString).\(job.output.pathExtension)")

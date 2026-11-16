@@ -49,7 +49,6 @@ is over rather than after:
   Huddle with Costi – Slack – 2026-07-25 13.14.mp4   everything together — play this one
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
-  microphone-clean.m4a  optional microphone track, echo cancelled by macOS
   transcript-apple-<id>.md  who said what, in order
   transcript-apple-<id>.srt subtitles for the merged file
 ```
@@ -75,15 +74,12 @@ it is applied only to the merged file: the two audio tracks are never rewritten.
 
 Headphones are still best. On speakers, your microphone records the call as well, so
 a raw sum carries the far end twice: once cleanly and once through the room, which
-sounds hollow and doubled. anyrec deals with that in two ways.
+sounds hollow and doubled. When the microphone bleeds like that, it is held down
+whenever the call is talking, so every word survives once.
 
-- **At capture, optional.** macOS voice processing can record a second microphone track
-  as `microphone-clean.m4a`. It is off by default following a report of reduced voice
-  volume in the call app while recording. Enable it with `--echo-cancellation` or in
-  Settings › Recording. When the clean track carries sound, the merged file and
-  transcript use it; the raw `microphone.m4a` is always kept.
-- **After capture.** If the microphone the mix uses still bleeds, it is held down
-  whenever the call is talking, so every word survives once.
+There is no echo cancellation at capture. macOS voice processing was tried and removed:
+while it runs, macOS turns the microphone down for every app, the call included, so the
+people on the call hear you much quieter.
 
 The two audio tracks are also lined up before anything combines them. ScreenCaptureKit
 does not stamp call audio and microphone the same way: on one speakerphone call the far
@@ -286,7 +282,6 @@ truncated `.mov`.
 | `--[no-]mux` | on | Merge with ffmpeg afterwards into one file named after the call, which replaces `screen.mov` once it is verified. |
 | `--[no-]video` | on | Record the picture. `--no-video` still needs `--window` or `--display`, for the sound, title, names and mute, and writes no `screen.mov`. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
-| `--[no-]echo-cancellation` | off | Also record the microphone through macOS voice processing as `microphone-clean.m4a`. The raw microphone is kept either way. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
 | `--mic` | system default | The input device id, from `anyrec sources`. |
@@ -485,11 +480,6 @@ output's first buffer stamps against the host clock, and the audio devices' repo
 latencies, are kept in `recording.json` to trace where the offset comes from.
 `anyrec timing` plays a test signal through the speakers and measures the offset on
 this Mac's devices without a call.
-
-The echo-cancelled microphone runs through `AVAudioEngine` with voice processing on,
-beside ScreenCaptureKit's own microphone. Its buffers carry host-clock times and are
-written against the same session start. They are then lined up against the raw
-microphone from your voice, which both tracks carry.
 
 An app is captured by application filter rather than by window id. A huddle's
 screen-share often opens as its own window, and a filter pinned to one window

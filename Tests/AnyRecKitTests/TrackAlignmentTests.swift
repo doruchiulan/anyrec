@@ -149,7 +149,7 @@ struct AlignedMixTests {
     func delayedAndGated() {
         let live = MicrophoneLive(duration: 10, spans: [1..<2])
         let plan = MixPlan(balance: .matched(.none), microphoneLive: live,
-                           alignment: .init(systemAudio: -0.06, microphone: 0.021), microphoneTrack: .clean)
+                           alignment: .init(systemAudio: -0.06, microphone: 0.021))
         #expect(plan.filter(systemAudio: 1, microphone: 0)
                 == "[1:a]adelay=delays=60.000:all=1[sys];"
                 + "[0:a]atrim=start=0.0210,asetpts=PTS-STARTPTS[mic0];"
@@ -173,34 +173,32 @@ struct AlignedMixTests {
                 == "[1:a]atrim=start=0.0100,asetpts=PTS-STARTPTS[mic0];[mic0]anull[a]")
     }
 
-    @Test("the merged file is built from the aligned plan, and from the clean microphone when the plan says so")
+    @Test("the merged file is built from the aligned plan and the microphone, never a microphone-clean.m4a an older recording left")
     func merge() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-align-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let plan = try OutputPlan.create(in: root, named: "rec-test")
-        for url in [plan.systemAudio, plan.microphone, plan.cleanMicrophone] { try Data(count: 2_048).write(to: url) }
-        let job = try await Muxer.job(for: plan, microphone: .clean)
-        #expect(job.audio == [plan.systemAudio, plan.cleanMicrophone])
-        let mix = MixPlan(balance: .duckedMicrophone, alignment: .init(systemAudio: 0.25), microphoneTrack: .clean)
+        let older = plan.directory.appendingPathComponent("microphone-clean.m4a")
+        for url in [plan.systemAudio, plan.microphone, older] { try Data(count: 2_048).write(to: url) }
+        let job = try await Muxer.job(for: plan)
+        #expect(job.audio == [plan.systemAudio, plan.microphone])
+        let mix = MixPlan(balance: .duckedMicrophone, alignment: .init(systemAudio: 0.25))
         let arguments = Muxer.arguments(for: job, mix: mix, writingTo: root.appendingPathComponent("out.m4a"))
         let graph = try #require(arguments.firstIndex(of: "-filter_complex").map { arguments[$0 + 1] })
         #expect(graph.hasPrefix("[0:a]atrim=start=0.2500,asetpts=PTS-STARTPTS[sys];[sys]asplit"))
-        #expect(arguments.contains(plan.cleanMicrophone.path))
-        #expect(try await Muxer.job(for: plan).audio == [plan.systemAudio, plan.microphone])
+        #expect(!arguments.contains(older.path))
     }
 
-    @Test("the engines' mix takes the plan's microphone and moves the tracks the same way")
+    @Test("the engines' mix takes the microphone and moves the tracks the same way")
     func transcriptMix() {
         let plan = MixPlan(balance: .matched(.none), alignment: .init(systemAudio: 0.3))
         let directory = URL(fileURLWithPath: "/tmp/rec-x")
-        let arguments = AudioMix.arguments(microphone: directory.appendingPathComponent("microphone-clean.m4a"),
+        let arguments = AudioMix.arguments(microphone: directory.appendingPathComponent("microphone.m4a"),
                                            systemAudio: directory.appendingPathComponent("system-audio.m4a"),
                                            plan: plan, output: directory.appendingPathComponent("mix.wav"))
-        #expect(arguments.contains("/tmp/rec-x/microphone-clean.m4a"))
+        #expect(arguments.contains("/tmp/rec-x/microphone.m4a"))
         #expect(arguments[arguments.firstIndex(of: "-filter_complex")! + 1]
                 == "[1:a]atrim=start=0.3000,asetpts=PTS-STARTPTS[sys];[0:a][sys]" + sum)
-        #expect(MixPlan.MicrophoneTrack.clean.url(besideRaw: directory.appendingPathComponent("microphone.m4a"))
-                == directory.appendingPathComponent("microphone-clean.m4a"))
     }
 
     @Test("a moved track is that much shorter, so the merge is verified against the right length")

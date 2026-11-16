@@ -33,8 +33,6 @@ public struct RecordingSummary: Sendable {
     public let endedEarly: String?
     /// No screen track was asked for, so its absence is not a shortfall.
     public var audioOnly = false
-    /// Buffers written to `microphone-clean.m4a`; zero when it was off or could not run.
-    public var cleanMicrophoneSamples = 0
     /// When each output's buffers were stamped and arrived, and the devices in use.
     public var timing: CaptureTiming?
 
@@ -81,13 +79,11 @@ public enum DropRate {
 ///
 /// Devices changing mid-call are followed without restarting anything the writers own
 /// (`MicrophoneRoute`): the microphone moves with the default input, or off a device that
-/// disappeared, through `SCStream.updateConfiguration`; the echo-cancelled microphone is
-/// started again on the same device; and the stream, if a change stopped it, is started
-/// again with the same outputs on the same queue. The writers, the session clock and the
-/// files carry on, and a gap is written as silence (`TrackWriter`). That is decided on a
-/// second queue, `devices`, which owns the stream, the route and the clean microphone and
-/// touches nothing the writers own: an audio engine can take most of a second to start,
-/// and the capture queue must not wait for it.
+/// disappeared, through `SCStream.updateConfiguration`; and the stream, if a change stopped
+/// it, is started again with the same outputs on the same queue. The writers, the session
+/// clock and the files carry on, and a gap is written as silence (`TrackWriter`). That is
+/// decided on a second queue, `devices`, which owns the stream and the route and touches
+/// nothing the writers own, so the capture queue never waits on a device.
 public final class Recorder: NSObject {
     private let options: CaptureOptions
     private let target: ResolvedTarget
@@ -101,24 +97,19 @@ public final class Recorder: NSObject {
     private var timelineAnchor: (seconds: TimeInterval, uptime: TimeInterval)?
     private var failure: Error?
     private var streamFailure: Error?
-    private var cleanWriter: TrackWriter?
     private var timing = CaptureTiming()
     /// The last microphone buffer: when it arrived and its rate. How a switch is checked.
     private var lastMicrophone: (arrival: Double, rate: Double)?
 
-    /// Owned by `devices`. The echo-cancelled microphone's buffers are handed to `queue`
-    /// and written there, like every other output, so the writer table and the session
-    /// clock stay single-queue.
+    /// Owned by `devices`.
     private let devices = DispatchQueue(label: "ro.qlan.anyrec.devices")
     private var stream: SCStream?
-    private var clean: CleanMicrophone?
     private var route: MicrophoneRoute?
     private lazy var watch = DeviceWatch(queue: devices)
     private var stopping = false
     private var pendingUpdate: DispatchWorkItem?
     private var restart: Task<Void, Never>?
     private var restarts = 0
-    private var cleanStarts = 0
     /// Host time of the last change followed.
     private var lastChange: Double?
     /// Each device as last described, so one that has gone can still be named.
@@ -141,21 +132,16 @@ public final class Recorder: NSObject {
     }
 
     public func start() async throws {
-        let facts = Self.facts(cleanRunning: true)
+        let facts = Self.facts()
         let choice: MicrophoneRoute.Choice = options.followsDefaultMicrophone
             ? .followsDefault : options.microphoneDeviceID.map(MicrophoneRoute.Choice.pinned) ?? .followsDefault
-        let route = MicrophoneRoute(choice: choice, facts: facts, recordsRaw: options.captureMicrophone,
-                                    recordsClean: options.captureMicrophone && options.cleanMicrophone)
+        let route = MicrophoneRoute(choice: choice, facts: facts, recordsRaw: options.captureMicrophone)
         let stream = try makeStream(microphone: route.raw)
         try await stream.startCapture()
         noteDevices(microphone: route.raw)
         devices.sync {
             self.stream = stream
             self.route = route
-            if route.recordsClean, let problem = startClean(on: route.raw) {
-                queue.sync { timing.cleanMicrophoneProblem = problem }
-                self.route?.cleanFailed()
-            }
             watch.start { [weak self] in self?.scheduleUpdate() }
         }
     }
@@ -194,37 +180,11 @@ public final class Recorder: NSObject {
         }
     }
 
-    static func facts(cleanRunning: Bool) -> MicrophoneRoute.Facts {
+    static func facts() -> MicrophoneRoute.Facts {
         MicrophoneRoute.Facts(defaultInput: AudioDeviceFacts.defaultInputUID(), inputs: AudioDeviceFacts.inputUIDs(),
-                              defaultOutput: AudioDeviceFacts.defaultOutputUID(), cleanRunning: cleanRunning)
+                              defaultOutput: AudioDeviceFacts.defaultOutputUID())
     }
 
-    /// A clean microphone that will not start costs the recording nothing: the reason is
-    /// returned for the timing facts and the raw track is all there is, as before. On
-    /// `devices`. Starting again after a change makes a new engine on the new device and
-    /// writes on into the same file.
-    private func startClean(on device: String?) -> String? {
-        clean?.stop()
-        clean = nil
-        cleanStarts += 1
-        guard cleanStarts <= Self.mostCleanStarts else { return "the echo-cancelled microphone was restarted too often" }
-        let microphone = CleanMicrophone(deviceUID: device, deliver: { [weak self] sample, arrival in
-            guard let self else { return }
-            self.queue.async { self.writeClean(sample, arrival: arrival) }
-        }, interrupted: { [weak self] in
-            guard let self else { return }
-            self.devices.async { self.scheduleUpdate() }
-        })
-        do {
-            try microphone.start()
-            clean = microphone
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
-    }
-
-    static let mostCleanStarts = 20
     static let mostRestarts = 5
     /// Devices announce a change as several notifications in a row — the device list, then
     /// the default — so they are read once things have settled.
@@ -243,22 +203,16 @@ public final class Recorder: NSObject {
         devices.asyncAfter(deadline: .now() + Self.settle, execute: work)
     }
 
-    /// Reads the devices and moves the microphones to where `MicrophoneRoute` says. On
+    /// Reads the devices and moves the microphone to where `MicrophoneRoute` says. On
     /// `devices`.
     private func followDevices() {
         guard !stopping, restart == nil, var route, let stream else { return }
-        let facts = Self.facts(cleanRunning: clean?.isRunning ?? false)
-        guard let change = route.update(facts) else { return }
+        guard let change = route.update(Self.facts()) else { return }
         let observed = CaptureTiming.now()
         lastChange = observed
-        /// A clean microphone started again on the device it was on is named as both.
-        let from = describe(change.input?.from ?? change.clean), to = describe(change.input?.to ?? change.clean)
+        let from = describe(change.input?.from), to = describe(change.input?.to)
         let outputs = (describe(change.output?.from, output: true), describe(change.output?.to, output: true))
-        var problems: [String] = []
-        if change.restartClean, let problem = startClean(on: change.clean) {
-            problems.append("echo-cancelled microphone: " + problem)
-            route.cleanFailed()
-        }
+        let problems: [String] = []
         self.route = route
         let fact = { (problems: [String]) in
             CaptureTiming.DeviceChange(
@@ -332,7 +286,7 @@ public final class Recorder: NSObject {
         restarts += 1
         /// The device as things stand now: the one the route was on may be what went.
         let old = stream
-        let device = route.flatMap { MicrophoneRoute.target(for: $0.choice, facts: Self.facts(cleanRunning: true), current: $0.raw) }
+        let device = route.flatMap { MicrophoneRoute.target(for: $0.choice, facts: Self.facts(), current: $0.raw) }
         let observed = CaptureTiming.now()
         lastChange = observed
         guard restarts <= Self.mostRestarts else {
@@ -364,8 +318,8 @@ public final class Recorder: NSObject {
                     return self.endCapture(error ?? RecorderError.unsupportedOutputType, reason: problems.joined(separator: "; "))
                 }
                 self.stream = started
-                /// The route catches up with whatever moved: the clean microphone, and the
-                /// change itself, recorded like any other.
+                /// The route catches up with whatever moved, and the change is recorded
+                /// like any other.
                 self.scheduleUpdate()
             }
         }
@@ -411,28 +365,6 @@ public final class Recorder: NSObject {
         return microphoneGone || changedRecently || microphoneFailed
     }
 
-    /// Clean buffers wait for the session clock that ScreenCaptureKit's first written
-    /// buffer starts, and never start it, so the clock, the timeline anchor and the
-    /// participant times are exactly what they were without this track.
-    private func writeClean(_ sample: CMSampleBuffer, arrival: Double) {
-        guard let start = sessionStart else { return }
-        note(sample, arrival: arrival, as: CaptureTiming.cleanMicrophone)
-        do {
-            if cleanWriter == nil {
-                cleanWriter = try TrackWriter(url: plan.cleanMicrophone, kind: .audio,
-                                              formatHint: CMSampleBufferGetFormatDescription(sample))
-            }
-            cleanWriter?.append(sample, sessionStart: start)
-        } catch {
-            timing.cleanMicrophoneProblem = timing.cleanMicrophoneProblem ?? error.localizedDescription
-            devices.async {
-                self.clean?.stop()
-                self.clean = nil
-                self.route?.dropClean()
-            }
-        }
-    }
-
     private func note(_ sample: CMSampleBuffer, arrival: Double, as stream: String) {
         let presentation = CMSampleBufferGetPresentationTimeStamp(sample).seconds
         /// JSON has no NaN, and a buffer without a time says nothing about timing.
@@ -466,21 +398,12 @@ public final class Recorder: NSObject {
         if let stream = devices.sync(execute: { stream }) {
             try? await stream.stopCapture()
         }
-        devices.sync {
-            stream = nil
-            clean?.stop()
-            clean = nil
-        }
-        /// Anything the clean microphone handed over before it stopped is written first.
-        let (tracks, error, cleanTrack) = queue.sync { (writers, failure ?? streamFailure, cleanWriter) }
+        devices.sync { stream = nil }
+        let (tracks, error) = queue.sync { (writers, failure ?? streamFailure) }
         for track in tracks.values { await track.finish() }
-        let cleanSamples = await cleanTrack?.finish() ?? 0
         let capturedTiming = queue.sync { () -> CaptureTiming in
             for (type, track) in tracks where !track.gaps.isEmpty {
                 timing.streams[Self.streamName(type)]?.gaps = track.gaps.map { .init(at: $0.at, seconds: $0.seconds) }
-            }
-            if let cleanTrack, !cleanTrack.gaps.isEmpty {
-                timing.streams[CaptureTiming.cleanMicrophone]?.gaps = cleanTrack.gaps.map { .init(at: $0.at, seconds: $0.seconds) }
             }
             return self.timing
         }
@@ -497,7 +420,6 @@ public final class Recorder: NSObject {
             microphonePeak: levels.sessionPeak(for: .microphone),
             endedEarly: ended,
             audioOnly: !options.recordsVideo,
-            cleanMicrophoneSamples: cleanSamples,
             timing: capturedTiming
         )
     }

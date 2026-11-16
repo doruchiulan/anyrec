@@ -35,9 +35,6 @@ struct Record: AsyncParsableCommand {
     @Flag(inversion: .prefixedNo, help: "Record the window's picture. --no-video keeps the audio, the call's names and mute, and no screen.mov.")
     var video = true
 
-    @Flag(inversion: .prefixedNo, help: "Experimental. Also record the microphone through macOS voice processing, echo cancelled, as microphone-clean.m4a. While it runs, macOS lowers the microphone and the call's volume, for the people on the call too. The raw microphone is kept either way.")
-    var echoCancellation = false
-
     @Flag(name: .long, help: "Leave the mouse cursor out of the video.")
     var hideCursor = false
 
@@ -105,7 +102,6 @@ struct Record: AsyncParsableCommand {
         recording.codec = codec
         recording.showsCursor = !hideCursor
         recording.video = video
-        recording.echoCancellation = echoCancellation
 
         guard microphone else { return recording }
         if let mic {
@@ -131,7 +127,6 @@ struct Record: AsyncParsableCommand {
             video ? "video" : nil,
             recording.systemAudio ? "system audio" : nil,
             recording.microphone.map { "microphone (\($0.name))" },
-            recording.microphone != nil && recording.echoCancellation ? "echo-cancelled microphone" : nil,
         ].compactMap { $0 }.joined(separator: " + ")
 
         return """

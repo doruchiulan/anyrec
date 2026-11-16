@@ -11,9 +11,8 @@ struct Echo: AsyncParsableCommand {
         discussion: """
         Reads the tracks only; nothing in the folder is changed. Shows how late the call's \
         track runs behind the microphone (measured from the far end's echo), how much of the \
-        far end is left in the raw microphone, under the hold-down before and after the \
-        tracks are lined up, and in the echo-cancelled microphone, and what voice processing \
-        did to your own level.
+        far end is left in the raw microphone and under the hold-down before and after the \
+        tracks are lined up, and your own level.
         """
     )
 
@@ -45,10 +44,6 @@ enum EchoReportText {
         var lines: [String] = []
         lines.append("Track offset   " + offset(report.systemAudioOffset, what: "call audio behind the microphone"))
         lines += stretches(report.systemAudioOffset)
-        if let clean = report.cleanMicrophoneOffset {
-            lines.append("Clean mic      " + offset(clean, what: "echo-cancelled behind the raw microphone"))
-            lines += stretches(clean)
-        }
         if let timing = report.timing {
             lines += self.timing(timing)
         }
@@ -59,8 +54,6 @@ enum EchoReportText {
             ("raw microphone", report.raw),
             ("held down, as before", report.duckedBefore),
             ("held down, lined up", report.duckedAligned),
-            ("echo-cancelled", report.clean),
-            ("echo-cancelled, held down", report.cleanDucked),
         ]
         for (label, echo) in rows {
             guard let echo else { continue }
@@ -72,18 +65,12 @@ enum EchoReportText {
         lines.append("  phrase starts: share of each phrase's first half-second less than 12 dB under it.")
         if let raw = report.ownerRaw {
             lines.append("")
-            var owner = String(format: "Your voice     %.1f dBFS raw", raw)
-            if let clean = report.ownerClean, let change = report.ownerChange {
-                owner += String(format: ", %.1f dBFS echo-cancelled (%+.1f dB)", clean, change)
-            }
-            lines.append(owner + ", where only you talk")
+            lines.append(String(format: "Your voice     %.1f dBFS, where only you talk", raw))
         }
-        if let bleeds = report.cleanStillBleeds {
-            lines.append(bleeds ? "The echo-cancelled microphone still bleeds, so the mixes hold it down too."
-                         : "The echo-cancelled microphone does not bleed, so the mixes use it as it is.")
+        if report.noEcho {
+            lines.append("")
+            lines.append("No echo to measure: headphones, or the far end never came back through the microphone.")
         }
-        lines.append("")
-        lines.append(verdict(report.verdict))
         return lines.joined(separator: "\n")
     }
 
@@ -146,16 +133,6 @@ enum EchoReportText {
             lines.append(label.padding(toLength: 15, withPad: " ", startingAt: 0)
                 + String(format: "%@ (%@), %.0f ms reported latency", device.name, device.transport, device.totalLatency * 1000))
         }
-        if let problem = timing.cleanMicrophoneProblem { lines.append("Clean mic      not recorded: \(problem)") }
         return lines
-    }
-
-    static func verdict(_ verdict: EchoReport.Verdict) -> String {
-        switch verdict {
-        case .noEcho: "No echo to measure: headphones, or the far end never came back through the microphone."
-        case .noCleanTrack: "No echo-cancelled track in this recording, so there is nothing to compare."
-        case .captureWins: "Verdict: cancelling at capture leaves no more echo than the lined-up hold-down. Use it; build nothing more after the fact."
-        case .duckWins: "Verdict: the lined-up hold-down leaves less echo than cancelling at capture."
-        }
     }
 }

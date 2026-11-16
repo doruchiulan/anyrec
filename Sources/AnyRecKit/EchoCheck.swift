@@ -1,16 +1,17 @@
 import Foundation
 
-/// How much of the far end is left in the microphone, measured four ways on one recording:
-/// the raw track, the duck as it was before the tracks were lined up, the duck lined up, and
-/// the echo-cancelled track. Answers one question after a call on speakers: does cancelling
-/// at capture beat holding the microphone down afterwards? If it does, nothing more is
-/// built after the fact.
+/// How much of the far end is left in the microphone, measured three ways on one recording:
+/// the raw track, the duck as it was before the tracks were lined up, and the duck lined up.
+/// What tells after a call on speakers whether the echo handling is doing its job.
+///
+/// It also compared an echo-cancelled microphone recorded at capture with macOS voice
+/// processing, until that was removed (0.7.2): its track came out silent, and while it ran
+/// macOS turned the microphone down 25 to 30 dB for every app, the call included.
 ///
 /// "Echo left" is the microphone's level against the far end's at the moments the far end
 /// was talking, in dB, with the far end read off the system track moved onto the
 /// microphone's timeline. Lower is better; the room alone is about −30 dB here, the lined-up
-/// duck about −45. The owner's level is read where only the owner talks, so it shows what
-/// voice processing does to their voice.
+/// duck about −45. The owner's level is read where only the owner talks.
 public struct EchoReport: Sendable {
     public struct Echo: Sendable, Equatable {
         /// Median dB under the far end, over the frames the far end talks in.
@@ -24,83 +25,47 @@ public struct EchoReport: Sendable {
     }
 
     public let systemAudioOffset: TrackOffset?
-    public let cleanMicrophoneOffset: TrackOffset?
     /// Nil when that track or measurement is not there.
     public let raw: Echo?
     public let duckedBefore: Echo?
     public let duckedAligned: Echo?
-    public let clean: Echo?
-    /// The clean track held down too, which is what the mixes do if it still bleeds.
-    public let cleanDucked: Echo?
-    /// The owner's median level, dBFS, where only they talk, in each microphone track.
+    /// The owner's median level, dBFS, where only they talk.
     public let ownerRaw: Double?
-    public let ownerClean: Double?
-    /// Whether the mix would hold the clean track down, as `MixDecision` decides it.
-    public let cleanStillBleeds: Bool?
     public let timing: CaptureTiming?
 
-    public enum Verdict: Sendable, Equatable {
-        /// No echo to measure from: headphones, or a far end that never spoke.
-        case noEcho
-        /// No echo-cancelled track was recorded.
-        case noCleanTrack
-        case captureWins
-        case duckWins
-    }
-
-    /// Capture-time cancellation wins when it leaves no more echo than the lined-up duck,
-    /// in the middle and at phrase starts, and does not take more than 10 dB off the owner.
-    public var verdict: Verdict {
-        guard let aligned = duckedAligned, systemAudioOffset?.isMeasured == true else { return .noEcho }
-        guard let clean else { return .noCleanTrack }
-        let best = cleanStillBleeds == true ? (cleanDucked ?? clean) : clean
-        let voiceKept = (ownerClean ?? 0) - (ownerRaw ?? 0) > -10
-        return best.median <= aligned.median + 1 && best.onsetLoud <= aligned.onsetLoud + 0.02 && voiceKept
-            ? .captureWins : .duckWins
-    }
-
-    public var ownerChange: Double? {
-        guard let ownerRaw, let ownerClean else { return nil }
-        return ownerClean - ownerRaw
-    }
+    /// No echo to measure from: headphones, or a far end that never came back through the
+    /// microphone.
+    public var noEcho: Bool { duckedAligned == nil || systemAudioOffset?.isMeasured != true }
 }
 
 public enum EchoCheck {
     public static func measure(_ plan: OutputPlan, using ffmpeg: String) throws -> EchoReport {
         let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
         guard exists(plan.systemAudio), exists(plan.microphone) else { throw MuxError.nothingToMerge }
-        let clean = exists(plan.cleanMicrophone) ? plan.cleanMicrophone : nil
-        let decision = MixPlan.decide(systemAudio: plan.systemAudio, microphone: plan.microphone, clean: clean,
+        let decision = MixPlan.decide(systemAudio: plan.systemAudio, microphone: plan.microphone,
                                       basis: .of(plan), boundaries: MixPlan.boundaries(in: plan.directory), using: ffmpeg)
-        let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone] + (clean.map { [$0] } ?? []), using: ffmpeg)
+        let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone], using: ffmpeg)
         guard let system = envelopes[0], let raw = envelopes[1] else { throw MuxError.unreadable(plan.microphone, "it could not be decoded") }
-        let cleaned = clean == nil ? nil : envelopes[2]
         let live = MicrophoneLive.read(plan.microphoneLive)
 
         let systemShift = decision.systemAudioOffset?.shift ?? .zero
-        let cleanShift = decision.cleanMicrophoneOffset?.shift ?? .zero
         let far = system.advanced(by: systemShift)
         let measuredEcho = decision.systemAudioOffset?.isMeasured == true
         let talking = farTalking(far)
 
-        let duck = { (alignment: MixPlan.Alignment, track: MixPlan.MicrophoneTrack) -> AudioEnvelope? in
-            let mix = MixPlan(balance: .duckedMicrophone, microphoneLive: nil, alignment: alignment, microphoneTrack: track)
-            return ducked(systemAudio: plan.systemAudio, microphone: track.url(besideRaw: plan.microphone), plan: mix, using: ffmpeg)
+        let duck = { (alignment: MixPlan.Alignment) -> AudioEnvelope? in
+            let mix = MixPlan(balance: .duckedMicrophone, microphoneLive: nil, alignment: alignment)
+            return ducked(systemAudio: plan.systemAudio, microphone: plan.microphone, plan: mix, using: ffmpeg)
         }
-        let before = duck(.none, .raw)
-        let aligned = duck(MixPlan.Alignment(systemAudio: systemShift), .raw)
-        let cleanAligned = cleaned.map { $0.advanced(by: cleanShift) }
-        let cleanDucked = clean == nil ? nil : duck(MixPlan.Alignment(systemAudio: systemShift, microphone: cleanShift), .clean)
+        let before = duck(.none)
+        let aligned = duck(MixPlan.Alignment(systemAudio: systemShift))
 
         let alone = ownerAlone(raw: raw, far: far, live: live)
         let echo = { (track: AudioEnvelope?) in track.flatMap { echoLeft($0, far: far, talking: talking) } }
         return EchoReport(
-            systemAudioOffset: decision.systemAudioOffset, cleanMicrophoneOffset: decision.cleanMicrophoneOffset,
+            systemAudioOffset: decision.systemAudioOffset,
             raw: echo(raw), duckedBefore: echo(before), duckedAligned: measuredEcho ? echo(aligned) : nil,
-            clean: echo(cleanAligned), cleanDucked: echo(cleanDucked),
-            ownerRaw: level(raw, at: alone), ownerClean: cleanAligned.flatMap { level($0, at: alone) },
-            cleanStillBleeds: clean == nil ? nil : (decision.microphoneTrack == .clean ? decision.bleeding : nil),
-            timing: RecordingInfo.read(plan.directory)?.timing)
+            ownerRaw: level(raw, at: alone), timing: RecordingInfo.read(plan.directory)?.timing)
     }
 
     /// The microphone as a ducking mix hears it, through the same filter graph the mixes

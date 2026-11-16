@@ -9,23 +9,22 @@ struct MicrophoneRouteTests {
     private let mac = "BuiltInMicrophoneDevice", airpods = "AirPods-input", usb = "USB-mic"
     private let speakers = "BuiltInSpeakerDevice", airpodsOut = "AirPods-output"
 
-    private func facts(default input: String?, _ inputs: [String], output: String? = "BuiltInSpeakerDevice",
-                       cleanRunning: Bool = true) -> MicrophoneRoute.Facts {
-        .init(defaultInput: input, inputs: inputs, defaultOutput: output, cleanRunning: cleanRunning)
+    private func facts(default input: String?, _ inputs: [String], output: String? = "BuiltInSpeakerDevice") -> MicrophoneRoute.Facts {
+        .init(defaultInput: input, inputs: inputs, defaultOutput: output)
     }
 
     @Test("a microphone nobody picked follows the default input to AirPods and back")
     func followsDefault() {
-        var route = MicrophoneRoute(choice: .followsDefault, facts: facts(default: mac, [mac]), recordsClean: true)
-        #expect(route.raw == mac && route.clean == mac)
+        var route = MicrophoneRoute(choice: .followsDefault, facts: facts(default: mac, [mac]))
+        #expect(route.raw == mac)
 
         let toAirPods = route.update(facts(default: airpods, [mac, airpods], output: airpodsOut))
         #expect(toAirPods?.reason == .defaultChanged)
         #expect(toAirPods?.input == .init(from: mac, to: airpods))
         #expect(toAirPods?.output == .init(from: speakers, to: airpodsOut))
-        #expect(toAirPods?.switchRaw == true && toAirPods?.restartClean == true && toAirPods?.clean == airpods)
-        #expect(toAirPods?.affected == [CaptureTiming.microphoneStream, CaptureTiming.cleanMicrophone])
-        #expect(route.raw == airpods && route.clean == airpods)
+        #expect(toAirPods?.switchRaw == true)
+        #expect(toAirPods?.affected == [CaptureTiming.microphoneStream])
+        #expect(route.raw == airpods)
 
         let back = route.update(facts(default: mac, [mac, airpods]))
         #expect(back?.reason == .defaultChanged && back?.input?.to == mac && route.raw == mac)
@@ -34,20 +33,20 @@ struct MicrophoneRouteTests {
 
     @Test("a picked microphone stays on its device while the default moves")
     func pickedStays() {
-        var route = MicrophoneRoute(choice: .pinned(usb), facts: facts(default: mac, [mac, usb]), recordsClean: true)
+        var route = MicrophoneRoute(choice: .pinned(usb), facts: facts(default: mac, [mac, usb]))
         #expect(route.raw == usb)
         #expect(route.update(facts(default: airpods, [mac, usb, airpods])) == nil)
-        #expect(route.raw == usb && route.clean == usb)
+        #expect(route.raw == usb)
         let output = route.update(facts(default: airpods, [mac, usb, airpods], output: airpodsOut))
-        #expect(output?.reason == .outputChanged && output?.switchRaw == false && output?.restartClean == false)
+        #expect(output?.reason == .outputChanged && output?.switchRaw == false && output?.affected == [])
     }
 
     @Test("a picked microphone that disappears moves to the default, and back when it returns")
     func pickedVanishes() {
-        var route = MicrophoneRoute(choice: .pinned(usb), facts: facts(default: mac, [mac, usb]), recordsClean: true)
+        var route = MicrophoneRoute(choice: .pinned(usb), facts: facts(default: mac, [mac, usb]))
         let gone = route.update(facts(default: mac, [mac]))
         #expect(gone?.reason == .deviceGone && gone?.input == .init(from: usb, to: mac) && gone?.switchRaw == true)
-        #expect(route.raw == mac && route.clean == mac)
+        #expect(route.raw == mac)
 
         let back = route.update(facts(default: mac, [mac, usb]))
         #expect(back?.reason == .deviceBack && back?.input?.to == usb && route.raw == usb)
@@ -68,29 +67,11 @@ struct MicrophoneRouteTests {
         #expect(MicrophoneRoute.target(for: .pinned(usb), facts: facts(default: mac, []), current: usb) == usb)
     }
 
-    @Test("the clean microphone is started again when its engine stops, on the raw microphone's device")
-    func cleanRestart() {
-        var route = MicrophoneRoute(choice: .followsDefault, facts: facts(default: mac, [mac]), recordsClean: true)
-        let output = route.update(facts(default: mac, [mac], output: airpodsOut, cleanRunning: false))
-        #expect(output?.reason == .outputChanged && output?.switchRaw == false)
-        #expect(output?.restartClean == true && output?.clean == mac && output?.affected == [CaptureTiming.cleanMicrophone])
-
-        let interrupted = route.update(facts(default: mac, [mac], output: airpodsOut, cleanRunning: false))
-        #expect(interrupted?.reason == .cleanInterrupted && interrupted?.restartClean == true)
-
-        route.cleanFailed()
-        #expect(route.update(facts(default: mac, [mac], output: airpodsOut, cleanRunning: false))?.restartClean == true,
-                "a failed start is tried again on the next change")
-        route.dropClean()
-        #expect(route.update(facts(default: mac, [mac], output: airpodsOut, cleanRunning: false)) == nil,
-                "a clean track that could not be written is not started again")
-    }
-
-    @Test("without echo cancellation only the raw microphone moves")
-    func rawOnly() {
-        var route = MicrophoneRoute(choice: .followsDefault, facts: facts(default: mac, [mac]))
-        let change = route.update(facts(default: airpods, [mac, airpods], cleanRunning: false))
-        #expect(change?.switchRaw == true && change?.restartClean == false && change?.affected == [CaptureTiming.microphoneStream])
+    @Test("a recording without a microphone notes device changes but moves nothing")
+    func noMicrophone() {
+        var route = MicrophoneRoute(choice: .followsDefault, facts: facts(default: mac, [mac]), recordsRaw: false)
+        let change = route.update(facts(default: airpods, [mac, airpods]))
+        #expect(change?.reason == .defaultChanged && change?.switchRaw == false && change?.affected == [])
     }
 }
 
@@ -165,7 +146,7 @@ struct DeviceChangeFactsTests {
         var timing = CaptureTiming(sessionStart: 1_000)
         timing.deviceChanges = [
             .init(at: 312.4, reason: .defaultChanged, from: mac, to: airpods, outputFrom: nil, outputTo: airpods,
-                  affected: [CaptureTiming.microphoneStream, CaptureTiming.cleanMicrophone]),
+                  affected: [CaptureTiming.microphoneStream]),
             .init(at: 640, reason: .deviceGone, from: airpods, to: mac, affected: [CaptureTiming.microphoneStream],
                   problem: "microphone: updateConfiguration refused the new device"),
         ]
@@ -193,5 +174,16 @@ struct DeviceChangeFactsTests {
         stream.noteFormat(.init(at: 300, sampleRate: 24_000, channels: 1))
         stream.noteFormat(.init(at: 600, sampleRate: 24_000, channels: 2))
         #expect(stream.formats?.map(\.at) == [0, 300, 600])
+    }
+}
+
+@Suite("Timing written while the echo-cancelled microphone existed")
+struct OlderTimingTests {
+    @Test("a change from the removed echo-cancelled microphone still decodes, so the timing is kept")
+    func cleanInterrupted() throws {
+        let json = #"{"streams":{},"cleanMicrophoneProblem":"engine","deviceChanges":[{"at":12,"reason":"clean-interrupted","affected":["microphone-clean"]}]}"#
+        let timing = try JSONDecoder().decode(CaptureTiming.self, from: Data(json.utf8))
+        #expect(timing.deviceChanges?.first?.reason == .cleanInterrupted)
+        #expect(timing.changeTimes == [12])
     }
 }

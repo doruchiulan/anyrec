@@ -131,7 +131,8 @@ public struct CaptureTiming: Codable, Equatable, Sendable {
         }
     }
 
-    /// Keyed "screen", "audio", "microphone" and "microphone-clean".
+    /// Keyed "screen", "audio" and "microphone" (and "microphone-clean" in files written
+    /// while the echo-cancelled microphone existed).
     public var streams: [String: Stream]
     /// The presentation time every writer's session starts at, seconds on the host clock.
     public var sessionStart: Double?
@@ -140,21 +141,17 @@ public struct CaptureTiming: Codable, Equatable, Sendable {
     public var output: Device?
     public var input: Device?
     public var microphone: Device?
-    /// Why there is no echo-cancelled microphone track, when one was asked for.
-    public var cleanMicrophoneProblem: String?
     /// Every audio device change while capture ran, in order. Absent in older files, and
     /// when nothing changed.
     public var deviceChanges: [DeviceChange]?
 
     public init(streams: [String: Stream] = [:], sessionStart: Double? = nil, output: Device? = nil,
-                input: Device? = nil, microphone: Device? = nil, cleanMicrophoneProblem: String? = nil,
-                deviceChanges: [DeviceChange]? = nil) {
+                input: Device? = nil, microphone: Device? = nil, deviceChanges: [DeviceChange]? = nil) {
         self.streams = streams
         self.sessionStart = sessionStart
         self.output = output
         self.input = input
         self.microphone = microphone
-        self.cleanMicrophoneProblem = cleanMicrophoneProblem
         self.deviceChanges = deviceChanges
     }
 
@@ -173,6 +170,8 @@ public struct CaptureTiming: Codable, Equatable, Sendable {
             /// The default output moved. Capture is untouched; the echo's path changes.
             case outputChanged = "output-changed"
             /// The echo-cancelled microphone's audio engine stopped and was started again.
+            /// Only read from files written while that microphone existed (until 0.7.2); kept
+            /// so their timing still decodes.
             case cleanInterrupted = "clean-interrupted"
             /// The stream stopped because of the change and was started again.
             case streamRestarted = "stream-restarted"
@@ -188,8 +187,7 @@ public struct CaptureTiming: Codable, Equatable, Sendable {
         /// The output before and after, when it changed.
         public let outputFrom: Device?
         public let outputTo: Device?
-        /// The streams moved or restarted: "microphone", "microphone-clean". Empty when
-        /// only the output moved.
+        /// The streams moved or restarted: "microphone". Empty when only the output moved.
         public let affected: [String]
         /// What went wrong while following the change, when something did.
         public let problem: String?
@@ -210,8 +208,7 @@ public struct CaptureTiming: Codable, Equatable, Sendable {
     /// The session-clock times of the changes: where the alignment's stretches end.
     public var changeTimes: [Double] { (deviceChanges ?? []).map(\.at) }
 
-    public static let screen = "screen", systemAudio = "audio", microphoneStream = "microphone",
-        cleanMicrophone = "microphone-clean"
+    public static let screen = "screen", systemAudio = "audio", microphoneStream = "microphone"
 
     /// How much later the system track's sound is stamped than the microphone's, from
     /// what arrived together: the microphone's age minus the system audio's. If the
