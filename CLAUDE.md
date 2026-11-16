@@ -610,6 +610,12 @@ Invariants worth preserving:
 - The cask's token is `anyrec-app`, not `anyrec`. A cask and a formula sharing one
   token in a tap conflict: with the cask installed, a formula install completes but
   links nothing, and `anyrec` quietly leaves `PATH`.
+- The formula re-signs the CLI and whisper.framework ad hoc in `post_install`. Homebrew
+  rewrites the framework's install name to a path in the keg and signs it ad hoc; the
+  binary, signed with a Team ID and the hardened runtime, then refused to load it ("different
+  Team IDs"), so the Homebrew CLI did not start from 0.5.0 until this was found in 0.7.0.
+  Formulae are not quarantined, so nothing there needs notarization. `post_install` prints
+  a deprecation warning on Homebrew 7; `post_install_steps` would break older Homebrews.
 - The app has to be notarised, and a cask does not get you out of it. Casks apply
   the quarantine flag — `--no-quarantine` is the opt-out — so an unnotarised
   bundle installs and then refuses to open: `spctl` says `rejected: Unnotarized
