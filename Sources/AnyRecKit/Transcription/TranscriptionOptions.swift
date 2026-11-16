@@ -13,6 +13,9 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
     public var compareEngines = false
     public var review = false
     public var reviewProvider: SummaryProvider = .claude
+    /// Words the owner wants spelled their way: product names, people, jargon. The wording
+    /// review corrects garbled versions of them (`CallSheet`); no engine is told them.
+    public var vocabulary: [String] = []
 
     public init() {}
 
@@ -21,7 +24,7 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
     /// or the reviewed one with review on — which is this: the chosen engine plus a
     /// comparison when reviewing.
     private enum CodingKeys: String, CodingKey {
-        case enabledEngines, aggregatorEngines, identifySpeakers, parallel, compareEngines, review, reviewProvider
+        case enabledEngines, aggregatorEngines, identifySpeakers, parallel, compareEngines, review, reviewProvider, vocabulary
     }
 
     public init(from decoder: Decoder) throws {
@@ -35,6 +38,7 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
             ?? values.decodeIfPresent(Bool.self, forKey: .parallel) ?? false
         review = try values.decodeIfPresent(Bool.self, forKey: .review) ?? false
         reviewProvider = try values.decodeIfPresent(SummaryProvider.self, forKey: .reviewProvider) ?? .claude
+        vocabulary = try values.decodeIfPresent([String].self, forKey: .vocabulary) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -45,6 +49,7 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
         try values.encode(compareEngines, forKey: .compareEngines)
         try values.encode(review, forKey: .review)
         try values.encode(reviewProvider, forKey: .reviewProvider)
+        try values.encode(vocabulary, forKey: .vocabulary)
     }
 
     /// Whether this run compares engines at all.
@@ -86,4 +91,14 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
         let order = Self.localOrder + [.openai]
         return [primary] + order.filter { enabled.contains($0) && comparisonEngines.contains($0) && $0 != resolved }
     }
+}
+
+/// The vocabulary as typed: comma- or newline-separated, the way both front ends take it.
+public enum Vocabulary {
+    public static func words(_ text: String) -> [String] {
+        CallSheet.unique(text.split(whereSeparator: { $0 == "," || $0.isNewline }).map(String.init),
+                         limit: CallSheet.maximumTerms)
+    }
+
+    public static func text(_ words: [String]) -> String { words.joined(separator: ", ") }
 }

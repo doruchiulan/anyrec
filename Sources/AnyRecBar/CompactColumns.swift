@@ -10,7 +10,9 @@ import CoreGraphics
 /// pixel. A column comes back on its own only if it was hidden here, and only after the
 /// window grows past a higher threshold. The gap between the two thresholds keeps it from
 /// flickering at one width.
-struct CompactColumns: Equatable {
+/// A class held in `@State`, so remembering the last width on every frame of a resize does not
+/// redraw the window; only a threshold crossing changes what is shown.
+final class CompactColumns {
     struct Threshold: Equatable {
         let hide: CGFloat
         let show: CGFloat
@@ -37,7 +39,7 @@ struct CompactColumns: Equatable {
     private(set) var hidInspector = false
 
     /// What to show or hide now the window is `width` wide. Nil fields stay as they are.
-    mutating func resized(to width: CGFloat, sidebarVisible: Bool, inspectorVisible: Bool) -> Change {
+    func resized(to width: CGFloat, sidebarVisible: Bool, inspectorVisible: Bool) -> Change {
         let previous = self.width
         self.width = width
         var change = Change()
@@ -64,8 +66,8 @@ struct CompactColumns: Equatable {
     }
 
     /// Shown by hand: it is the person's again, not ours to hide or bring back.
-    mutating func sidebarShown() { hidSidebar = false }
-    mutating func inspectorShown() { hidInspector = false }
+    func sidebarShown() { hidSidebar = false }
+    func inspectorShown() { hidInspector = false }
 
     private func adjust(
         _ threshold: Threshold, from previous: CGFloat?, to width: CGFloat, visible: Bool, hid: inout Bool

@@ -13,8 +13,15 @@ enum ReviewPrompt {
     Make minimal, word-level corrections, not an edited rewrite. Preserve the speaker's original words,
     word order, meaning, uncertainty and every timeline line. Correct only clear recognition or spelling
     errors, capitalization and punctuation. A word replacement needs evidence of a transcription error
-    from context or source transcripts; a more fluent or grammatical phrase is not evidence.
+    from context, source transcripts or callSheet; a more fluent or grammatical phrase is not evidence.
+    callSheet describes the whole call: its title, app, participants, topic and the terms its speakers
+    used, spelled as meant. A word that sounds like one of those terms or names but is spelled as a
+    recognition error is evidence: correct it to the listed spelling (for example "autoricord" to
+    "auto-record" or "riviu" to "review" when those terms are listed). Never insert a term or a name
+    that was not said, and never change a correctly recognised word because a term resembles it.
     Preserve slang, contractions, repetitions, fillers, informal grammar and code-switching within a line.
+    English words inside another language stay in English; an English term recognised as a garbled
+    word of the other language is a recognition error, not code-switching.
     Do not paraphrase, polish, formalize, translate borrowed words, expand contractions or normalize grammar.
     For example, "useri care nu-s logged in" must remain "useri care nu-s logged in", never
     "user care nu se loghează" or "utilizatori care nu sunt autentificați". Punctuation may be added.
@@ -31,6 +38,7 @@ enum ReviewPrompt {
      "speakerChanges":[{"line":1,"target":"Speaker B","reason":"explain the conversational evidence",
      "quote":"exact original evidence","evidenceLine":0}]}
     context contains introductions and neighboring timeline lines; knownSpeakers contains the currently resolved names.
+    callSheet may be absent or incomplete; then rely on the sources and context alone.
     changes lists only the timeline lines whose text you corrected, each ID at most once, with the full corrected
     text of that line. A timeline line you leave out stays exactly as it is; an empty changes array means no
     correction was needed. Never include context lines in changes. Never change IDs, timestamps or speaker
@@ -53,6 +61,7 @@ enum ReviewPrompt {
     }
     struct Source: Encodable { let engine: String; let lines: [Line] }
     struct Input: Encodable {
+        let callSheet: CallSheet?
         let timeline: [Line]
         let context: [Line]
         let knownSpeakers: [String: String]
@@ -75,7 +84,7 @@ enum ReviewPrompt {
         return batches
     }
 
-    static func input(_ candidates: TranscriptionCandidates, range: Range<Int>) throws -> String {
+    static func input(_ candidates: TranscriptionCandidates, range: Range<Int>, sheet: CallSheet? = nil) throws -> String {
         let primary = candidates.primary.transcript
         let start = primary.utterances[range.lowerBound].start
         let end = primary.utterances[range.upperBound - 1].end
@@ -88,7 +97,7 @@ enum ReviewPrompt {
         }
         let neighbors = max(0, range.lowerBound - 3)..<min(primary.utterances.count, range.upperBound + 3)
         let contextIDs = Set(neighbors).union(0..<min(6, primary.utterances.count)).subtracting(range).sorted()
-        let input = Input(timeline: range.map { encoded(primary.utterances[$0], id: $0) },
+        let input = Input(callSheet: sheet, timeline: range.map { encoded(primary.utterances[$0], id: $0) },
                           context: contextIDs.map { encoded(primary.utterances[$0], id: $0) },
                           knownSpeakers: candidates.primary.voices?.names ?? [:], sources: sources)
         let data = try JSONEncoder().encode(input)

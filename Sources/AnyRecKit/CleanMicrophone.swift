@@ -114,7 +114,11 @@ final class CleanMicrophone {
         engine.connect(fold, to: engine.mainMixerNode, format: mono)
         // VoiceProcessingIO requires matching client rates even when the hardware rates differ.
         engine.connect(engine.mainMixerNode, to: engine.outputNode, format: mono)
-        fold.outputVolume = 0
+        /// Silent on the way to the speakers, not at the fold: the track is tapped off the
+        /// fold's output, which carries its volume. With the fold at zero, every clean track
+        /// recorded since this was built was digital silence (−70 LUFS, peak −inf).
+        engine.mainMixerNode.outputVolume = 0
+        fold.outputVolume = 1
         return mono
     }
 

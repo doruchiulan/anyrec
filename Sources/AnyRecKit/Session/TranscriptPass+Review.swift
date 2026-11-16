@@ -33,16 +33,25 @@ extension TranscriptPass {
             return .nothingHeard
         }
         let others = candidates.transcripts.filter { $0.engine != primary.transcript.engine }
-        var files = try TranscriptStore.publish(primary.transcript, voices: primary.voices, in: directory, compared: others)
+        /// The person recording is called by the library owner's name from the start, so the
+        /// transcript, its Markdown and the summary never say "Me" once the owner is known.
+        var voices = RecordingVoices.withMe(primary.voices, named: library().owner?.shownName)
+        var files = try TranscriptStore.publish(primary.transcript, voices: voices, in: directory, compared: others)
         var notes = primary.transcript.notes
-        var voices = primary.voices
 
         if options.review, let selection = TranscriptStore.selection(in: directory) {
             let provider = options.reviewProvider
             var problems: [String] = []
             var reviewed: TranscriptReviewer.Reviewed?
+            progress("Reading the call with \(provider.name)…")
+            let sheet = await CallSheet.facts(
+                in: directory, transcript: primary.transcript, voices: voices, vocabulary: options.vocabulary,
+                library: library()
+            ).withTopic(primary.transcript, using: provider, complete: complete)
+            try Task.checkCancellation()
             do {
-                reviewed = try await TranscriptReviewer.review(candidates, using: provider, progress: progress, complete: complete)
+                reviewed = try await TranscriptReviewer.review(
+                    candidates, using: provider, sheet: sheet, progress: progress, complete: complete)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -86,7 +95,7 @@ extension TranscriptPass {
                 speakerChanges: reviewed?.review.speakerChanges ?? [],
                 failures: candidates.failures + (reviewed?.review.batchFailures.map(TranscriptReviewer.describe) ?? []) + problems,
                 batchFailures: reviewed?.review.batchFailures ?? [], batchCount: reviewed?.review.batchCount ?? 0,
-                notes: reviewNotes + problems)
+                notes: reviewNotes + problems, callSheet: sheet)
             let worded = try TranscriptStore.publishWording(wording, voices: voices, in: directory)
             if !worded.isEmpty { files = worded }
             notes += wording.notes

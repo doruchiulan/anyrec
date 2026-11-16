@@ -223,10 +223,13 @@ struct ParticipantAttributionTests {
         })
         let resolved = ParticipantAttribution.resolve(RecordingVoices(voices: [owner, sam]), lines: lines, evidence: evidence,
                                                       library: VoiceLibrary(), microphone: microphone)
-        #expect(resolved.lines.map(\.speaker) == [.me, .me, .voice("A"), .others, .others, .voice("A"), .voice("A")])
+        /// A call of two: the line nobody was shown on is Sam's, the only other person; the
+        /// one the window showed the owner on stays Call for the owner to decide.
+        #expect(resolved.lines.map(\.speaker) == [.me, .me, .voice("A"), .others, .voice("A"), .voice("A"), .voice("A")])
         #expect(resolved.voices?.names == ["A": "Sam"])
         #expect(resolved.voices?.ownerMerge?.toMe == 2)
         #expect(resolved.voices?.ownerMerge?.toOthers == 3)
+        #expect(resolved.voices?.callLinesNamed == 1)
     }
 
     @Test("A microphone with no mute record is live throughout; with one, a line has to lie mostly inside it")

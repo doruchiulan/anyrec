@@ -21,10 +21,26 @@ public struct Speech: Sendable {
     public let utterances: [Utterance]
     /// The language the engine decided it was hearing, when it was not told.
     public let language: String?
+    /// Each word with its time, from engines that give them (Parakeet). The lines can then
+    /// be cut again once the tracks are known (`CallTurns`). Nil from the others.
+    public let words: [Word]?
 
-    public init(utterances: [Utterance], language: String? = nil) {
+    public struct Word: Sendable, Equatable {
+        public let text: String
+        public let start: TimeInterval
+        public let end: TimeInterval
+
+        public init(text: String, start: TimeInterval, end: TimeInterval) {
+            self.text = text
+            self.start = start
+            self.end = end
+        }
+    }
+
+    public init(utterances: [Utterance], language: String? = nil, words: [Word]? = nil) {
         self.utterances = utterances
         self.language = language
+        self.words = words
     }
 }
 

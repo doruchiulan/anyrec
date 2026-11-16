@@ -87,11 +87,30 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
 
     public var unnamed: [Voice] { voices.filter { $0.name == nil } }
 
-    /// Letter → name, for everything that has one.
+    /// What the person recording is called in this recording, in place of "Me": the
+    /// library's owner when the transcript was written, or whoever the owner said they are in
+    /// the Speakers panel. Nil while nobody has said, and in files written before it existed.
+    public var meName: String?
+
+    /// The key `names` keeps the person recording under. Not a letter any voice can have.
+    public static let meKey = "\u{0}me"
+
+    /// Letter → name, for everything that has one, and the person recording under `meKey`.
     public var names: [String: String] {
-        Dictionary(uniqueKeysWithValues: voices.compactMap { voice in
+        var names = Dictionary(uniqueKeysWithValues: voices.compactMap { voice in
             voice.name.map { (voice.letter, $0) }
         })
+        if let meName { names[Self.meKey] = meName }
+        return names
+    }
+
+    /// `voices` with the person recording called `name`; made when there are no voices to
+    /// carry it, so a recording without diarization still names its owner.
+    public static func withMe(_ voices: RecordingVoices?, named name: String?) -> RecordingVoices? {
+        guard let name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { return voices }
+        var named = voices ?? RecordingVoices(voices: [])
+        named.meName = name
+        return named
     }
 
     /// The owner names a voice. What the call window and the library said is kept, so the
@@ -221,8 +240,12 @@ extension Transcript {
     public func named(_ names: [String: String]) -> Transcript {
         guard !names.isEmpty else { return self }
         let renamed = utterances.map { utterance -> Utterance in
-            guard case .voice(let letter) = utterance.speaker, let name = names[letter]
-            else { return utterance }
+            let name: String? = switch utterance.speaker {
+            case .voice(let letter): names[letter]
+            case .me: names[RecordingVoices.meKey]
+            default: nil
+            }
+            guard let name else { return utterance }
             var line = utterance
             line.speaker = .named(name)
             return line

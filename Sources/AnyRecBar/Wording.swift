@@ -235,7 +235,22 @@ enum Wording {
     /// A speaker row's line under its name: that it is probably you and why, else how it
     /// came to be called what it is.
     static func basis(of row: RecordingSpeakers.Row) -> String {
-        row.probablyYou ? probablyYou(row.yourVoice) : basis(row.basis)
+        if row.speaker == .others { return "From the call; no voice claims these lines" }
+        return row.probablyYou ? probablyYou(row.yourVoice) : basis(row.basis)
+    }
+
+    /// A transcript line's speaker as shown: Me by the owner's name once it is known.
+    static func label(_ speaker: Speaker, me: String?) -> String {
+        speaker == .me ? (me ?? speaker.label) : speaker.label
+    }
+
+    /// The question over a row's choices, where the row's own label does not ask it.
+    static func choicePrompt(for row: RecordingSpeakers.Row) -> String? {
+        switch row.speaker {
+        case .me: row.name == nil ? "Who are you? Your name replaces “Me” in this recording and the next ones." : "Change who you are"
+        case .others: "Who said these lines?"
+        default: nil
+        }
     }
 
     /// "Probably you: the call window showed you speaking".
@@ -252,7 +267,7 @@ enum Wording {
     }
 
     /// The tick beside Me that also makes the library remember who the owner is.
-    static func rememberOwner(_ owner: OwnerToRemember) -> String { "Remember \(owner.shownName) is me" }
+    static func rememberOwner(_ owner: OwnerToRemember) -> String { "I’m \(owner.shownName)" }
 
     /// What ticking it does, as its tooltip.
     static func rememberOwnerHelp(_ owner: OwnerToRemember) -> String {
@@ -288,6 +303,8 @@ enum Wording {
         case .inCall: "In the call"
         case .windowTitle: "In the window’s title"
         case .soundsLike: "Sounds like a saved voice. Is it?"
+        case .savedAsYou: "Saved as you"
+        case .yourCallName: "Your name in the call window"
         }
     }
 

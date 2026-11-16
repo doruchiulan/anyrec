@@ -217,7 +217,7 @@ private struct RecordingPage: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .frame(maxWidth: .infinity)
                     if controller.showsCaptions, !lines.isEmpty {
-                        Caption(lines: lines, playback: playback)
+                        Caption(lines: lines, meName: voices?.meName, playback: playback)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                             .padding(.horizontal, 24).padding(.bottom, 14)
                             .allowsHitTesting(false)
@@ -255,17 +255,13 @@ private struct RecordingPage: View {
     /// One row when the card is wide enough; otherwise the track buttons move to a second
     /// row. Squeezed into one, "Tracks" wrapped a letter per line and the buttons lost
     /// their names.
+    ///
+    /// A `Layout`, not `ViewThatFits`: that built both alternatives in the window's
+    /// minimum-size pass on every frame of a resize, the largest share of the page's cost.
     private var controls: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                transport
-                Spacer(minLength: 12)
-                trackButtons
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) { transport; Spacer(minLength: 0) }
-                trackButtons
-            }
+        WrappingRow(spacing: 12, rowSpacing: 10) {
+            transport
+            trackButtons
         }
     }
 
@@ -336,21 +332,10 @@ private struct RecordingPage: View {
         return VStack(alignment: .leading, spacing: 12) {
             /// The source line sits beside the title when there is room and under it when
             /// there is not. Squeezed beside it, both wrapped a few letters per line.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    summaryTitle
-                    if let source { summarySource(source).fixedSize() }
-                    Spacer(minLength: 8)
-                    summaryActions(busy: busy)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        summaryTitle
-                        Spacer(minLength: 8)
-                        summaryActions(busy: busy)
-                    }
-                    if let source { summarySource(source).lineLimit(2) }
-                }
+            HeaderRow(spacing: 8, rowSpacing: 4) {
+                summaryTitle
+                summaryActions(busy: busy)
+                if let source { summarySource(source).lineLimit(2) }
             }
             .buttonStyle(.borderless)
 
@@ -401,9 +386,11 @@ private struct RecordingPage: View {
         Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
     }
 
-    @ViewBuilder private func summaryActions(busy: Bool) -> some View {
-        if summary != nil || legacySummary != nil {
-            HStack(spacing: 8) {
+    /// Always one view, empty before there is a summary: `HeaderRow` places its children by
+    /// position, so the note must never slide into the actions' place.
+    private func summaryActions(busy: Bool) -> some View {
+        HStack(spacing: 8) {
+            if summary != nil || legacySummary != nil {
                 Button { copy(summary?.named(voices?.names ?? [:]).markdown ?? legacySummary ?? "") } label: { Image(systemName: "doc.on.doc") }
                     .help("Copy summary").accessibilityLabel("Copy summary")
                 providerMenu
@@ -411,8 +398,8 @@ private struct RecordingPage: View {
                     .help("Regenerate summary").accessibilityLabel("Regenerate summary")
                     .disabled(busy)
             }
-            .fixedSize()
         }
+        .fixedSize()
     }
 
     private var providerMenu: some View {
@@ -553,7 +540,7 @@ private struct RecordingPage: View {
 
     @ViewBuilder private var transcriptLines: some View {
         if transcript != nil {
-            TranscriptList(lines: lines, playback: playback, desk: desk)
+            TranscriptList(lines: lines, meName: voices?.meName, playback: playback, desk: desk)
         } else {
             TranscriptPlaceholder(controller: controller, entry: entry)
         }
@@ -630,8 +617,10 @@ private struct RecordingPage: View {
         }
     }
 
+    /// Voices carry their names; Me stays Me so it keeps its colour and its choices, and only
+    /// its label shows the owner's name (`meName`).
     private func named() {
-        lines = transcript?.named(voices?.names ?? [:]).utterances ?? []
+        lines = transcript?.named((voices?.names ?? [:]).filter { $0.key != RecordingVoices.meKey }).utterances ?? []
         playback.follow(transcript)
     }
 
@@ -883,13 +872,14 @@ private struct WaveformBar: View {
 /// of putting a paragraph over the picture.
 private struct Caption: View {
     let lines: [Utterance]
+    let meName: String?
     let playback: Playback
 
     var body: some View {
         if let index = playback.currentLine, lines.indices.contains(index) {
             let line = lines[index]
             VStack(spacing: 2) {
-                Text(line.speaker.label)
+                Text(Wording.label(line.speaker, me: meName))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(RecordingPage.colour(line.speaker))
                 Text(Wording.caption(of: line, at: playback.position))
@@ -927,6 +917,7 @@ private struct PlayheadTime: View {
 /// the one playing, so moving the highlight redraws two rows, not a thousand.
 private struct TranscriptList: View {
     let lines: [Utterance]
+    let meName: String?
     let playback: Playback
     let desk: SpeakerDesk?
 
@@ -937,7 +928,7 @@ private struct TranscriptList: View {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     ForEach(lines.indices, id: \.self) { index in
                         TranscriptRow(line: lines[index], index: index, isCurrent: index == current,
-                                      desk: desk, playback: playback) {
+                                      meName: meName, desk: desk, playback: playback) {
                             playback.play(from: lines[index].start)
                         }
                         .equatable()
@@ -961,13 +952,14 @@ private struct TranscriptRow: View, Equatable {
     let line: Utterance
     let index: Int
     let isCurrent: Bool
+    let meName: String?
     let desk: SpeakerDesk?
     let playback: Playback
     let play: () -> Void
     @State private var choosing = false
 
     static func == (a: Self, b: Self) -> Bool {
-        a.line == b.line && a.index == b.index && a.isCurrent == b.isCurrent && a.desk === b.desk
+        a.line == b.line && a.index == b.index && a.isCurrent == b.isCurrent && a.meName == b.meName && a.desk === b.desk
     }
 
     var body: some View {
@@ -983,14 +975,14 @@ private struct TranscriptRow: View, Equatable {
                 Button { choosing = true } label: {
                     HStack(spacing: 6) {
                         Circle().fill(RecordingPage.colour(line.speaker)).frame(width: 8, height: 8)
-                        Text(line.speaker.label).font(.caption.bold())
+                        Text(Wording.label(line.speaker, me: meName)).font(.caption.bold())
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(desk == nil)
                 .help("Change who said this")
-                .accessibilityLabel("\(line.speaker.label). Change who said this")
+                .accessibilityLabel("\(Wording.label(line.speaker, me: meName)). Change who said this")
                 .popover(isPresented: $choosing, arrowEdge: .leading) {
                     if let desk {
                         LineSpeakerChooser(desk: desk, line: index, playback: playback) { choosing = false }
@@ -1058,5 +1050,101 @@ private extension View {
     /// The 14 pt-radius card the summary and player sit in: a grey fill on the white page.
     func card() -> some View {
         background(Color(nsColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+/// Its children on one row, the last one at the trailing edge, when they fit at their ideal
+/// widths; otherwise each on a row of its own. Measured from one set of children, so a
+/// resize costs arithmetic rather than a second layout.
+private struct WrappingRow: Layout {
+    var spacing: CGFloat
+    var rowSpacing: CGFloat
+
+    private func fits(_ sizes: [CGSize], in width: CGFloat?) -> Bool {
+        guard let width else { return true }
+        return sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1)) <= width
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        if fits(sizes, in: proposal.width) {
+            let natural = sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1))
+            return CGSize(width: proposal.width ?? natural, height: sizes.map(\.height).max() ?? 0)
+        }
+        return CGSize(width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+                      height: sizes.reduce(0) { $0 + $1.height } + rowSpacing * CGFloat(max(0, sizes.count - 1)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        if fits(sizes, in: bounds.width) {
+            let height = sizes.map(\.height).max() ?? 0
+            var x = bounds.minX
+            for (index, subview) in subviews.enumerated() {
+                let last = index == subviews.count - 1 && subviews.count > 1
+                let origin = CGPoint(x: last ? bounds.maxX - sizes[index].width : x,
+                                     y: bounds.minY + (height - sizes[index].height) / 2)
+                subview.place(at: origin, proposal: ProposedViewSize(sizes[index]))
+                x += sizes[index].width + spacing
+            }
+        } else {
+            var y = bounds.minY
+            for (index, subview) in subviews.enumerated() {
+                subview.place(at: CGPoint(x: bounds.minX, y: y), proposal: ProposedViewSize(sizes[index]))
+                y += sizes[index].height + rowSpacing
+            }
+        }
+    }
+}
+
+/// A card's header: title, actions, and an optional note. All three on one row (title, note,
+/// then the actions at the trailing edge) when they fit; otherwise the note goes under the
+/// title, wrapping to the width, and the actions stay on the title's row.
+private struct HeaderRow: Layout {
+    var spacing: CGFloat
+    var rowSpacing: CGFloat
+
+    private func measure(_ subviews: Subviews) -> (title: CGSize, actions: CGSize, note: CGSize?) {
+        (subviews[0].sizeThatFits(.unspecified), subviews.count > 1 ? subviews[1].sizeThatFits(.unspecified) : .zero,
+         subviews.count > 2 ? subviews[2].sizeThatFits(.unspecified) : nil)
+    }
+
+    private func oneRow(_ sizes: (title: CGSize, actions: CGSize, note: CGSize?), width: CGFloat?) -> Bool {
+        guard let width else { return true }
+        let note = sizes.note.map { $0.width + spacing } ?? 0
+        return sizes.title.width + note + spacing + sizes.actions.width <= width
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let sizes = measure(subviews)
+        let first = max(sizes.title.height, sizes.actions.height)
+        if oneRow(sizes, width: proposal.width) {
+            let natural = sizes.title.width + (sizes.note.map { $0.width + spacing } ?? 0) + spacing + sizes.actions.width
+            return CGSize(width: proposal.width ?? natural, height: max(first, sizes.note?.height ?? 0))
+        }
+        let width = proposal.width ?? max(sizes.title.width + spacing + sizes.actions.width, sizes.note?.width ?? 0)
+        let note = subviews.count > 2 ? subviews[2].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
+        return CGSize(width: width, height: first + (subviews.count > 2 ? rowSpacing + note : 0))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let sizes = measure(subviews)
+        let first = max(sizes.title.height, sizes.actions.height)
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY + (first - sizes.title.height) / 2),
+                          proposal: ProposedViewSize(sizes.title))
+        if subviews.count > 1 {
+            subviews[1].place(at: CGPoint(x: bounds.maxX - sizes.actions.width, y: bounds.minY + (first - sizes.actions.height) / 2),
+                              proposal: ProposedViewSize(sizes.actions))
+        }
+        guard subviews.count > 2, let note = sizes.note else { return }
+        if oneRow(sizes, width: bounds.width) {
+            subviews[2].place(at: CGPoint(x: bounds.minX + sizes.title.width + spacing, y: bounds.minY + (first - note.height) / 2),
+                              proposal: ProposedViewSize(note))
+        } else {
+            subviews[2].place(at: CGPoint(x: bounds.minX, y: bounds.minY + first + rowSpacing),
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
+        }
     }
 }

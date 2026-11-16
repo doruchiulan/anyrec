@@ -105,10 +105,10 @@ public enum TranscriptReviewer {
     static let concurrency = 3
 
     public static func review(
-        _ candidates: TranscriptionCandidates, using provider: SummaryProvider,
+        _ candidates: TranscriptionCandidates, using provider: SummaryProvider, sheet: CallSheet? = nil,
         progress: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> Reviewed {
-        try await review(candidates, using: provider, progress: progress) {
+        try await review(candidates, using: provider, sheet: sheet, progress: progress) {
             try await LLMClient.complete(instructions: $0, text: $1, using: $2)
         }
     }
@@ -121,7 +121,7 @@ public enum TranscriptReviewer {
     }
 
     static func review(
-        _ candidates: TranscriptionCandidates, using provider: SummaryProvider,
+        _ candidates: TranscriptionCandidates, using provider: SummaryProvider, sheet: CallSheet? = nil,
         progress: @escaping @Sendable (String) -> Void, complete: @escaping Completion
     ) async throws -> Reviewed {
         let original = candidates.primary.transcript
@@ -136,7 +136,7 @@ public enum TranscriptReviewer {
                 group.addTask {
                     try Task.checkCancellation()
                     do {
-                        let input = try ReviewPrompt.input(candidates, range: range)
+                        let input = try ReviewPrompt.input(candidates, range: range, sheet: sheet)
                         let output = try await complete(ReviewPrompt.instructions, input, provider)
                         try Task.checkCancellation()
                         return BatchResult(index: index, range: range,

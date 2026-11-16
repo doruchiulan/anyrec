@@ -163,8 +163,8 @@ struct RecordingSpeakersTests {
         #expect(rows.needsChecking == 0)
     }
 
-    @Test("Me comes first among settled speakers, Call lines are counted apart, and corrections mark a speaker to check")
-    func rows() {
+    @Test("Call lines no voice claims are a row to resolve, Me asks who you are, and corrections mark a speaker to check")
+    func rows() throws {
         let lines = [
             Utterance(start: 0, end: 4, text: "Hi", speaker: .me),
             Utterance(start: 5, end: 9, text: "Hello", speaker: .voice("A")),
@@ -174,7 +174,11 @@ struct RecordingSpeakersTests {
         let correction = SpeakerCorrection(line: 3, from: .voice("A"), to: .me, reason: "Answers his own question",
                                            quote: "Hi", evidenceLine: 0)
         let result = speakers([voice("A", "Ana")], lines: lines, corrections: [correction])
-        #expect(result.rows.map(\.speaker) == [.voice("A"), .me])
+        #expect(result.rows.map(\.speaker) == [.voice("A"), .me, .others], "every row wants a look, longest first")
+        #expect(result.row(for: .me)?.needsAttention == true && result.row(for: .me)?.name == nil)
+        let call = try #require(result.row(for: .others))
+        #expect(call.choosable && !call.nameable, "the panel offers a choice; the terminal does not ask")
+        #expect(call.lineCount == 1 && call.needsAttention)
         #expect(result.row(for: .voice("A"))?.corrections == [correction])
         #expect(result.row(for: .voice("A"))?.clips.map(\.line) == [1])
         #expect(result.row(for: .voice("A"))?.talkTime == 10)
@@ -223,7 +227,7 @@ struct RecordingSpeakersTests {
         #expect(row.needsAttention)
         #expect(row.rememberOwner == OwnerToRemember(person: "Doru", shownName: "Doru", display: "Doru Chiulan"))
         #expect(result.row(for: .voice("A"))?.probablyYou == false)
-        #expect(result.needsChecking == 1)
+        #expect(result.needsChecking == 2, "this voice, and Me until you say who you are")
     }
 
     @Test("a voice whose saved person is the library's owner is probably you, and there is nothing to remember")
@@ -381,5 +385,58 @@ struct RecordingSpeakersTests {
         let voices = try JSONDecoder().decode(RecordingVoices.self, from: Data(json.utf8))
         #expect(voices.voices[0].namedByOwner == nil)
         #expect(RecordingSpeakers.basis(of: .voice("A"), voice: voices.voices[0], library: VoiceLibrary()) == .named)
+    }
+
+    // MARK: Who Me is
+
+    @Test("Me is offered the library's owner and the call window's name for you, and carries the name it was given")
+    func meCandidates() throws {
+        let library = VoiceLibrary(people: [.init(name: "Doru", prints: [[1, 0]], aliases: ["Doru Chiulan"], isOwner: true)])
+        /// B is left unnamed here: a name another speaker carries is never offered for Me.
+        let unnamed = oneToOne(library: library, b: voice("B", print: [1, 0]), me: "Doru Chiulan")
+        let me = try #require(unnamed.row(for: .me))
+        #expect(me.candidates.map(\.name) == ["Doru"], "the owner and their call-window name are one person, offered once")
+        #expect(me.candidates.first?.reason == .savedAsYou)
+        #expect(me.needsAttention)
+
+        let lines = [Utterance(start: 0, end: 4, text: "Hi", speaker: .me)]
+        var voices = RecordingVoices(voices: [])
+        voices.meName = "Doru Chiulan"
+        let named = RecordingSpeakers.build(lines: lines, voices: voices, suggestions: [], corrections: [],
+                                            participants: nil, info: nil, library: library)
+        #expect(named.row(for: .me)?.name == "Doru Chiulan" && named.row(for: .me)?.needsAttention == false)
+        #expect(named.label(.me) == "Doru Chiulan")
+    }
+
+    @Test("naming Me marks the owner, makes a person when nobody has the name, and names Me in this recording")
+    func nameMe() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let libraryFolder = folder.appendingPathComponent("voices")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let recording = folder.appendingPathComponent("rec-2026-11-16-095833")
+        try FileManager.default.createDirectory(at: recording, withIntermediateDirectories: true)
+        try VoiceLibrary(people: [.init(name: "Costin", prints: [[0, 1]])]).save(to: libraryFolder)
+        let transcript = Transcript(utterances: [
+            Utterance(start: 0, end: 2, text: "Salut", speaker: .me),
+            Utterance(start: 2, end: 4, text: "Hei", speaker: .others),
+        ], language: "ro", engine: "parakeet")
+        _ = try TranscriptStore.publish(transcript, voices: nil, in: recording)
+
+        try SpeakerEditing.nameMe("Doru Chiulan", in: recording, library: libraryFolder)
+
+        let saved = VoiceLibrary.load(from: libraryFolder)
+        #expect(saved.owner?.name == "Doru Chiulan" && saved.owner?.prints.isEmpty == true)
+        #expect(saved.people.first { $0.name == "Costin" }?.isOwner == false)
+        let current = try #require(RecordingTranscript.read(in: recording))
+        #expect(current.voices?.meName == "Doru Chiulan")
+        #expect(current.named.utterances.first?.speaker == .named("Doru Chiulan"), "exports call you by name")
+        #expect(current.named.utterances.last?.speaker == .others)
+    }
+
+    @Test("a summary written with \"Me\" reads with the owner's name")
+    func summaryMe() {
+        var voices = RecordingVoices(voices: [])
+        voices.meName = "Doru"
+        #expect(Summary.fill("Me asked Speaker A. Meeting at noon.", voices.names) == "Doru asked Speaker A. Meeting at noon.")
     }
 }

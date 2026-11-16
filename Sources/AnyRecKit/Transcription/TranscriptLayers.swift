@@ -47,6 +47,9 @@ public struct WordingLayer: Codable, Equatable, Sendable {
     public let batchFailures: [ReviewBatchFailure]
     public let batchCount: Int
     public let notes: [String]
+    /// What the reviewer was told about the whole call (`CallSheet`), so a change, or a word
+    /// left alone, can be traced to it. Absent in layers written before it existed.
+    public var callSheet: CallSheet? = nil
 }
 
 /// A recording's transcript as it reads now, rendered from its layers: the source an

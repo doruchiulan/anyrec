@@ -140,7 +140,7 @@ struct TranscriptReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        let outcome = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, _, _ in
+        let outcome = try await TranscriptPass.publish(fixture(), in: directory, options: options, library: { VoiceLibrary() }, progress: { _ in }) { _, _, _ in
             throw TranscriptionError.engineFailed(engine: "test", log: "Invalid response")
         }
         guard case .written = outcome else { Issue.record("Expected usable original"); return }
@@ -157,7 +157,7 @@ struct TranscriptReviewTests {
     func disabled() async throws {
         let directory = try folder()
         defer { try? FileManager.default.removeItem(at: directory) }
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: TranscriptionOptions(), progress: { _ in }) { _, _, _ in
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: TranscriptionOptions(), library: { VoiceLibrary() }, progress: { _ in }) { _, _, _ in
             Issue.record("Review is disabled")
             throw CancellationError()
         }
@@ -172,7 +172,7 @@ struct TranscriptReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, _, _ in self.reply }
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, library: { VoiceLibrary() }, progress: { _ in }) { _, _, _ in self.reply }
         let current = try #require(RecordingTranscript.read(in: directory))
         #expect(current.transcript.utterances.map(\.text) == ["I'm Alex. We'll launch on Friday.", "Yes, agreed."])
         #expect(current.wording?.changes.map(\.line) == [0, 1])
@@ -189,7 +189,7 @@ struct TranscriptReviewTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         var options = TranscriptionOptions()
         options.review = true
-        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, progress: { _ in }) { _, _, _ in self.reply }
+        _ = try await TranscriptPass.publish(fixture(), in: directory, options: options, library: { VoiceLibrary() }, progress: { _ in }) { _, _, _ in self.reply }
         var current = try #require(RecordingTranscript.read(in: directory))
         var summary = Summary(overview: "Old attribution", decisions: [], actions: [], provider: "test")
         summary.basis = .init(transcript: current.transcript, names: [:])

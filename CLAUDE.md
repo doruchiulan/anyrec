@@ -137,6 +137,8 @@ second one for "UI-common" code.
 | `Transcription/TranscriptionOptions.swift` | Enabled engines, speakers on/off, review, and "review with a second engine" (the comparison engines), with the migration from Aggregator. |
 | `Transcription/ParticipantAttribution.swift` | Call-window evidence over the voices: consistency scoring, agreement vs conflict, aliases, fused-voice facts, Call lines named, and the owner's voice given back to Me. |
 | `CallParticipants.swift`, `ParticipantLabels.swift`, `TeamsParticipantLabels.swift`, `ParticipantMonitor.swift` | What the call window showed, polled once a second into `call-participants.json`; label shapes cleaned on parse and on read; the roster and readable time. |
+| `Transcription/CallTurns.swift` | Word indices where the call track started or stopped talking (held 0.6 s), so Parakeet's lines are cut at turns with no pause or full stop before attribution. |
+| `Transcription/CallSheet.swift` | What the wording review is told about the whole call, sent with every section: title, app, date, language, participants, the owner's vocabulary, and a topic and terms from one pass over the call. Kept in the wording layer. |
 | `Transcription/TranscriptReview.swift`, `ReviewPrompt.swift` | The optional LLM wording review: 30-line sections, three in flight, each reply a patch of the lines it changed. |
 | `Transcription/SpeakerIdentityReview.swift` | Picks between competing candidate names for a voice, as its own step after wording review. |
 | `Transcription/WhisperSetup.swift` | What is missing before whisper can run, and how to fetch it. |
@@ -272,7 +274,8 @@ Invariants worth preserving:
   processing on, as `microphone-clean.m4a`. This is the same approach as a browser's
   `echoCancellation`, with the system audio still captured untouched. Other-audio ducking is set to its
   minimum with advanced ducking off. A reported call-volume drop is why this is opt-in.
-  The clean track is on the same device as the raw one
+  The track is tapped off the fold mixer, so the silencing is on the main mixer (a zero
+  fold volume made every clean track digital silence until 2026-11-16). The clean track is on the same device as the raw one
   (`kAudioOutputUnitProperty_CurrentDevice`, or no clean track),
   folded to mono through a silent mixer. The main mixer connects to the output explicitly
   at the microphone rate: mismatched client rates make VoiceProcessingIO fail with -10875.
@@ -503,6 +506,11 @@ Invariants worth preserving:
   (closing the panel), through the `openWindow` the menu bar's commands leave on
   `RecordingController` (`openLibrary`) — commands are built at launch, the window's
   views are not.
+- The recording page does not use `ViewThatFits`. It built both alternatives in the
+  window's minimum-size pass on every frame of a resize (about 15% of main-thread time,
+  found by sampling); `WrappingRow` and `HeaderRow` in `RecordingDetail.swift` decide one
+  row or two arithmetically from one set of children. `CompactColumns` is a class so the
+  width it remembers each frame does not redraw the window.
 - The library window does no work in a view's `init` or in a body that redraws often.
   `RecordingDetail` makes its `Playback` in `.task(id:)`: made in `init`, it was a new
   `AVPlayer`, a new time observer and a fresh decode of the call's audio on every redraw
@@ -797,6 +805,19 @@ Invariants worth preserving:
   nil folder for an import), older files read without it ("earlier") and exports leave
   it out; People in Settings, a People row's context menu and `anyrec speakers --people`
   / `--remove-print` list a person's prints and remove one.
+- Nothing is left as "Me", "Call" or a letter. The person recording is called by name:
+  `RecordingVoices.meName` (in `names` under `RecordingVoices.meKey`), set when a transcript
+  is written from the library's owner, or by the owner in the Me row ("Who are you?",
+  `SpeakerEditing.nameMe`, which also marks that person the library's owner, making a
+  print-less person if nobody has the name). Markdown, SRT, summaries (a written "Me" is
+  filled too) and MCP render it; the app's transcript keeps the Me speaker, for its colour
+  and choices, and only labels it with the name. Older transcripts keep "Me" until named.
+  Call lines no voice claims are a row of their own (`Row.choosable`, never `nameable`, so
+  the terminal does not ask about it) with the call's candidates, the only roster name left
+  first; choosing gives every Call line to that person. In a call of two whose window was
+  readable for half the recording, leftover Call lines go to the one other person when the
+  transcript is written (`ParticipantAttribution.nameCallLinesForOnlyOther`), except lines
+  the window showed the owner on, and not while an unnamed voice could still be them.
 - Speakers are checked and changed in one place: the recording page's Speakers panel,
   and the same chooser behind every speaker label in the transcript. It lists every
   speaker with lines, Me included, those needing a look first (unnamed, conflicting,
@@ -833,9 +854,9 @@ Invariants worth preserving:
   indicated time. Its first candidate is Me (`.yourVoice`), which gives every line to Me
   (`SpeakerEditing.giveToMe`); it counts as one to check and is offered no sounds-like
   names. On call-window evidence, with no library owner yet and a name the owner did
-  not type, a "Remember <name> is me" tick beside Me (on by default) also sets that
+  not type, an "I'm <name>" tick beside Me (on by default) also sets that
   person as owner and files the window's name as their alias. The owner flag is never
-  set without that tick; the terminal never sets it. A real Slack 1:1 showed the owner's
+  set without that tick or the owner choosing who Me is; the terminal never sets it. A real Slack 1:1 showed the owner's
   own voice as a third speaker offered two strangers from other calls and no Me. Picking a whole-voice
   name goes through `VoiceNaming` and marks it `namedByOwner` ("named by you"); the
   call window's name is learned as an alias only for a typed name or the call window's
@@ -975,6 +996,18 @@ Invariants worth preserving:
   `UTType(filenameExtension:)` *without* `conformingTo:` (with it the dynamic identifier
   differs from the one Finder assigns, and the open panel greyed every voices file out),
   and import also accepts `.json`.
+- Review knows the call, not just its section. One pass over the whole transcript
+  (sampled evenly past 60k characters) gives a topic and the terms its speakers used,
+  spelled as meant; with the owner's vocabulary (Settings › Transcription, `--vocabulary`),
+  the roster, the title and the app it is the `CallSheet` every section carries, a few
+  hundred tokens, never the whole call per section. A garbled spelling of a listed term
+  counts as evidence ("autoricord" → "auto-record"); a smoother phrase still does not.
+  On a Parakeet-only Romanian call the review went from no changes to fixing the product
+  terms; with Whisper compared it fixed 19 of 26 lines. A failed topic pass reviews without it.
+- Parakeet's lines are cut where the call starts or stops talking (`CallTurns`), as well as
+  at sentence ends and pauses: turns flip with neither, and "Audio only." / the far end's
+  sentence / "Păi nu…" came back as one line that all went to Me. Lines, never single words,
+  are dropped for falling outside speech.
 - Review cannot fail structurally. A reply is a patch (`changes`: id and text of the lines
   the model changed); a missing line is unchanged and an id outside the section is
   ignored. A section with no usable reply keeps its lines and is recorded by range; the

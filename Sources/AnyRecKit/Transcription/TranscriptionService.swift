@@ -104,7 +104,7 @@ public enum TranscriptionService {
         let transcriber = try await transcriber(for: job, language: language ?? "en")
         progress("Transcribing with \(transcriber.name)…")
         let spoken = try await transcriber.speech(of: source.url, in: source.regions, language: language)
-        return Transcript(utterances: attribute(spoken.utterances, in: source,
+        return Transcript(utterances: attribute(lines(of: spoken, in: source), in: source,
                           preservingSpeakers: transcriber.name == "openai" && job.diarize),
                           language: language ?? spoken.language, engine: transcriber.name, notes: source.mix?.notes ?? [])
     }
@@ -163,6 +163,16 @@ public enum TranscriptionService {
         guard plan.microphone == microphone.standardizedFileURL.resolvingSymlinksInPath(),
               plan.systemAudio == system.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
         return plan.directory
+    }
+
+    /// The engine's lines, cut again where the call started or stopped talking when the
+    /// engine gave word times and there is a call track to read (`CallTurns`).
+    static func lines(of speech: Speech, in source: Source) -> [Utterance] {
+        guard let words = speech.words, !words.isEmpty, source.only == nil, let call = source.systemAudio
+        else { return speech.utterances }
+        let cuts = CallTurns.cuts(in: words, systemAudio: call)
+        guard !cuts.isEmpty else { return speech.utterances }
+        return ParakeetTranscriber.lines(from: words, cuts: cuts, in: source.regions)
     }
 
     static func attribute(

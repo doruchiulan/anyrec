@@ -36,6 +36,23 @@ final class SpeakerDesk {
         }
     }
 
+    /// What choosing a name means for each kind of row: Me is who you are (the recording calls
+    /// you by it and the library remembers you); Call lines go to that person; a voice is
+    /// named, as before.
+    func choose(_ speaker: Speaker, _ chosen: ChosenName) {
+        switch speaker {
+        case .me:
+            perform { try SpeakerEditing.nameMe(chosen.name, person: chosen.person, in: directory) }
+        case .others:
+            guard let speakers else { return }
+            let lines = speakers.lineIndexes(of: .others)
+            let target = chosen.me ? Speaker.me : speakers.speaker(named: chosen.name)
+            perform { try SpeakerEditing.reassign(lines, to: target, in: directory) }
+        default:
+            name(speaker, chosen)
+        }
+    }
+
     /// Lines go to another speaker, in the speakers layer only.
     func reassign(_ lines: [Int], to speaker: Speaker) {
         perform { try SpeakerEditing.reassign(lines, to: speaker, in: directory) }
@@ -106,13 +123,6 @@ struct SpeakersPanel: View {
                     if index > 0 { Divider() }
                     SpeakerRowView(desk: desk, speakers: speakers, row: row, playback: playback)
                 }
-                if let unclaimed = Wording.unclaimed(lines: speakers.unclaimedLines, seconds: speakers.unclaimedTime) {
-                    Divider()
-                    Text(unclaimed).font(.callout).foregroundStyle(.secondary)
-                    ForEach(speakers.callCorrections) { correction in
-                        CorrectionRow(desk: desk, speakers: speakers, correction: correction, playback: playback)
-                    }
-                }
                 if let failure = desk.failure { Notice(failure, level: .error) }
                 if let observed, !observed.roster.isEmpty {
                     Divider()
@@ -149,7 +159,7 @@ private struct SpeakerRowView: View {
             HStack(spacing: 8) {
                 ClipButtons(clips: row.clips, playback: playback)
                 Spacer()
-                if row.nameable, !row.needsAttention {
+                if row.choosable, !row.needsAttention {
                     Button(expanded ? "Done" : "Change…") { expanded.toggle() }
                         .controlSize(.small)
                 }
@@ -158,15 +168,27 @@ private struct SpeakerRowView: View {
                 Text(Wording.fused(row.fusedNames)).font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if row.nameable, row.needsAttention || expanded {
-                SpeakerChooser(speakers: speakers, speaker: row.speaker, candidates: row.candidates) { chosen in
-                    desk.name(row.speaker, chosen)
-                    expanded = false
+            if row.choosable, row.needsAttention || expanded {
+                /// The choices belong to this row: inset under it, so "Or give every line of …"
+                /// cannot read as the next speaker.
+                VStack(alignment: .leading, spacing: 8) {
+                    if let prompt = Wording.choicePrompt(for: row) {
+                        Text(prompt).font(.caption).foregroundStyle(.secondary)
+                    }
+                    SpeakerChooser(speakers: speakers, speaker: row.speaker, candidates: row.candidates) { chosen in
+                        desk.choose(row.speaker, chosen)
+                        expanded = false
+                    }
+                    if row.speaker != .me {
+                        GiveToChoices(speakers: speakers, speaker: row.speaker, wholeVoice: true, divided: false) { target in
+                            desk.give(row.speaker, to: target)
+                            expanded = false
+                        }
+                    }
                 }
-                GiveToChoices(speakers: speakers, speaker: row.speaker, wholeVoice: true) { target in
-                    desk.give(row.speaker, to: target)
-                    expanded = false
-                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
             }
             ForEach(row.corrections) { correction in
                 CorrectionRow(desk: desk, speakers: speakers, correction: correction, playback: playback)
@@ -390,6 +412,9 @@ struct GiveToChoices: View {
     let speakers: RecordingSpeakers
     let speaker: Speaker
     let wholeVoice: Bool
+    /// A divider above, where it follows the chooser in a popover. A panel row's inset box
+    /// has its own edge.
+    var divided = true
     let give: (Speaker) -> Void
 
     var body: some View {
@@ -401,7 +426,7 @@ struct GiveToChoices: View {
         }
         let label = wholeVoice ? speakers.label(speaker) : nil
         if !others.isEmpty {
-            Divider()
+            if divided { Divider() }
             Text(Wording.giveTo(voice: label)).font(.caption).foregroundStyle(.secondary)
             FlowLayout(spacing: 6) {
                 ForEach(others, id: \.self) { target in

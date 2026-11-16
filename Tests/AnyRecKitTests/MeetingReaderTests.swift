@@ -176,7 +176,7 @@ struct MeetingReaderTests {
         var options = TranscriptionOptions()
         options.review = true
         _ = try await TranscriptPass.publish(candidates, in: directory, options: options, summary: SummaryRequest(provider: .claude),
-                                             progress: { _ in }) { instructions, _, _ in
+                                             library: { VoiceLibrary() }, progress: { _ in }) { instructions, _, _ in
             if instructions.contains("summary") {
                 return #"{"overview":"Speaker B agreed with Alex.","decisions":[],"actions":[{"task":"Ship","owner":"Speaker B"}]}"#
             }

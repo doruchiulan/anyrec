@@ -106,8 +106,15 @@ public struct Summary: Sendable, Equatable, Codable {
                   let name = names[String(text[letter])] else { continue }
             result.replaceSubrange(whole, with: name)
         }
+        /// A summary written before the owner was known calls them by the label, "Me".
+        if let me = names[RecordingVoices.meKey] {
+            let filled = NSRange(result.startIndex..., in: result)
+            result = meLabel.stringByReplacingMatches(in: result, range: filled, withTemplate: NSRegularExpression.escapedTemplate(for: me))
+        }
         return result
     }
+
+    private static let meLabel = try! NSRegularExpression(pattern: #"\bMe\b"#)
 
     /// The summary beside the transcript it came from. Written next to a Markdown copy
     /// so `anyrec` and a text editor read the same thing.

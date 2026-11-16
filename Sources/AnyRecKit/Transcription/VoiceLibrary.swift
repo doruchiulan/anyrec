@@ -197,6 +197,19 @@ public struct VoiceLibrary: Sendable, Equatable {
         return changed
     }
 
+    /// A person known only by name, until a voice is filed under them: who the owner said
+    /// they are, before their own voice has been named. Nothing is added when someone has
+    /// that saved name already. Returns the saved name.
+    @discardableResult
+    public mutating func addPerson(named name: String) -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !people.contains(where: { $0.name == name }) {
+            people.append(Person(name: name, prints: []))
+            people.sort { $0.name < $1.name }
+        }
+        return name
+    }
+
     /// Marks who is recording. One owner at most; nil clears it.
     public mutating func setOwner(_ name: String?) {
         for index in people.indices { people[index].isOwner = people[index].name == name }

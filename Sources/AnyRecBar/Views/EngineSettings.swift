@@ -60,6 +60,9 @@ struct EngineSettings: View {
 struct TranscriptReviewSettings: View {
     @Bindable var controller: RecordingController
 
+    /// What is typed, kept as typed so a comma just entered stays; the list is saved from it.
+    @State private var vocabulary = ""
+
     var body: some View {
         Section {
             Toggle("Review transcripts with an LLM", isOn: $controller.transcriptionOptions.review)
@@ -72,6 +75,16 @@ struct TranscriptReviewSettings: View {
                 }
                 if !controller.canSummarize(with: controller.transcriptionOptions.reviewProvider) {
                     Text("Choose an available provider to review transcripts.").foregroundStyle(.secondary)
+                }
+                TextField(text: $vocabulary, prompt: Text("AnyRec, auto-record, Genie"), axis: .vertical) {
+                    Text("Words to recognise")
+                    Text("Product names, people and jargon, comma-separated. Review fixes garbled versions of them.")
+                }
+                .lineLimit(1...3)
+                .onAppear { vocabulary = Vocabulary.text(controller.transcriptionOptions.vocabulary) }
+                .onChange(of: vocabulary) { _, text in
+                    let words = Vocabulary.words(text)
+                    if words != controller.transcriptionOptions.vocabulary { controller.transcriptionOptions.vocabulary = words }
                 }
             }
         } header: {

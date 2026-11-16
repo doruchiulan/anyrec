@@ -60,7 +60,7 @@ struct SummaryReferenceTests {
         let candidates = TranscriptionCandidates(primary: .init(transcript: transcript, voices: voices),
                                                  transcripts: [transcript], failures: [])
         let outcome = try await TranscriptPass.publish(candidates, in: directory, options: TranscriptionOptions(),
-                                                       summary: SummaryRequest(provider: .claude), progress: { _ in }) { instructions, input, _ in
+                                                       summary: SummaryRequest(provider: .claude), library: { VoiceLibrary() }, progress: { _ in }) { instructions, input, _ in
             #expect(instructions.contains("Speaker B"))
             #expect(input.contains("Speaker B: Yes, by Friday.") && input.contains("Alex: I'll check"))
             return #"{"overview":"Speaker B will send the report.","decisions":[],"actions":[{"task":"Send the report","owner":"Speaker B","at":4}]}"#
@@ -78,7 +78,7 @@ struct SummaryReferenceTests {
         #expect(markdown.contains("Maria will send the report") && markdown.contains("— Maria"))
 
         let failed = try await TranscriptPass.publish(candidates, in: directory, options: TranscriptionOptions(),
-                                                      summary: SummaryRequest(provider: .claude), progress: { _ in }) { _, _, _ in
+                                                      summary: SummaryRequest(provider: .claude), library: { VoiceLibrary() }, progress: { _ in }) { _, _, _ in
             "no json"
         }
         guard case .written(_, _, _, .failed?) = failed else { Issue.record("Expected a reported failure"); return }

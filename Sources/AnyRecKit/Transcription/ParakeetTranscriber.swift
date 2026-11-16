@@ -26,21 +26,28 @@ public struct ParakeetTranscriber: Transcriber {
         var state = TdtDecoderState.make(decoderLayers: 2)
         let hint = language.flatMap { Language(rawValue: String($0.prefix(2)).lowercased()) }
         let result = try await manager.transcribe(url, decoderState: &state, language: hint)
-        let words = buildWordTimings(from: result.tokenTimings ?? [])
-        let lines = Self.utterances(from: words.map { ($0.word, $0.startTime, $0.endTime) })
-        return Speech(
-            utterances: regions.isEmpty ? lines : lines.filter { line in
-                regions.contains { $0.overlaps(line.start..<max(line.end, line.start + 0.01)) }
-            },
-            language: language)
+        let words = buildWordTimings(from: result.tokenTimings ?? []).map {
+            Speech.Word(text: $0.word, start: $0.startTime, end: $0.endTime)
+        }
+        return Speech(utterances: Self.lines(from: words, in: regions), language: language, words: words)
+    }
+
+    /// The lines, keeping only those that overlap speech. Whole lines, never single words:
+    /// a word that falls in a gap between regions still belongs to its sentence.
+    static func lines(
+        from words: [Speech.Word], cuts: Set<Int> = [], in regions: [Range<TimeInterval>]
+    ) -> [Utterance] {
+        utterances(from: words, cuts: cuts).filter { line in
+            regions.isEmpty || regions.contains { $0.overlaps(line.start..<max(line.end, line.start + 0.01)) }
+        }
     }
 
     /// The model answers in words with times; a transcript wants lines. A line ends at
     /// a sentence end, at a pause of most of a second, or when it has run long enough
-    /// that attribution would be averaging two speakers.
-    static func utterances(
-        from words: [(text: String, start: TimeInterval, end: TimeInterval)]
-    ) -> [Utterance] {
+    /// that attribution would be averaging two speakers. `cuts` are word indices where a
+    /// line must start whatever the punctuation: where the call started or stopped talking
+    /// (`CallTurns`), because turns often flip with no pause and no full stop.
+    static func utterances(from words: [Speech.Word], cuts: Set<Int> = []) -> [Utterance] {
         var lines: [Utterance] = []
         var text: [String] = []
         var start: TimeInterval = 0
@@ -53,10 +60,10 @@ public struct ParakeetTranscriber: Transcriber {
             text = []
         }
 
-        for word in words {
+        for (index, word) in words.enumerated() {
             let trimmed = word.text.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
-            if !text.isEmpty, word.start - end > 0.8 || word.start - start > 20 { flush() }
+            if !text.isEmpty, cuts.contains(index) || word.start - end > 0.8 || word.start - start > 20 { flush() }
             if text.isEmpty { start = word.start }
             text.append(trimmed)
             end = max(end, word.end)

@@ -211,6 +211,8 @@ enum SpeakerPrompt {
         case .inCall: "in the call"
         case .windowTitle: "in the window title"
         case .soundsLike: "sounds like a saved voice"
+        case .savedAsYou: "saved as you"
+        case .yourCallName: "your name in the call window"
         }
     }
 

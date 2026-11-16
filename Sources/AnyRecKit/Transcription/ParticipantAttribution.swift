@@ -132,7 +132,9 @@ enum ParticipantAttribution {
                 result.ownerMerge = merge
             }
         }
-        let named = nameCallLines(&lines, voices: result, spans: spans, owners: ownerNames(evidence, library: library, lines: lines))
+        let owners = ownerNames(evidence, library: library, lines: lines)
+        let named = nameCallLines(&lines, voices: result, spans: spans, owners: owners)
+            + nameCallLinesForOnlyOther(&lines, voices: result, evidence: evidence, owners: owners)
         if named > 0 { result.callLinesNamed = named }
         /// Engine labels (OpenAI's) are kept as the engine gave them; only a voice given
         /// back to the owner leaves a gap worth closing.
@@ -367,6 +369,40 @@ enum ParticipantAttribution {
             named += 1
         }
         return named
+    }
+
+    /// In a call of two, a line from the call is the other person's, whoever the window showed
+    /// speaking. A real 1:1 left seven of Costin's lines as "Call" after the diarizer heard him
+    /// and the owner as one voice and gave it back to the owner. Only when the call window was
+    /// readable for at least half the recording, so its roster is everyone who was there, and
+    /// the owner's names leave exactly one person in it. The lines go to the voice that carries
+    /// that name, else to the name itself, unless an unnamed voice could still turn out to be
+    /// them: then the Call row offers the name instead.
+    static func nameCallLinesForOnlyOther(
+        _ lines: inout [Utterance], voices: RecordingVoices, evidence: CallParticipants?, owners: Set<String>
+    ) -> Int {
+        guard let evidence, let other = onlyOther(in: evidence, owners: owners, lines: lines) else { return 0 }
+        let letter = letterFor(voices, excluding: [])[VoiceLibrary.normalized(other)]
+        guard letter != nil || voices.unnamed.isEmpty else { return 0 }
+        var named = 0
+        for index in lines.indices where lines[index].speaker == .others {
+            /// Not where the window showed the owner: that line stays for the owner to decide.
+            guard !showsOwner(from: lines[index].start, to: lines[index].end, spans: evidence.spans, owners: owners)
+            else { continue }
+            lines[index].speaker = letter.map { .voice($0) } ?? .named(other)
+            named += 1
+        }
+        return named
+    }
+
+    /// The one person in the call who is not the owner, when the window's roster can be
+    /// trusted to be everyone (readable for half the recording) and says so.
+    static func onlyOther(in evidence: CallParticipants, owners: Set<String>, lines: [Utterance]) -> String? {
+        guard !owners.isEmpty else { return nil }
+        let duration = max(lines.map(\.end).max() ?? 0, evidence.observations.map(\.at).max() ?? 0)
+        guard duration > 0, evidence.readable >= CandidateContext.rosterReadableShare * duration else { return nil }
+        let others = evidence.roster.map(\.name).filter { !owners.contains(VoiceLibrary.normalized($0)) }
+        return others.count == 1 ? others[0] : nil
     }
 
     /// Display name → letter, for every voice whose call name or name says who it is, and

@@ -60,6 +60,9 @@ struct Transcribe: AsyncParsableCommand {
     )
     var compareEngines = false
 
+    @Option(name: .long, help: "With --review, words to spell your way, comma-separated: product names, people, jargon.")
+    var vocabulary: String?
+
     @Option(name: .long, help: "Who reviews and summarises: claude, codex, openai or gemini.")
     var provider: SummaryProvider = .claude
 
@@ -91,6 +94,7 @@ struct Transcribe: AsyncParsableCommand {
         options.review = review
         options.compareEngines = compareEngines
         options.reviewProvider = provider
+        options.vocabulary = vocabulary.map(Vocabulary.words) ?? []
         if review || summarize {
             print("The transcript text (never the audio) is sent to \(provider.company) for "
                   + [review ? "review" : nil, summarize ? "a summary" : nil].compactMap { $0 }.joined(separator: " and ") + ".")

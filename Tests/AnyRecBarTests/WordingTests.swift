@@ -178,7 +178,7 @@ struct WordingTests {
         #expect(Wording.candidate(.me([.shownSpeaking])) == "Me")
         #expect(Wording.candidateReason(.yourVoice([.shownSpeaking])) == "Your voice. Every line goes to Me")
         #expect(Wording.probablyYou([.savedAsYou, .shownSpeaking]) == "Probably you: saved as you; the call window showed you speaking")
-        #expect(Wording.rememberOwner(OwnerToRemember(person: "Doru", shownName: "Doru", display: "Doru Chiulan")) == "Remember Doru is me")
+        #expect(Wording.rememberOwner(OwnerToRemember(person: "Doru", shownName: "Doru", display: "Doru Chiulan")) == "I’m Doru")
         #expect(Wording.candidate(SpeakerCandidate(name: "Ana", reason: .inCall)) == "Ana")
         #expect(Wording.candidateReason(.introduced(quote: "I'm Ana")) == "Said “I'm Ana”")
         #expect(Wording.candidateReason(.onlyOneLeft) == "The only one in the call without a voice")

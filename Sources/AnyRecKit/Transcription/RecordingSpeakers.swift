@@ -120,6 +120,11 @@ public struct SpeakerCandidate: Equatable, Sendable, Identifiable {
         case windowTitle
         /// A saved voice is close, but not close enough to claim the name.
         case soundsLike
+        /// Who Me is: the library already knows this person as the one recording.
+        case savedAsYou
+        /// Who Me is: the call window labelled this name as the person recording, or showed it
+        /// while the microphone's lines were said.
+        case yourCallName
     }
 
     public let name: String
@@ -183,8 +188,14 @@ public struct RecordingSpeakers: Sendable {
         public var label: String { name ?? speaker.label }
         public var probablyYou: Bool { !yourVoice.isEmpty }
 
+        /// Whether the panel offers a choice for this row: a voice or typed name to name, Me
+        /// to say who you are, or Call lines no voice claims to give to someone. The terminal
+        /// asks only about `nameable` rows.
+        public var choosable: Bool { nameable || speaker == .me || speaker == .others }
+
+        /// Nothing should be left as "Me", "Call" or a letter: each asks until it is somebody.
         public var needsAttention: Bool {
-            (nameable && name == nil) || basis == .uncertain || fusedNames.count > 1 || !corrections.isEmpty || probablyYou
+            (choosable && name == nil) || basis == .uncertain || fusedNames.count > 1 || !corrections.isEmpty || probablyYou
         }
     }
 
@@ -245,23 +256,29 @@ public struct RecordingSpeakers: Sendable {
         let context = CandidateContext(lines: lines, voices: voices, participants: participants, info: info, library: library)
 
         /// Speakers with lines: a voice whose every line was given to someone else is gone.
+        /// Call lines no voice claims are a row of their own, so they can be given to someone.
         var speakers: [Speaker] = []
-        for line in lines where !speakers.contains(line.speaker) && line.speaker != .others { speakers.append(line.speaker) }
+        for line in lines where !speakers.contains(line.speaker) { speakers.append(line.speaker) }
 
         let rows = speakers.map { speaker -> Row in
             let own = lines.filter { $0.speaker == speaker }
             let voice: RecordingVoices.Voice? = if case .voice(let letter) = speaker { voices?.voices.first { $0.letter == letter } } else { nil }
             let name: String? = switch speaker {
-            case .me, .others: nil
+            case .me: voices?.meName
+            case .others: nil
             case .voice: voice?.name
             case .named(let name): name
             }
             let basis = basis(of: speaker, voice: voice, library: library)
-            let yours = speaker == .me ? nil : context.yourVoice(speaker, name: name, voice: voice, basis: basis)
+            let yours = speaker == .me || speaker == .others
+                ? nil : context.yourVoice(speaker, name: name, voice: voice, basis: basis)
             /// A voice that is probably you is offered Me, and nobody it only sounds like.
-            let candidates = speaker == .me ? []
-                : (yours.map { [SpeakerCandidate.me($0.evidence)] } ?? [])
-                    + context.candidates(for: speaker, voice: voice, suggestions: suggestions, soundsLike: yours == nil)
+            let candidates: [SpeakerCandidate] = switch speaker {
+            case .me: context.meCandidates(current: name)
+            case .others: context.candidates(for: .others, voice: nil, suggestions: [])
+            default: (yours.map { [SpeakerCandidate.me($0.evidence)] } ?? [])
+                + context.candidates(for: speaker, voice: voice, suggestions: suggestions, soundsLike: yours == nil)
+            }
             return Row(
                 speaker: speaker, name: name, basis: basis,
                 talkTime: own.reduce(0) { $0 + max(0, $1.end - $1.start) }, lineCount: own.count,
@@ -269,7 +286,7 @@ public struct RecordingSpeakers: Sendable {
                 candidates: candidates,
                 corrections: corrections.filter { $0.from == speaker },
                 fusedNames: voice?.identityEvidence?.fusedNames ?? [],
-                nameable: speaker != .me,
+                nameable: speaker != .me && speaker != .others,
                 yourVoice: yours?.evidence ?? [], rememberOwner: yours?.remember)
         }
         let attention = rows.filter(\.needsAttention).sorted { $0.talkTime > $1.talkTime }
@@ -354,6 +371,24 @@ struct CandidateContext: Sendable {
                 ? participants.roster.map(\.name) : nil
         } else {
             knownRoster = nil
+        }
+    }
+
+    /// Who Me might be: the library's owner, the names the call window gave the person
+    /// recording, and whoever it showed while the microphone's lines were said. Never a name
+    /// another speaker carries, never the name Me already has.
+    func meCandidates(current: String?) -> [SpeakerCandidate] {
+        var offered: [SpeakerCandidate] = []
+        if let owner = library.owner { offered.append(SpeakerCandidate(name: owner.shownName, reason: .savedAsYou)) }
+        offered += callOwnerDisplayNames.map { SpeakerCandidate(name: $0, reason: .yourCallName) }
+        if let shown = shownSpeaking(.me) { offered.append(SpeakerCandidate(name: shown, reason: .yourCallName)) }
+        let taken = Set((voices?.voices ?? []).compactMap(\.name).map(VoiceLibrary.normalized))
+            .union(current.map { [VoiceLibrary.normalized($0)] } ?? [])
+        var seen: Set<String> = []
+        return offered.filter { candidate in
+            let key = VoiceLibrary.normalized(candidate.name)
+            let person = library.person(answering: candidate.name)?.name ?? key
+            return !taken.contains(key) && seen.insert(person).inserted
         }
     }
 
@@ -617,6 +652,35 @@ public enum SpeakerEditing {
                 layer.voices?.unname(voice.letter)
                 layer.voices?.voices[index].filed = filing
             }
+            if let remember, saved.owner?.name == remember.person {
+                layer.voices = RecordingVoices.withMe(layer.voices, named: remember.shownName)
+            }
+        }
+        if saved != before { try saved.save(to: library) }
+        return written
+    }
+
+    /// The owner says who they are: Me is called `name` in this recording, and the library
+    /// marks that person as its owner, so later transcripts start with the name and the
+    /// owner's voice is recognised as theirs. `person` is the saved person a picked
+    /// completion or candidate stands for; without one, a person answering to the name is
+    /// used, else a new record is made (no print: a name is not a voice). An explicit choice,
+    /// like the remember-me tick; nothing else sets the owner.
+    @discardableResult
+    public static func nameMe(
+        _ name: String, person: String? = nil, in directory: URL, library: URL = VoiceLibrary.directory
+    ) throws -> [URL] {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return [] }
+        var saved = VoiceLibrary.load(from: library)
+        let before = saved
+        let existing = person.flatMap { wanted in saved.people.first { $0.name == wanted } }
+            ?? saved.person(answering: name)
+        let owner = existing?.name ?? saved.addPerson(named: name)
+        saved.setOwner(owner)
+        if VoiceLibrary.normalized(owner) != VoiceLibrary.normalized(name) { saved.addAlias(name, to: owner) }
+        let written = try TranscriptStore.updateSpeakers(in: directory) { layer, _ in
+            layer.voices = RecordingVoices.withMe(layer.voices, named: name)
         }
         if saved != before { try saved.save(to: library) }
         return written
