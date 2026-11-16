@@ -40,6 +40,9 @@ xcrun vtool -set-build-version macos 15.2 "$SDK_VERSION" -replace \
 # bundle it goes, with an rpath that points there instead of into .build.
 source "$ROOT/scripts/embed-whisper.sh"
 embed_whisper "$APP/Contents/MacOS/AnyRec" "$APP/Contents/Frameworks"
+# Sparkle, the updater, beside it on the same rpath.
+source "$ROOT/scripts/embed-sparkle.sh"
+embed_sparkle "$APP/Contents/Frameworks"
 
 cat >"$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -56,6 +59,8 @@ cat >"$APP/Contents/Info.plist" <<PLIST
 	<key>CFBundleVersion</key><string>$VERSION</string>
 	<key>LSMinimumSystemVersion</key><string>15.2</string>
 	<key>NSPrincipalClass</key><string>NSApplication</string>
+	<key>SUFeedURL</key><string>https://github.com/doruchiulan/anyrec/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key><string>WGSsQeLKGP1pzjWJub1oaq0YL7l++qwg2MyhCphRqRQ=</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>AnyRec records your microphone as its own track, so your side of a call is separate from everyone else's.</string>
 </dict>
@@ -67,6 +72,7 @@ PLIST
 source "$ROOT/scripts/signing.sh"
 codesign --force --sign "$SIGN_IDENTITY" --options runtime \
 	--identifier org.ggml.whisper "$APP/Contents/Frameworks/whisper.framework"
+sign_sparkle "$APP/Contents/Frameworks" "$SIGN_IDENTITY"
 codesign --force --sign "$SIGN_IDENTITY" --options runtime \
 	--entitlements "$ROOT/Resources/anyrec.entitlements" "$APP"
 codesign --verify --strict "$APP"

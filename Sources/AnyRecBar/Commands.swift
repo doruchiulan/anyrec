@@ -60,6 +60,11 @@ struct AnyRecCommands: Commands {
                 .disabled(controller.people.isEmpty)
         }
 
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { controller.updates?.checkForUpdates() }
+                .disabled(controller.updates?.isAvailable != true)
+        }
+
         CommandGroup(after: .help) {
             Button("Welcome to AnyRec…") { openWindow(id: WelcomeSheet.windowID) }
         }

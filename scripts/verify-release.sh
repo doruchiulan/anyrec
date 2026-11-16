@@ -25,6 +25,10 @@ for framework in "$APP/Contents/Frameworks/whisper.framework" "$SCRATCH/cli/Fram
     done
     codesign --verify --strict "$framework"
 done
+# The updater: present, signed, and pointed at the feed with the key that checks it.
+codesign --verify --strict "$APP/Contents/Frameworks/Sparkle.framework"
+[[ -n "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP/Contents/Info.plist")" ]]
+[[ -n "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist")" ]]
 codesign --verify --strict --deep "$APP"
 CLI_VERSION="$("$SCRATCH/cli/bin/anyrec" --version)" || {
     echo 'Packaged CLI failed to launch.' >&2

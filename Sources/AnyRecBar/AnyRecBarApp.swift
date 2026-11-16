@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_: Notification) {
         /// Read first: the launch event is only current while this runs.
         let atLogin = Self.launchedAtLogin
+        controller.updates = Updates(recording: controller)
         let statusItem = StatusItem(controller: controller)
         self.statusItem = statusItem
         controller.willPresentPicker = { [weak statusItem] in statusItem?.close() }

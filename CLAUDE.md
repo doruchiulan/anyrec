@@ -171,6 +171,9 @@ second one for "UI-common" code.
 | `AnyRecBar/Views/AggregatorSettings.swift` | `ComparisonSettings`: "Review with a second engine" and which engines it runs. |
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
+| `AnyRecBar/Updates.swift` | Sparkle: Check for Updates…, the automatic-check switch, update windows held back during a recording, call or background work (offered in the panel instead), and a relaunch postponed until nothing is recorded or saved. |
+| `AnyRecBar/ProcessingSteps.swift` | The checklist the post-recording panel shows: saved, prepared, transcribed (and summarised), each waiting, running, done or failed. |
+| `scripts/embed-sparkle.sh`, `scripts/appcast.sh` | Sparkle.framework into the bundle (XPC services dropped: not sandboxed) and signed inside out; the one-item update feed, its download signed with the EdDSA key (`SPARKLE_PRIVATE_KEY` in CI, the keychain's `anyrec` account locally). |
 | `scripts/bundle-app.sh` | Wraps the binary in `AnyRec.app`: bundle id, icon, mic usage string, signature. Universal for release, native for debug. |
 | `scripts/embed-whisper.sh` | Copies whisper.framework beside a binary and repoints its rpath from `.build` to `@executable_path/../Frameworks`; both build scripts source it. |
 | `scripts/signing.sh` | The identity both build scripts sign with, and the ad-hoc fallback when it is absent. |
@@ -189,7 +192,7 @@ Invariants worth preserving:
   the diarization kept costs 10 s of preparation plus the engine.
 - The merge and the transcript run side by side once the mix is decided; neither needs
   the other's output.
-- Saving capture releases the recorder before merging or transcription. Done clears
+- Saving capture releases the recorder before merging or transcription. New Recording (once Done) clears
   only the saved panel; starting another recording never cancels pending processing.
   Job progress and failures belong to recording directories, and stale callbacks cannot
   update completed or retried jobs. Quit waits for capture and background work.
@@ -616,6 +619,21 @@ Invariants worth preserving:
   Team IDs"), so the Homebrew CLI did not start from 0.5.0 until this was found in 0.7.0.
   Formulae are not quarantined, so nothing there needs notarization. `post_install` prints
   a deprecation warning on Homebrew 7; `post_install_steps` would break older Homebrews.
+- The app updates itself with Sparkle (2.10.1, app only; the CLI stays on Homebrew).
+  The feed is `appcast.xml`, uploaded with every release, read from
+  `releases/latest/download/appcast.xml` (`SUFeedURL`); each download is EdDSA-signed and
+  checked against `SUPublicEDKey`. CI fails a release without `SPARKLE_PRIVATE_KEY`.
+  Automatic checks need the owner's yes (Sparkle's second-launch question, Settings ›
+  General); Check for Updates… is always explicit. An update never interrupts a call: a
+  scheduled check's window is withheld while recording, during a call or background
+  work, and offered as a row in the menu bar panel; an accepted update's relaunch waits
+  until nothing is recorded or saved. The cask must not say `auto_updates true` until the
+  release after the first one with Sparkle: with it, `brew upgrade` skips the app, and
+  0.7.0, which has no updater, would never reach one.
+- The panel after a recording shows what happens next as a checklist (`ProcessingSteps`),
+  not a green "Saved", and no level warnings (nothing can be done about clipping afterwards;
+  the levels can be measured again from the tracks). Its button is New Recording, not Done:
+  processing continues in the background whatever is pressed.
 - The app has to be notarised, and a cask does not get you out of it. Casks apply
   the quarantine flag — `--no-quarantine` is the opt-out — so an unnotarised
   bundle installs and then refuses to open: `spctl` says `rejected: Unnotarized

@@ -18,6 +18,9 @@ let package = Package(
         /// voiceprints that let a voice be named across calls. Nothing it does leaves
         /// the machine.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7", traits: []),
+        /// The app's updates: an EdDSA-signed feed published with each release, checked only
+        /// once the owner agreed. The app only; the CLI updates through Homebrew.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1"),
     ],
     targets: [
         .target(
@@ -45,7 +48,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "AnyRecBar",
-            dependencies: ["AnyRecKit"],
+            dependencies: ["AnyRecKit", .product(name: "Sparkle", package: "Sparkle")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

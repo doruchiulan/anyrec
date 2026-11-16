@@ -239,6 +239,21 @@ enum Wording {
         return row.probablyYou ? probablyYou(row.yourVoice) : basis(row.basis)
     }
 
+    /// A checklist step's state, for VoiceOver.
+    static func stepState(_ state: ProcessingSteps.State) -> String {
+        switch state {
+        case .waiting: "Waiting"
+        case .running: "In progress"
+        case .done: "Done"
+        case .failed: "Failed"
+        }
+    }
+
+    /// The panel's row for an update a background check held back during a call.
+    static func updateAvailable(_ version: String) -> String { "AnyRec \(version) is available" }
+
+    static let updatesFooter = "Checks github.com/doruchiulan/anyrec once a day for a newer version. Updates install when AnyRec quits, never while a recording is running or being saved."
+
     /// A transcript line's speaker as shown: Me by the owner's name once it is known.
     static func label(_ speaker: Speaker, me: String?) -> String {
         speaker == .me ? (me ?? speaker.label) : speaker.label

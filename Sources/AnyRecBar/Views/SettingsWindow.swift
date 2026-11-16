@@ -55,6 +55,15 @@ struct GeneralSettings: View {
             } footer: {
                 if let loginFailure { Notice(loginFailure, level: .error) }
             }
+            if let updates = controller.updates, updates.isAvailable {
+                Section {
+                    Toggle("Check for updates automatically", isOn: Binding(
+                        get: { updates.checksAutomatically }, set: { updates.setChecksAutomatically($0) }))
+                    Button("Check for Updates…") { updates.checkForUpdates() }
+                } footer: {
+                    Text(Wording.updatesFooter).settingsFooter()
+                }
+            }
             Section {
                 Toggle("Offer to record when a call starts", isOn: $controller.offerToRecord)
             } footer: {

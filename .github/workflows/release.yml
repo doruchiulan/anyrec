@@ -74,6 +74,11 @@ jobs:
       - name: Verify packaged downloads
         run: bash scripts/verify-release.sh "${RELEASE_TAG#v}"
 
+      - name: Sign the update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: bash scripts/appcast.sh "${RELEASE_TAG#v}"
+
       - name: Retain release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -82,6 +87,7 @@ jobs:
             dist/AnyRec-*.zip
             dist/anyrec-*-universal.tar.gz
             dist/SHA256SUMS
+            dist/appcast.xml
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -91,7 +97,7 @@ jobs:
           gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes \
             --title "AnyRec ${RELEASE_TAG#v}" \
             "dist/AnyRec-${RELEASE_TAG#v}.zip" \
-            "dist/anyrec-${RELEASE_TAG#v}-universal.tar.gz" dist/SHA256SUMS
+            "dist/anyrec-${RELEASE_TAG#v}-universal.tar.gz" dist/SHA256SUMS dist/appcast.xml
           gh release edit "$RELEASE_TAG" --draft=false
 
       - name: Remove signing material

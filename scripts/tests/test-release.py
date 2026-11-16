@@ -123,6 +123,7 @@ esac
         (scripts / 'signing.sh').write_text(
             'SIGN_IDENTITY=test\nnotarize_archive() { return 0; }\n')
         (scripts / 'embed-whisper.sh').write_text('embed_whisper() { return 0; }\n')
+        (scripts / 'embed-sparkle.sh').write_text('embed_sparkle() { return 0; }\nsign_sparkle() { return 0; }\n')
         bundle = scripts / 'bundle-app.sh'
         bundle.write_text('#!/bin/bash\necho "app linker failure"\nexit 1\n')
         bundle.chmod(0o700)
@@ -150,6 +151,7 @@ esac
         shutil.copy(ROOT / 'scripts/bundle-app.sh', scripts)
         (scripts / 'signing.sh').write_text('SIGN_IDENTITY=test\n')
         (scripts / 'embed-whisper.sh').write_text('embed_whisper() { return 0; }\n')
+        (scripts / 'embed-sparkle.sh').write_text('embed_sparkle() { return 0; }\nsign_sparkle() { return 0; }\n')
         binary = self.root / 'AnyRecBar'
         fixture = self.root / 'main.c'
         fixture.write_text('int main(void) { return 0; }')

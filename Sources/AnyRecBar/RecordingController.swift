@@ -79,6 +79,9 @@ final class RecordingController {
     /// The call app holding the microphone right now, for the menu bar to show and
     /// the notification to name. Nil between calls.
     private(set) var callApp: CallApp?
+    /// The app's updater, set once by the app delegate, which owns it. Read by the panel for
+    /// an update held back during a call, and by the menu and Settings.
+    @ObservationIgnored var updates: Updates?
     /// The detected call's windows, ready to record without the picker. Followed while a
     /// call is on and nothing is recording.
     private(set) var ongoingCalls: [OngoingCall] = []

@@ -12,6 +12,11 @@ struct SetupPanel: View {
                 start
                 advisory
                 if let failure = controller.failure { Notice(failure, level: .error) }
+                if let updates = controller.updates, let version = updates.available {
+                    MenuRow(Wording.updateAvailable(version), action: { updates.checkForUpdates() }) {
+                        Text("Update…")
+                    }
+                }
                 recent
             }
         } else {
