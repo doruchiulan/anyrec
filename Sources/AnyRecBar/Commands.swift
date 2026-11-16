@@ -27,6 +27,14 @@ struct AnyRecCommands: Commands {
         let _ = controller.openLibrary = { [openWindow] in openWindow(id: LibraryWindow.id) }
         let _ = controller.openSettings = { [openSettings] in openSettings() }
         CommandGroup(replacing: .newItem) {
+            /// Copies of the panel's call buttons, so they are in the menu bar too.
+            ForEach(controller.ongoingCalls.prefix(1)) { call in
+                Button(Wording.recordCall(call, video: true)) { controller.record(call, video: true) }
+                    .disabled(!controller.canStart)
+                Button(Wording.recordCall(call, video: false)) { controller.record(call, video: false) }
+                    .disabled(!controller.canStartAudioOnly)
+                Divider()
+            }
             Button(Wording.newRecording(video: true)) { controller.pickAndStart() }
                 .keyboardShortcut("n")
                 .disabled(!controller.canStart)

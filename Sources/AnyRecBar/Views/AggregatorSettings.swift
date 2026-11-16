@@ -12,12 +12,15 @@ struct ComparisonSettings: View {
             Toggle("Review with a second engine", isOn: $controller.transcriptionOptions.compareEngines)
                 .disabled(!controller.transcriptionOptions.review)
             if controller.transcriptionOptions.compareEngines {
-                ForEach(TranscriptionEngine.allCases.filter { $0 != .auto }, id: \.self) { engine in
+                ForEach(engines, id: \.self) { engine in
                     Toggle(Wording.engineName(engine), isOn: selection(engine))
                         .toggleStyle(.checkbox)
-                        .disabled(!controller.transcriptionOptions.enabledEngines.contains(engine)
-                                  || !controller.transcriptionOptions.review)
+                        .disabled(!controller.transcriptionOptions.review)
                         .accessibilityLabel("Compare with \(Wording.engineName(engine))")
+                }
+                if engines.isEmpty {
+                    Text("No engine is ready to compare against. Download one under Engines.")
+                        .foregroundStyle(.secondary)
                 }
             }
         } footer: {
@@ -26,12 +29,14 @@ struct ComparisonSettings: View {
         }
     }
 
+    /// Only engines that are enabled and ready. One without its model is not listed.
+    private var engines: [TranscriptionEngine] {
+        TranscriptionEngine.allCases.filter { $0 != .auto && controller.isUsable($0) }
+    }
+
     private func selection(_ engine: TranscriptionEngine) -> Binding<Bool> {
         Binding(
-            get: {
-                controller.transcriptionOptions.enabledEngines.contains(engine)
-                    && controller.transcriptionOptions.comparisonEngines.contains(engine)
-            },
+            get: { controller.transcriptionOptions.comparisonEngines.contains(engine) },
             set: { included in
                 if included { controller.transcriptionOptions.comparisonEngines.insert(engine) }
                 else { controller.transcriptionOptions.comparisonEngines.remove(engine) }

@@ -13,7 +13,7 @@ struct Transcribe: AsyncParsableCommand {
         said it.
 
         `parakeet`, `apple` and `whisper` run on this machine. `auto` tries Parakeet \
-        first, then Apple when it supports the language, then Whisper. It never \
+        first, then Whisper, then Apple when it supports the language. It never \
         uploads audio.
 
         `openai` is the exception: it uploads the mixed audio and needs your own API \

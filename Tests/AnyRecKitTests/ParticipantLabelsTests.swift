@@ -40,4 +40,16 @@ struct ParticipantLabelsTests {
         #expect(ParticipantLabels.parse(root, platform: .slack).speaking.isEmpty)
         #expect(ParticipantLabels.parse(.init(labels: ["View Alex's profile"]), platform: .slack).speaking.isEmpty)
     }
+
+    @Test("a Slack screen-share tile names the person sharing, not the tile")
+    func screenShareTile() {
+        #expect(ParticipantLabels.profileNames("View Costin Chiulan's screen View Costin Chiulan's profile")
+                == ["Costin Chiulan"])
+        #expect(ParticipantLabels.profileNames("Costin Chiulan's screen View Costin Chiulan's profile") == ["Costin Chiulan"])
+        #expect(ParticipantLabels.profileNames("View Alex's profile View Sam's profile") == ["Alex", "Sam"])
+        #expect(ParticipantLabels.profileNames("Review Ana Viewer's profile") == [])
+        #expect(ParticipantLabels.stored("Costin Chiulan's screen View Costin Chiulan", platform: .slack) == ["Costin Chiulan"],
+                "files written before this read the same")
+        #expect(ParticipantLabels.stored("Alex's profile View Sam", platform: .slack) == ["Alex", "Sam"])
+    }
 }

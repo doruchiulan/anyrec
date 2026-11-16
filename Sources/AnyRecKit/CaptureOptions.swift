@@ -39,7 +39,7 @@ public struct CaptureOptions: Sendable {
         followsDefaultMicrophone: Bool = false,
         showsCursor: Bool = true,
         recordsVideo: Bool = true,
-        cleanMicrophone: Bool = true
+        cleanMicrophone: Bool = false
     ) {
         self.fps = max(1, min(fps, 60))
         self.codec = codec

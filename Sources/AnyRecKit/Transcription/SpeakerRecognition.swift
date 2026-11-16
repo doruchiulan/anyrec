@@ -8,7 +8,7 @@ enum SpeakerRecognition {
             return voices
         }
         SpeakerSetup.quiet()
-        ModelHub.offlineMode = true
+        ModelNetwork.offline()
         let models = try await OfflineDiarizerModels.load(from: SpeakerSetup.directory)
         let embedding = SpeakerEmbedding(models: models)
         return enrich(voices, utterances: utterances, library: VoiceLibrary.load()) { span in

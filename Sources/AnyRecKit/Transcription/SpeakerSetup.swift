@@ -33,10 +33,10 @@ public enum SpeakerSetup {
     /// is the documented exception to the rule that a download is verified.
     public static func fetch(progress: @escaping @Sendable (String) -> Void) async throws {
         quiet()
-        ModelHub.offlineMode = false
-        defer { ModelHub.offlineMode = true }
-        _ = try await OfflineDiarizerModels.load(from: directory) { report in
-            progress("\(Int((report.fractionCompleted * 100).rounded()))%")
+        _ = try await ModelNetwork.downloading {
+            try await OfflineDiarizerModels.load(from: directory) { report in
+                progress("\(Int((report.fractionCompleted * 100).rounded()))%")
+            }
         }
     }
 }

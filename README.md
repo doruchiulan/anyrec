@@ -49,7 +49,7 @@ is over rather than after:
   Huddle with Costi – Slack – 2026-07-25 13.14.mp4   everything together — play this one
   system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
   microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
-  microphone-clean.m4a  the same microphone, echo cancelled by macOS
+  microphone-clean.m4a  optional microphone track, echo cancelled by macOS
   transcript-apple-<id>.md  who said what, in order
   transcript-apple-<id>.srt subtitles for the merged file
 ```
@@ -77,12 +77,11 @@ Headphones are still best. On speakers, your microphone records the call as well
 a raw sum carries the far end twice: once cleanly and once through the room, which
 sounds hollow and doubled. anyrec deals with that in two ways.
 
-- **At capture.** Alongside the raw microphone, anyrec records the same microphone a
-  second time through macOS voice processing, the echo cancellation FaceTime and browsers
-  use, as `microphone-clean.m4a`. The call audio is still captured untouched. When the
-  clean track carries sound, the merged file and the transcript are built from it; the
-  raw `microphone.m4a` is kept as recorded. Switch it off with
-  `--no-echo-cancellation` or in Settings › Recording.
+- **At capture, optional.** macOS voice processing can record a second microphone track
+  as `microphone-clean.m4a`. It is off by default following a report of reduced voice
+  volume in the call app while recording. Enable it with `--echo-cancellation` or in
+  Settings › Recording. When the clean track carries sound, the merged file and
+  transcript use it; the raw `microphone.m4a` is always kept.
 - **After capture.** If the microphone the mix uses still bleeds, it is held down
   whenever the call is talking, so every word survives once.
 
@@ -287,7 +286,7 @@ truncated `.mov`.
 | `--[no-]mux` | on | Merge with ffmpeg afterwards into one file named after the call, which replaces `screen.mov` once it is verified. |
 | `--[no-]video` | on | Record the picture. `--no-video` still needs `--window` or `--display`, for the sound, title, names and mute, and writes no `screen.mov`. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
-| `--[no-]echo-cancellation` | on | Also record the microphone through macOS voice processing as `microphone-clean.m4a`. The raw microphone is kept either way. |
+| `--[no-]echo-cancellation` | off | Also record the microphone through macOS voice processing as `microphone-clean.m4a`. The raw microphone is kept either way. |
 | `--[no-]system-audio` | on | The far side of the call. |
 | `--[no-]microphone` | on | Your side. |
 | `--mic` | system default | The input device id, from `anyrec sources`. |
@@ -378,8 +377,8 @@ Four engines:
 | `whisper` | whisper.cpp, built in | on your machine · ~5× realtime, one 574 MB download, 99 languages including Romanian |
 | `openai` | OpenAI's API | uploads the audio · your own key, no install, 99 languages |
 
-`auto` is Parakeet once its model is here, Apple when it has a model for the
-language, whisper after that. Parakeet tells the language itself; for the other
+`auto` is Parakeet once its model is here, whisper once its model is, and Apple
+when it has a model for the language after that. Parakeet tells the language itself; for the other
 two, `auto` detects it first, which needs whisper installed — without it, `auto`
 assumes English. It never picks `openai` — nothing leaves your machine unless you
 name the engine that does.

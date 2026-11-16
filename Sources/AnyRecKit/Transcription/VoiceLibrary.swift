@@ -304,9 +304,17 @@ public struct VoiceLibrary: Sendable, Equatable {
     /// The library as one file to hand to a colleague: the same people, the same prints,
     /// JSON. Nothing in it is audio — a print is a point, not a recording.
     public static let fileExtension = "anyrecvoices"
+    /// The type macOS gives a `.anyrecvoices` file. Nothing declares the extension, so this
+    /// is a dynamic type. It must be asked for without `conformingTo:`: that produces a
+    /// different dynamic identifier from the one Finder assigns, so the open panel greyed
+    /// out every voices file.
     public static var contentType: UTType {
-        UTType(filenameExtension: fileExtension, conformingTo: .json) ?? .json
+        UTType(filenameExtension: fileExtension) ?? .json
     }
+
+    /// What the import panel accepts: voices files, plus plain JSON, because a file sent
+    /// through mail or chat sometimes arrives with `.json` added or swapped in.
+    public static var importTypes: [UTType] { [contentType, .json] }
 
     /// Who is recording is this library's fact, not the colleague's, so it stays behind.
     public func exported() throws -> Data {
@@ -315,9 +323,12 @@ public struct VoiceLibrary: Sendable, Equatable {
         })
     }
 
-    /// Takes a colleague's file in: a name already here gains the prints it did not
-    /// have, a new name is added whole. Returns how many people were new and how many
-    /// prints were added, for the sentence that says what happened.
+    /// Takes a colleague's file in. A person already here gains the prints they did not
+    /// have; anyone else is added whole. "Already here" means the same saved name or, when
+    /// that misses, someone here answering to the incoming name, an alias or the display
+    /// name. Their "Andi" is my "Andrei Lungu", and adding a second record would split
+    /// one voice across two people. Returns how many people were new and how many prints
+    /// were added, for the sentence that says what happened.
     @discardableResult
     public mutating func merge(_ data: Data) throws -> (people: Int, prints: Int) {
         let incoming = try JSONDecoder().decode([Person].self, from: data)
@@ -327,13 +338,15 @@ public struct VoiceLibrary: Sendable, Equatable {
         for person in incoming {
             let name = person.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
-            if let index = people.firstIndex(where: { $0.name == name }) {
-                for print in person.prints where !people[index].prints.contains(print) {
+            if let index = people.firstIndex(where: { $0.name == name }) ?? existing(answeringAnyNameOf: person) {
+                let saved = people[index].name
+                if saved != name { addAlias(name, to: saved) }
+                for print in person.prints where !people[index].prints.contains(print) && !print.isEmpty {
                     people[index].add(print, origin: imported)
                     newPrints += 1
                 }
-                for alias in person.aliases { addAlias(alias, to: name) }
-                if people[index].displayName == nil, let shown = person.displayName { noteCallName(shown, for: name) }
+                for alias in person.aliases { addAlias(alias, to: saved) }
+                if people[index].displayName == nil, let shown = person.displayName { noteCallName(shown, for: saved) }
             } else {
                 let prints = person.prints.filter { !$0.isEmpty }
                 guard !prints.isEmpty else { continue }
@@ -347,6 +360,15 @@ public struct VoiceLibrary: Sendable, Equatable {
         }
         people.sort { $0.name < $1.name }
         return (newPeople, newPrints)
+    }
+
+    /// The one person here who answers to any of `person`'s names. Nil when nobody does,
+    /// or when the names point at more than one person.
+    private func existing(answeringAnyNameOf person: Person) -> Int? {
+        let names = [person.name] + person.aliases + [person.displayName].compactMap { $0 }
+        let matches = Set(names.compactMap { self.person(answering: $0)?.name })
+        guard matches.count == 1, let name = matches.first else { return nil }
+        return people.firstIndex { $0.name == name }
     }
 
     // MARK: - On disk

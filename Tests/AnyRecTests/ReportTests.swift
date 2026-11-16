@@ -43,9 +43,12 @@ struct ReportTests {
 
 @Suite("anyrec record --echo-cancellation")
 struct EchoCancellationFlagTests {
-    @Test("on unless --no-echo-cancellation is passed")
+    @Test("voice processing is off unless explicitly requested")
     func flag() throws {
-        #expect(try Record.parse(["--window", "1"]).echoCancellation)
+        #expect(try !Record.parse(["--window", "1"]).echoCancellation)
+        #expect(try Record.parse(["--window", "1", "--echo-cancellation"]).echoCancellation)
         #expect(try !Record.parse(["--window", "1", "--no-echo-cancellation"]).echoCancellation)
+        #expect(try !Timing.parse([]).echoCancellation)
+        #expect(try Timing.parse(["--echo-cancellation"]).echoCancellation)
     }
 }

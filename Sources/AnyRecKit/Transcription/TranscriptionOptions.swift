@@ -50,10 +50,20 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
     /// Whether this run compares engines at all.
     public var comparing: Bool { review && compareEngines }
 
-    /// The engine `auto` resolves to among the local ones, in its own order. Apple may
-    /// still hand over to Whisper for a language it does not cover.
+    /// The on-device engines, best first: Parakeet, then Whisper for its 99 languages, then
+    /// Apple's engine, which covers the fewest (no Romanian). What `auto` reaches for, what a
+    /// new install defaults to, and the order comparison engines run in.
+    public static let localOrder: [TranscriptionEngine] = [.parakeet, .whisper, .apple]
+
+    /// The engine `auto` resolves to among the local ones.
     static func autoEngine(enabled: Set<TranscriptionEngine>) -> TranscriptionEngine? {
-        [.parakeet, .apple, .whisper].first { enabled.contains($0) }
+        localOrder.first { enabled.contains($0) }
+    }
+
+    /// The first engine in `localOrder` that is both enabled and available: the default
+    /// once a new install's downloads are in. Nil when none is.
+    public func setupDefault(available: Set<TranscriptionEngine>) -> TranscriptionEngine? {
+        Self.localOrder.first { enabledEngines.contains($0) && available.contains($0) }
     }
 
     /// What runs: the chosen engine first, then — only when reviewing with a second
@@ -73,7 +83,7 @@ public struct TranscriptionOptions: Codable, Equatable, Sendable {
             resolved = preferred
         }
         guard comparing else { return [primary] }
-        let order: [TranscriptionEngine] = [.parakeet, .apple, .whisper, .openai]
+        let order = Self.localOrder + [.openai]
         return [primary] + order.filter { enabled.contains($0) && comparisonEngines.contains($0) && $0 != resolved }
     }
 }

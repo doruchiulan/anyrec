@@ -8,8 +8,27 @@ extension RecordingController {
     }
 
     func transcriptionEngines(using mode: TranscriptionMode) -> [TranscriptionEngine] {
-        mode.options(from: transcriptionOptions).engines(preferred: mode.preferredEngine,
-            available: Set(TranscriptionEngine.allCases.filter { readiness.of($0).isReady }))
+        mode.options(from: transcriptionOptions).engines(preferred: mode.preferredEngine, available: availableEngines)
+    }
+
+    /// Engines that can run on this Mac right now: model downloaded, key saved, macOS new enough.
+    var availableEngines: Set<TranscriptionEngine> {
+        Set(TranscriptionEngine.allCases.filter { readiness.of($0).isReady })
+    }
+
+    /// Enabled and able to run. An engine without its model counts as off however its
+    /// switch was saved: Settings shows it off, the Engine menu dims it, and review never
+    /// compares against it.
+    func isUsable(_ engine: TranscriptionEngine) -> Bool {
+        if engine == .auto { return readiness.of(.auto).isReady }
+        return transcriptionOptions.enabledEngines.contains(engine) && readiness.of(engine).isReady
+    }
+
+    /// The default for a new install, once its onboarding downloads are in:
+    /// `TranscriptionOptions.localOrder`, Parakeet, then Whisper, then Apple. Left as it is
+    /// when none of them can run.
+    func chooseSetupDefaultEngine() {
+        if let best = transcriptionOptions.setupDefault(available: availableEngines) { engine = best }
     }
 
     /// What a summary after a transcript is asked for with, when one is.

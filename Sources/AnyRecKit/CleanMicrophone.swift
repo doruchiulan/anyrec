@@ -11,9 +11,6 @@ import Foundation
 /// microphone stays the master; this is written beside it as `microphone-clean.m4a` and
 /// nothing depends on it being there.
 ///
-/// Voice processing turns other audio down while it runs. That is set to its minimum, with
-/// the advanced mode off, so the call is not made quieter for the person on it.
-///
 /// Time: the input tap's `AVAudioTime` carries a host time, the same mach clock
 /// ScreenCaptureKit stamps its buffers on, so each buffer is stamped with that host time
 /// and written against the recorder's one session start. Voice processing adds latency of

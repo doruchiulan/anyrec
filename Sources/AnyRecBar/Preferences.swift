@@ -13,7 +13,7 @@ enum Preferences {
         let defaults = UserDefaults.standard
         defaults.register(defaults: [
             Key.systemAudio: true,
-            Key.echoCancellation: true,
+            Key.echoCancellation: false,
             Key.transcribe: TranscriptionEngine.auto.rawValue,
             Key.offerToRecord: true,
             Key.summarize: true,

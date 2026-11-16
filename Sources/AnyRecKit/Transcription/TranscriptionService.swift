@@ -233,12 +233,15 @@ public enum TranscriptionService {
         case .auto:
             /// Deliberately local-only: `auto` must never start uploading a call
             /// because a model happened to be missing.
-            if job.enabledEngines?.contains(.parakeet) != false, let parakeet = try? ParakeetTranscriber() { return parakeet }
-            if job.enabledEngines?.contains(.apple) != false, let apple = try? await appleTranscriber(language: language) { return apple }
-            guard job.enabledEngines?.contains(.whisper) != false else {
-                throw TranscriptionError.engineFailed(engine: "auto", log: "No enabled engine can transcribe this language.")
-            }
-            return try WhisperTranscriber(model: job.model)
+            /// `TranscriptionOptions.localOrder`: Parakeet, Whisper, Apple. Whisper missing
+            /// its model falls through to Apple; when nothing else can run, the last enabled
+            /// engine's own error says what is missing.
+            let enabled = { (engine: TranscriptionEngine) in job.enabledEngines?.contains(engine) != false }
+            if enabled(.parakeet), let parakeet = try? ParakeetTranscriber() { return parakeet }
+            if enabled(.whisper), let whisper = try? WhisperTranscriber(model: job.model) { return whisper }
+            if enabled(.apple) { return try await appleTranscriber(language: language) }
+            if enabled(.whisper) { return try WhisperTranscriber(model: job.model) }
+            throw TranscriptionError.engineFailed(engine: "auto", log: "No enabled on-device engine is set up.")
         }
     }
 

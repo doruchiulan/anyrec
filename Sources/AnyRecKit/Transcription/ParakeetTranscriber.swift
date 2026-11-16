@@ -20,7 +20,7 @@ public struct ParakeetTranscriber: Transcriber {
         of url: URL, in regions: [Range<TimeInterval>], language: String?
     ) async throws -> Speech {
         SpeakerSetup.quiet()
-        ModelHub.offlineMode = true
+        ModelNetwork.offline()
         let models = try await AsrModels.load(from: ParakeetSetup.folder, version: .v3)
         let manager = AsrManager(config: .default, models: models)
         var state = TdtDecoderState.make(decoderLayers: 2)
@@ -95,10 +95,10 @@ public enum ParakeetSetup {
 
     public static func fetch(progress: @escaping @Sendable (String) -> Void) async throws {
         SpeakerSetup.quiet()
-        ModelHub.offlineMode = false
-        defer { ModelHub.offlineMode = true }
-        _ = try await AsrModels.download(to: folder, version: .v3, encoderPrecision: .int8) { report in
-            progress("\(Int((report.fractionCompleted * 100).rounded()))%")
+        _ = try await ModelNetwork.downloading {
+            try await AsrModels.download(to: folder, version: .v3, encoderPrecision: .int8) { report in
+                progress("\(Int((report.fractionCompleted * 100).rounded()))%")
+            }
         }
     }
 }

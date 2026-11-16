@@ -10,17 +10,19 @@ actor CallWindowAnchor {
         self.app = app
     }
 
-    func window() -> MuteButton.Window? {
+    /// The call window. `focused` is the banner's case, which sits above the call only
+    /// while it is the app's focused window; the menu bar panel takes it either way.
+    func window(focused: Bool = true) -> MuteButton.Window? {
         if reader == nil {
             reader = app.muteButton.flatMap { MuteButton.Reader(bundleID: app.bundleID, button: $0) }
         }
-        return reader?.focusedWindow()
+        return focused ? reader?.focusedWindow() : reader?.callWindow()
     }
 
-    func capture(_ expected: UUID) async -> CaptureChoice? {
-        guard window()?.identity == expected,
+    func capture(_ expected: UUID, focused: Bool = true) async -> CaptureChoice? {
+        guard window(focused: focused)?.identity == expected,
             let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
-            let current = window(), current.identity == expected
+            let current = window(focused: focused), current.identity == expected
         else { return nil }
         let candidates = content.windows.filter(\.isOnScreen).compactMap { window -> CallWindowMatch.Candidate? in
             guard let owner = window.owningApplication, owner.bundleIdentifier == app.bundleID else { return nil }

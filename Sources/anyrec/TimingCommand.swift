@@ -24,7 +24,7 @@ struct Timing: AsyncParsableCommand {
     var mic: String?
 
     @Flag(inversion: .prefixedNo, help: "Record the echo-cancelled microphone too.")
-    var echoCancellation = true
+    var echoCancellation = false
 
     func run() async throws {
         guard let ffmpeg = Muxer.ffmpegPath() else { throw ValidationError(MuxError.ffmpegNotFound.description) }

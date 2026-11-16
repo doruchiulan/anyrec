@@ -29,7 +29,7 @@ extension RecordingConfiguration {
     func transcribeLabel(_ readiness: Readiness) -> String {
         guard let engine = transcribe else { return "Off" }
         switch (engine, readiness.of(engine).isReady) {
-        case (.auto, _): return "On — Parakeet, Apple or whisper, whichever is here"
+        case (.auto, _): return "On — Parakeet, whisper or Apple, whichever is here"
         case (.parakeet, true): return "On — Parakeet, on-device, 25 languages"
         case (.parakeet, false): return "On — Parakeet, not downloaded yet"
         case (.apple, true): return "On — Apple, on-device, \(readiness.appleLanguages.count) languages"

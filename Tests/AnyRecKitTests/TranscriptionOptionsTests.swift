@@ -31,7 +31,7 @@ struct TranscriptionOptionsTests {
     }
 
     @Test("comparison engines follow a fixed order after the chosen one, never repeating it",
-          arguments: [TranscriptionEngine.parakeet, .apple, .whisper, .openai])
+          arguments: [TranscriptionEngine.parakeet, .whisper, .apple, .openai])
     func fixedOrder(previous: TranscriptionEngine) {
         var options = TranscriptionOptions()
         options.review = true
@@ -39,7 +39,7 @@ struct TranscriptionOptionsTests {
         options.enabledEngines = [.parakeet, .apple, .whisper, .openai]
         options.comparisonEngines = options.enabledEngines
         let available = options.enabledEngines
-        let order: [TranscriptionEngine] = [.parakeet, .apple, .whisper, .openai]
+        let order: [TranscriptionEngine] = [.parakeet, .whisper, .apple, .openai]
         #expect(options.engines(preferred: previous, available: available) == [previous] + order.filter { $0 != previous })
     }
 
@@ -68,5 +68,18 @@ struct TranscriptionOptionsTests {
         var engines = Set<TranscriptionEngine>()
         var count: Int { engines.count }
         func arrive(_ engine: TranscriptionEngine) { engines.insert(engine) }
+    }
+
+    @Test("a new install defaults to Parakeet, then Whisper, then Apple, among what is enabled and ready")
+    func setupDefault() {
+        var options = TranscriptionOptions()
+        #expect(options.setupDefault(available: [.apple, .whisper, .parakeet]) == .parakeet)
+        #expect(options.setupDefault(available: [.apple, .whisper]) == .whisper)
+        #expect(options.setupDefault(available: [.apple, .openai]) == .apple)
+        #expect(options.setupDefault(available: [.openai]) == nil)
+        options.enabledEngines = [.apple]
+        #expect(options.setupDefault(available: [.apple, .whisper, .parakeet]) == .apple)
+        #expect(TranscriptionOptions.autoEngine(enabled: [.apple, .whisper]) == .whisper, "auto follows the same order")
+        #expect(TranscriptionOptions.autoEngine(enabled: [.apple, .whisper, .parakeet]) == .parakeet)
     }
 }

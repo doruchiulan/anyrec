@@ -164,6 +164,16 @@ private struct RecordingPage: View {
         if #available(macOS 26, *) {
             ToolbarSpacer(.flexible, placement: .primaryAction)
         }
+        /// Where Notes keeps New Note: first in the toolbar over the page. It used to end the
+        /// list's title row, which it outgrew once the sidebar could hide.
+        ToolbarItem(placement: .primaryAction) {
+            NewRecordingButton(controller: controller) {
+                Label("New Recording", systemImage: "record.circle")
+            }
+        }
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { controller.reveal(entry) } label: {
                 Label("Show in Finder", systemImage: "folder")
@@ -242,7 +252,24 @@ private struct RecordingPage: View {
         return CGFloat(info.width) / CGFloat(info.height)
     }
 
+    /// One row when the card is wide enough; otherwise the track buttons move to a second
+    /// row. Squeezed into one, "Tracks" wrapped a letter per line and the buttons lost
+    /// their names.
     private var controls: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                transport
+                Spacer(minLength: 12)
+                trackButtons
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) { transport; Spacer(minLength: 0) }
+                trackButtons
+            }
+        }
+    }
+
+    private var transport: some View {
         HStack(spacing: 12) {
             Button { playback.toggle() } label: {
                 Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 13))
@@ -266,7 +293,12 @@ private struct RecordingPage: View {
                 .help(controller.showsCaptions ? "Hide captions" : "Show captions")
                 .accessibilityLabel("Captions")
             }
-            Spacer()
+        }
+        .fixedSize()
+    }
+
+    private var trackButtons: some View {
+        HStack(spacing: 8) {
             Text("Tracks").font(.system(size: 11)).foregroundStyle(.secondary)
             ForEach(playback.available, id: \.self) { track in
                 TrackChip(
@@ -274,6 +306,7 @@ private struct RecordingPage: View {
                 ) { playback.set(track, on: !playback.enabled.contains(track)) }
             }
         }
+        .fixedSize()
     }
 
     /// A window of its own around the same player, with the system's controls — which is
@@ -299,22 +332,24 @@ private struct RecordingPage: View {
     private var summaryCard: some View {
         let busy = controller.summarizing.contains(entry.directory)
         let provider = controller.activeSummaryProvider
+        let source = provider.map { "\(summary?.provider ?? $0.name) · from the transcript" }
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
-                Text("Summary").font(.system(size: 13, weight: .semibold))
-                if let provider {
-                    Text("\(summary?.provider ?? provider.name) · from the transcript")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+            /// The source line sits beside the title when there is room and under it when
+            /// there is not. Squeezed beside it, both wrapped a few letters per line.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    summaryTitle
+                    if let source { summarySource(source).fixedSize() }
+                    Spacer(minLength: 8)
+                    summaryActions(busy: busy)
                 }
-                Spacer()
-                if summary != nil || legacySummary != nil {
-                    Button { copy(summary?.named(voices?.names ?? [:]).markdown ?? legacySummary ?? "") } label: { Image(systemName: "doc.on.doc") }
-                        .help("Copy summary").accessibilityLabel("Copy summary")
-                    providerMenu
-                    Button { controller.summarize(entry) } label: { Image(systemName: "arrow.clockwise") }
-                        .help("Regenerate summary").accessibilityLabel("Regenerate summary")
-                        .disabled(busy)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        summaryTitle
+                        Spacer(minLength: 8)
+                        summaryActions(busy: busy)
+                    }
+                    if let source { summarySource(source).lineLimit(2) }
                 }
             }
             .buttonStyle(.borderless)
@@ -352,6 +387,32 @@ private struct RecordingPage: View {
         }
         .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 16)
         .card()
+    }
+
+    private var summaryTitle: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
+            Text("Summary").font(.system(size: 13, weight: .semibold))
+        }
+        .fixedSize()
+    }
+
+    private func summarySource(_ text: String) -> some View {
+        Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder private func summaryActions(busy: Bool) -> some View {
+        if summary != nil || legacySummary != nil {
+            HStack(spacing: 8) {
+                Button { copy(summary?.named(voices?.names ?? [:]).markdown ?? legacySummary ?? "") } label: { Image(systemName: "doc.on.doc") }
+                    .help("Copy summary").accessibilityLabel("Copy summary")
+                providerMenu
+                Button { controller.summarize(entry) } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Regenerate summary").accessibilityLabel("Regenerate summary")
+                    .disabled(busy)
+            }
+            .fixedSize()
+        }
     }
 
     private var providerMenu: some View {

@@ -31,14 +31,16 @@ struct CleanMicrophoneTests {
         #expect(plan.cleanMicrophone.deletingLastPathComponent() == plan.microphone.deletingLastPathComponent())
     }
 
-    @Test("on by default, carried from the configuration to capture, and off when asked")
+    @Test("voice processing requires opt-in and the choice reaches capture")
     func setting() {
         var configuration = RecordingConfiguration()
-        #expect(configuration.echoCancellation)
+        #expect(!configuration.echoCancellation)
+        #expect(!configuration.options.cleanMicrophone)
+        #expect(!CaptureOptions().cleanMicrophone)
+        configuration.echoCancellation = true
         #expect(configuration.options.cleanMicrophone)
         configuration.echoCancellation = false
         #expect(!configuration.options.cleanMicrophone)
-        #expect(CaptureOptions().cleanMicrophone)
     }
 
     @Test("buffers handed over by voice processing keep their host time and their samples")

@@ -54,7 +54,8 @@ public struct Readiness: Sendable {
 
     public func of(_ engine: TranscriptionEngine) -> EngineReadiness {
         switch engine {
-        /// `auto` is Parakeet once its model is here, Apple's engine where that can
+        /// `auto` is Parakeet once its model is here, whisper once its model is, Apple's
+        /// engine where that can run
         /// run, whisper after that — so what stands in its way, when nothing local is
         /// ready, is Parakeet's download, the one with nothing to install.
         case .auto:

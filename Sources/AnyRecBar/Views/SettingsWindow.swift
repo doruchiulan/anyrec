@@ -154,7 +154,7 @@ struct TranscriptionSettings: View {
 
     private func isDisabled(_ mode: TranscriptionMode) -> Bool {
         guard case .engine(let engine) = mode, engine != .auto else { return false }
-        return !controller.transcriptionOptions.enabledEngines.contains(engine)
+        return !controller.isUsable(engine)
     }
 }
 

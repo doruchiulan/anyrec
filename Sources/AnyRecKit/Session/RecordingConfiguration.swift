@@ -59,7 +59,7 @@ public struct RecordingConfiguration: Sendable {
     public var video = true
     /// Record the microphone a second time through macOS voice processing, echo cancelled,
     /// beside the raw track; the mixes and attribution use it when it carries sound.
-    public var echoCancellation = true
+    public var echoCancellation = false
     public var outputRoot: String
 
     /// What each interface offers for the two settings that are a choice from a list

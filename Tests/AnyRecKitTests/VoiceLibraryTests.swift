@@ -205,4 +205,37 @@ struct VoiceLibraryPeopleTests {
         #expect(colleague.owner == nil)
         #expect(colleague.people[0].aliases == ["Alex Ionescu"])
     }
+
+    @Test("the import panel accepts the type Finder gives a .anyrecvoices file")
+    func importType() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("AnyRec Voices.\(VoiceLibrary.fileExtension)")
+        try VoiceLibrary(people: [.init(name: "Ana", prints: [[1, 0]])]).exported().write(to: file)
+
+        let type = try #require(try file.resourceValues(forKeys: [.contentTypeKey]).contentType)
+        #expect(VoiceLibrary.importTypes.contains { type.conforms(to: $0) })
+        #expect(VoiceLibrary.importTypes.contains(.json))
+    }
+
+    @Test("an imported person matches whoever here answers to one of their names")
+    func mergeByAlias() throws {
+        var mine = VoiceLibrary(people: [
+            .init(name: "Andrei Lungu", prints: [[1, 0]], aliases: ["Andi"]),
+            .init(name: "Maria", prints: [[0, 1]]),
+        ])
+        let theirs = VoiceLibrary(people: [
+            .init(name: "Andi", prints: [[0.9, 0.1]], aliases: ["Andrei L."], displayName: "Andrei L."),
+            .init(name: "Mara", prints: [[0.5, 0.5]], aliases: ["Maria", "Andi"]),
+        ])
+
+        let added = try mine.merge(try theirs.exported())
+
+        #expect(mine.names == ["Andrei Lungu", "Mara", "Maria"], "names pointing at two people match nobody")
+        #expect(added.people == 1 && added.prints == 2)
+        #expect(mine.people[0].prints == [[1, 0], [0.9, 0.1]])
+        #expect(mine.people[0].aliases.contains("Andrei L."))
+        #expect(mine.people[0].displayName == "Andrei L.")
+    }
 }

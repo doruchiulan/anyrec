@@ -69,17 +69,33 @@ enum ParticipantLabels {
 
     /// Slack's profile buttons read "View Alex's profile". A tile can carry two of them in
     /// one label — "View Alex's profile View Sam's profile" — which is two people, never
-    /// one called "Alex's profile View Sam".
+    /// one called "Alex's profile View Sam". A screen-share tile puts its own words first,
+    /// as in "View Costin's screen View Costin's profile", so the name is what follows the
+    /// "View " nearest to "'s profile", never the first one in the label.
     static func profileNames(_ label: String) -> [String] {
         var names: [String] = []
         var rest = Substring(label)
-        while let view = rest.range(of: "View "), let end = rest[view.upperBound...].range(of: "'s profile") {
-            if let name = clean(String(rest[view.upperBound..<end.lowerBound])), !name.contains("'s profile") {
+        while let end = rest.range(of: "'s profile") {
+            let before = rest[..<end.lowerBound]
+            if let view = lastWord("View ", in: before), let name = clean(String(before[view.upperBound...])) {
                 names.append(name)
             }
             rest = rest[end.upperBound...]
         }
         return names
+    }
+
+    /// The last `word` in `text` that starts the text or follows whitespace, so the "view"
+    /// inside "Review " never counts as one.
+    private static func lastWord(_ word: String, in text: Substring) -> Range<Substring.Index>? {
+        var upper = text.endIndex
+        while let found = text.range(of: word, options: .backwards, range: text.startIndex..<upper) {
+            if found.lowerBound == text.startIndex || text[text.index(before: found.lowerBound)].isWhitespace {
+                return found
+            }
+            upper = found.lowerBound
+        }
+        return nil
     }
 
     /// States Teams appends to a tile's label after the name, comma-separated. Only whole
@@ -107,7 +123,8 @@ enum ParticipantLabels {
     /// split apart. Empty when nothing in it is a name.
     static func stored(_ value: String, platform: Platform?) -> [String] {
         let pieces: [String]
-        if value.contains("'s profile View ") {
+        /// Older readers kept a screen-share tile's whole label: "Costin's screen View Costin".
+        if value.contains("'s profile View ") || (platform != .teams && value.contains(" View ")) {
             pieces = profileNames("View " + value + "'s profile")
         } else {
             pieces = [value]

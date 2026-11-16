@@ -98,10 +98,21 @@ extension MuteButton {
             return nil
         }
 
+        /// The window holding the button, when it is also the app's focused window: what
+        /// the banner sits above.
         public func focusedWindow() -> Window? {
-            guard muted() != nil, let window,
+            guard let found = callWindow(), let window,
                 let focused: AXUIElement = Self.value(app, kAXFocusedWindowAttribute),
-                CFEqual(window, focused),
+                CFEqual(window, focused)
+            else { return nil }
+            return found
+        }
+
+        /// The window holding the button, focused or not, unless it is minimised. What the
+        /// menu bar panel offers to record: by the time the panel is open, the call app is
+        /// no longer in front.
+        public func callWindow() -> Window? {
+            guard muted() != nil, let window,
                 let position: AXValue = Self.value(window, kAXPositionAttribute),
                 let size: AXValue = Self.value(window, kAXSizeAttribute),
                 Self.value(window, kAXMinimizedAttribute) as Bool? != true

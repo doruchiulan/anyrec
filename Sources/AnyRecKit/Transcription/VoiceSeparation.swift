@@ -138,7 +138,7 @@ extension VoiceSeparation {
         _ url: URL, progress: @escaping @Sendable (String) -> Void
     ) async throws -> (segments: [VoiceSegment], prints: [String: Voiceprint]) {
         SpeakerSetup.quiet()
-        ModelHub.offlineMode = true
+        ModelNetwork.offline()
         let models = try await OfflineDiarizerModels.load(from: SpeakerSetup.directory)
         let manager = OfflineDiarizerManager(config: .default)
         manager.initialize(models: models)

@@ -4,7 +4,7 @@
 
 macOS tool that records a call as three separate tracks: one window or display,
 system audio output, and microphone input — or, audio only, the two audio tracks
-with the window still picked but no picture kept. Beside the raw microphone it records
+with the window still picked but no picture kept. If enabled, it also records
 the same microphone through macOS voice processing (`microphone-clean.m4a`), echo
 cancelled, which the mixes use when it carries sound. Built on ScreenCaptureKit, so no
 virtual audio driver is required. Windows belonging to Slack, Teams, Zoom, Meet,
@@ -110,6 +110,7 @@ second one for "UI-common" code.
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
 | `MuteButton.swift` | The call app's own mute control, found in its accessibility tree and re-read four times a second. What Teams's mute is read from. |
 | `CallWatch.swift` | A call starting, read as a known call app taking the microphone. What the menu bar's offer to record, and automatic recording, come from. |
+| `AnyRecBar/OngoingCalls.swift` | The detected call's window, ready to record: Slack/Teams through the mute control (focused or not, `MuteButton.Reader.callWindow`), other call apps' windows when there are at most three. What the idle panel and File menu list above Other Window…, and what the library window's record buttons offer in a popover first (`NewRecordingButton`, sharing `OngoingCallsChooser` with the panel). |
 | `AnyRecBar/CallReminder.swift` | A persistent Record/Audio Only/Dismiss banner above the focused Slack or Teams call window, with native notifications as fallback; `watch` is the same window search for automatic recording, handing the window over instead of showing the banner. |
 | `AnyRecBar/CallAutoRecording.swift` | Whether a call is recorded without asking (Slack or Teams, switched on, window found, nothing recording) and when that recording stops (the call over for `endGrace`). Pure state; `AutomaticRecordingMode` is Window or Audio only. |
 | `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record and Record Audio Only open the capture picker. Also the automatic recording's started notification, whose Stop Recording stops it. |
@@ -147,6 +148,7 @@ second one for "UI-common" code.
 | `Transcription/PersonCompletion.swift` | `PersonSuggestion` and the match of typed text against the library's people; `RecordingSpeakers.completions(for:typing:)` and `person(for:typed:)`, which the Speakers panel's name field and the terminal prompt complete from. |
 | `Transcription/RecordingSpeakers.swift` | Every speaker in the current transcript, as the Speakers panel and the terminal show them: how each was named (`SpeakerBasis`), talk time, up to three `SpeakerClip`s, ordered `SpeakerCandidate`s with reasons, whether it is probably you (`YourVoiceEvidence`, `OwnerToRemember`), pending line corrections, Call lines nobody claims. `SpeakerEditing` names a whole voice, gives lines to another speaker, or gives a whole voice to Me, Call or another speaker (`give`, `giveToMe`), taking back what naming it filed and filing a voice given to Me under the owner; only the ticked remember-me writes the library's owner. |
 | `Transcription/SpeakerSetup.swift` | Whether the speaker models are here, and the one place FluidAudio is let on the network to fetch them. |
+| `Transcription/ModelNetwork.swift` | FluidAudio's one process-wide network flag, counted: on while any download runs, off when the last ends; transcription's `offline()` leaves a running download alone. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
 | `anyrec/EchoCommand.swift`, `anyrec/TimingCommand.swift` | `anyrec echo` (the echo check for one recording, as text) and `anyrec timing` (a test signal through the speakers while recording, then the offset and the devices). |
@@ -160,6 +162,7 @@ second one for "UI-common" code.
 | `AnyRecBar/Preferences.swift` | The few settings that survive a relaunch, mapped onto `UserDefaults`. The Kit has no opinion about persistence. |
 | `AnyRecBar/Commands.swift` | The menu bar's File, View, Playback and Recording commands (Recording › Show Speakers scrolls the open recording to its Speakers panel). The open player reaches them as a focused value. |
 | `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (the merged file, or the masters with a track silenced — the picture from `screen.mov` or, once that is gone, the merged file's video stream), which also plays a speaker clip's span and stops (`play(_:)`, `playingClip`), and the ⌘⇧R shortcut. |
+| `AnyRecBar/CompactColumns.swift` | Which library columns give way as the window narrows: the sidebar below 1290 pt, then the inspector below 1100 pt (list fixed at 300 pt), and a column shown by hand in a window too narrow for it grows the window, each back past its higher threshold only if hidden automatically, acting only when a threshold is crossed so manual toggles stand. |
 | `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video (or, audio only, the app's icon and title above the waveform), summary and Speakers panel, with its transcript, tracks and files in the inspector; a transcript line's speaker label opens the same chooser as the panel. Reads files the Kit left; writes only who spoke (voice names and line speakers, via `SpeakerEditing`) and ticks on action items. Summaries are written by the Kit's `SummaryPass`, started by the pass or by `RecordingController`, which outlives the window. |
 | `AnyRecBar/Views/SpeakersPanel.swift` | The recording page's Speakers panel (`SpeakerDesk` loads `RecordingSpeakers` off the main thread and makes the changes), the candidate chooser, `GiveToChoices` (Me, Call and the other speakers, for a row and for the popover), clip buttons, and `LineSpeakerChooser`, what a transcript label's popover shows. |
 | `AnyRecBar/Views/ObservedParticipants.swift` | The recording's roster from the call window, with how long it was readable and the voice facts: the Speakers panel's last section, or a box of its own before there is a transcript. |
@@ -263,13 +266,14 @@ Invariants worth preserving:
   the Teams call's offset, but nothing confirms that call used it. Until a speaker
   call's timing facts tie the offset to a device figure, it is measured from echo only.
   Headphone recordings have no echo to measure from, so they are not moved.
-- The microphone is recorded twice when echo cancellation is on (the default; Settings ›
-  Recording, kept in `Preferences`; `anyrec record --no-echo-cancellation`): raw by
+- The microphone is recorded twice when echo cancellation is enabled (off by default;
+  Settings › Recording, kept in `Preferences`; `anyrec record --echo-cancellation`): raw by
   ScreenCaptureKit, which stays the master, and through `AVAudioEngine` with voice
   processing on, as `microphone-clean.m4a`. This is the same approach as a browser's
   `echoCancellation`, with the system audio still captured untouched. Other-audio ducking is set to its
-  minimum, advanced ducking off, so the call is not turned down. The clean track is on the
-  same device as the raw one (`kAudioOutputUnitProperty_CurrentDevice`, or no clean track),
+  minimum with advanced ducking off. A reported call-volume drop is why this is opt-in.
+  The clean track is on the same device as the raw one
+  (`kAudioOutputUnitProperty_CurrentDevice`, or no clean track),
   folded to mono through a silent mixer. The main mixer connects to the output explicitly
   at the microphone rate: mismatched client rates make VoiceProcessingIO fail with -10875.
   The live regression is `ANYREC_LIVE_AUDIO_TEST=1 swift test --no-parallel --filter VoiceProcessingFormatTests`.
@@ -444,13 +448,21 @@ Invariants worth preserving:
   what is recorded is always what was pointed at a second ago. A pick that sits in
   the panel goes stale — the window closes while the menu is shut — and the check
   for that was code paid for by a step nobody wanted. Closing the picker without
-  choosing records nothing, which is what closing it means.
+  choosing records nothing, which is what closing it means. Opened from one of AnyRec's
+  own windows, AnyRec hides while the picker is up (`pickAndStart`): the picker leaves
+  AnyRec's windows out, so it dimmed the library and pulled forward whatever window lay
+  behind it. Cancelling brings AnyRec back; a pick leaves it hidden so the call stays in view.
 - `TargetResolver.resolve` looks windows up with `onScreenWindowsOnly: false`. What
   is worth *offering* is on-screen only, but the picker hands back windows from other
   Spaces and `desktopIndependentWindow` follows one there, so refusing to resolve an
   id would be the one place that did not. It is also what lets `--window <id>` record
   a window on another desktop.
-- The idle panel offers Record Window, Record Audio Only and recent recordings. The two
+- The idle panel offers Record Window, Record Audio Only and recent recordings. While a
+  call is detected (`CallWatch`) and its window found (`OngoingCallFinder`, every two
+  seconds while idle), the call is listed first with its own Record Call and Audio Only,
+  which start at once with no picker, and the picker commands become Other Window… and
+  Other Window, Audio Only…; File carries "Record <App> Call" copies. A listed call is
+  re-found continuously, so it is not the stale pick the rule above refuses. The two
   Record commands are the whole choice — there is no video switch or sheet before the
   picker — and both are also in File (New Recording… ⌘N, New Audio-Only Recording…
   ⌥⌘N), the Dock menu and the call banner; ⌘⇧R is Record Window. Both go through the
@@ -897,7 +909,10 @@ Invariants worth preserving:
   several files each, fetched by FluidAudio from a pinned revision over HTTPS with
   a size check, and only from `SpeakerSetup.fetch` — the setup screen's Speakers
   row, Settings, or `anyrec speakers --download`. Transcription runs with
-  `ModelHub.offlineMode` on and can never download.
+  `ModelHub.offlineMode` on and can never download. The flag is one per process, so it
+  is only switched through `ModelNetwork`: the welcome window runs the speaker models'
+  and Parakeet's downloads side by side, and the speaker models finishing used to switch
+  the network off under Parakeet, which then read as never downloaded.
 - Attribution is per line, never per voice. A diarising model fuses two people
   into one letter when they take turns quickly, and a voice weighed as a whole
   then averages out below the margin — so nothing is claimed and nobody is "Me",
@@ -916,7 +931,9 @@ Invariants worth preserving:
   spans the leading silence and starts at 0 — but the hosted models hallucinate
   over room tone too. Engines running their own detection ignore the argument.
 - The on-device engine is Parakeet, and `auto` reaches for it first: Parakeet when its
-  model is here, Apple's engine where that can run, whisper after that. It needs
+  model is here, whisper once its model is, Apple's engine after that
+  (`TranscriptionOptions.localOrder`, also the new-install default and the comparison
+  order). It needs
   nothing installed — choosing it *is* the request for its model, so picking Parakeet
   in the panel or Settings starts the download, with the size on the choice, and ffmpeg
   comes with it when there is none, because the mix the engine is handed is made with
@@ -952,7 +969,12 @@ Invariants worth preserving:
   no audio. Importing adds the people a library does not have and the prints it does
   not have under names it does, so a team names each person once. File › Import and
   Export Voices, the People list and the welcome window all go through the same two
-  panels on `RecordingController`.
+  panels on `RecordingController`. An incoming person is matched by saved name, else by
+  the one person here answering to their name, an alias or the display name; their name
+  is then filed as an alias. The extension is undeclared, so `VoiceLibrary.contentType` is
+  `UTType(filenameExtension:)` *without* `conformingTo:` (with it the dynamic identifier
+  differs from the one Finder assigns, and the open panel greyed every voices file out),
+  and import also accepts `.json`.
 - Review cannot fail structurally. A reply is a patch (`changes`: id and text of the lines
   the model changed); a missing line is unchanged and an id outside the section is
   ignored. A section with no usable reply keeps its lines and is recorded by range; the
@@ -972,6 +994,12 @@ Invariants worth preserving:
   filled in; it records the transcript digest and the names it was written with, and is
   stale — said, with an offer to refresh — when either changes. A summary without that
   basis is shown as it is and never called stale.
+- An engine is enabled only once it can run (`RecordingController.isUsable`: switched on
+  *and* `Readiness` ready). Without its model its switch reads off and is dimmed, the Engine
+  menu dims it, and "Review with a second engine" does not list it. A finished download
+  switches its engine on; one started in the welcome window also sets the default engine
+  by `TranscriptionOptions.localOrder` (Parakeet, Whisper, Apple), as does finishing
+  the welcome window.
 - Other engines run only for a review that compares them ("Review with a second
   engine"). The chosen engine always writes the transcript; Aggregator, which picked a
   primary by fixed order before anything was compared, is migrated to this. `auto` must stay local-only: falling back to an upload because a model

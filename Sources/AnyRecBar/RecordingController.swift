@@ -79,6 +79,11 @@ final class RecordingController {
     /// The call app holding the microphone right now, for the menu bar to show and
     /// the notification to name. Nil between calls.
     private(set) var callApp: CallApp?
+    /// The detected call's windows, ready to record without the picker. Followed while a
+    /// call is on and nothing is recording.
+    private(set) var ongoingCalls: [OngoingCall] = []
+    @ObservationIgnored private let callFinder = OngoingCallFinder()
+    @ObservationIgnored private var callSearch: Task<Void, Never>?
     /// Stored rather than read through to the defaults, so the toggle that binds to
     /// it is observed like everything else here.
     var offerToRecord = Preferences.offerToRecord {
@@ -243,6 +248,7 @@ final class RecordingController {
     func completeSetup() {
         Preferences.welcomed = true
         completedSetup = true
+        chooseSetupDefaultEngine()
         offerCallReminder()
     }
 
@@ -433,6 +439,7 @@ final class RecordingController {
         switch event {
         case .started(let app):
             callApp = app
+            followOngoingCall()
             switch autoRecording.callStarted(app, context: autoContext) {
             case .watch(let app): reminder?.watch(app, notifies: offerToRecord)
             case .offer: offerCallReminder()
@@ -441,6 +448,7 @@ final class RecordingController {
             }
         case .ended:
             callApp = nil
+            followOngoingCall()
             reminder?.withdraw()
             if case .stopAt(let deadline) = autoRecording.callEnded(at: Date()) { stopAutomatically(at: deadline) }
         }
@@ -475,6 +483,35 @@ final class RecordingController {
             guard !Task.isCancelled, autoRecording.deadlinePassed(at: Date()) else { return }
             await stop()
         }
+    }
+
+    /// The call's window, looked for every two seconds for as long as the call lasts: it
+    /// often opens after the app has taken the microphone, and it can move to another Space
+    /// or close. Nothing is looked for while recording.
+    private func followOngoingCall() {
+        callSearch?.cancel()
+        guard let app = callApp else {
+            callSearch = nil
+            if !ongoingCalls.isEmpty { ongoingCalls = [] }
+            return
+        }
+        callSearch = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let found = canStart ? await callFinder.calls(for: app) : []
+                guard !Task.isCancelled else { return }
+                if found != ongoingCalls { ongoingCalls = found }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    /// Records a listed call window straight away: it was found and matched moments ago,
+    /// so there is nothing to pick. A window that has closed since fails to start and says so.
+    func record(_ call: OngoingCall, video: Bool) {
+        guard canStart, video || audioOnlyRecordsAnything else { return }
+        configuration.capture = call.choice
+        Task { await start(video: video) }
     }
 
     /// Not while the call's window is being looked for to record it automatically: Done,
@@ -533,6 +570,9 @@ final class RecordingController {
         guard setup == nil, !steps.isEmpty else { return }
         setupFailure = nil
         setupTarget = target
+        /// A download started in the welcome window picks the default engine when it
+        /// finishes, even if Start Using AnyRec was pressed before then.
+        let onboarding = !completedSetup
 
         setup = Task {
             for step in steps {
@@ -553,6 +593,11 @@ final class RecordingController {
             /// about the engines has to be asked again rather than left at launch.
             readiness = await Readiness.probe()
             ffmpegReady = FFmpegSetup.isReady
+            /// Downloading an engine is asking to use it, so it is switched on.
+            if let engine = target.engine, readiness.of(engine).isReady {
+                transcriptionOptions.enabledEngines.insert(engine)
+                if onboarding { chooseSetupDefaultEngine() }
+            }
             setupProgress = nil
             setupTarget = nil
             setup = nil
@@ -580,7 +625,7 @@ final class RecordingController {
 
     func importVoicesPanel() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [VoiceLibrary.contentType]
+        panel.allowedContentTypes = VoiceLibrary.importTypes
         panel.message = "Choose a voices file a colleague exported from AnyRec."
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
@@ -645,11 +690,27 @@ final class RecordingController {
     /// `video` is which of the two Record commands was pressed. Audio only still picks a
     /// window: its filter carries the sound, and its title, participants and mute button
     /// are read as usual. Only the picture is not kept.
+    ///
+    /// Picked from one of AnyRec's own windows, AnyRec steps aside while the picker is up.
+    /// The picker leaves AnyRec's windows out, and so it dimmed the library and pulled
+    /// forward whatever window was behind it (a utility's settings, in the report). AnyRec
+    /// comes back if the picker is closed, and stays hidden once a recording starts, so the
+    /// call stays in view.
     func pickAndStart(video: Bool = true) {
         guard canStart, video || audioOnlyRecordsAnything else { return }
         willPresentPicker?()
+        let app = NSApplication.shared
+        let stepAside = app.isActive && app.windows.contains { $0.isVisible && $0.canBecomeMain }
+        if stepAside { app.hide(nil) }
         picker.present { [weak self] choice in
-            guard let self, let choice else { return }
+            guard let self else { return }
+            guard let choice else {
+                if stepAside {
+                    app.unhide(nil)
+                    app.activate(ignoringOtherApps: true)
+                }
+                return
+            }
             configuration.capture = choice
             Task { await self.start(video: video) }
         }

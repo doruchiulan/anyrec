@@ -36,7 +36,7 @@ struct Record: AsyncParsableCommand {
     var video = true
 
     @Flag(inversion: .prefixedNo, help: "Also record the microphone through macOS voice processing, echo cancelled, as microphone-clean.m4a. The raw microphone is kept either way.")
-    var echoCancellation = true
+    var echoCancellation = false
 
     @Flag(name: .long, help: "Leave the mouse cursor out of the video.")
     var hideCursor = false

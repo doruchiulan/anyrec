@@ -18,9 +18,10 @@ struct EngineSettings: View {
                     Spacer()
                     availability(engine)
                     Toggle(selectionLabel(engine), isOn: Binding(
-                        get: { controller.transcriptionOptions.enabledEngines.contains(engine) },
+                        get: { controller.isUsable(engine) },
                         set: { controller.enableEngine(engine, enabled: $0) }))
                         .labelsHidden().toggleStyle(.switch).fixedSize()
+                        .disabled(!controller.readiness.of(engine).isReady)
                         .accessibilityLabel(selectionLabel(engine))
                         .help(selectionLabel(engine))
                 }
@@ -29,7 +30,7 @@ struct EngineSettings: View {
         } header: {
             Text("Engines")
         } footer: {
-            Text("Enable engines for transcription. Automatic chooses one available on-device engine.")
+            Text("Enable engines for transcription. An engine can be enabled once it is downloaded or set up. Automatic chooses one available on-device engine.")
                 .settingsFooter()
         }
     }

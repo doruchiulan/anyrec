@@ -34,23 +34,29 @@ struct PreferencesTests {
         #expect(defaults.object(forKey: "microphoneID") == nil)
     }
 
-    @Test("echo cancellation is on by default and survives a relaunch switched off")
+    @Test("echo cancellation defaults off and preserves saved choices")
     func echoCancellation() {
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: "echoCancellation")
         var saved = RecordingConfiguration()
         Preferences.loaded(into: &saved)
-        defer { Preferences.save(saved) }
+        defer {
+            Preferences.save(saved)
+            if let original { defaults.set(original, forKey: "echoCancellation") }
+            else { defaults.removeObject(forKey: "echoCancellation") }
+        }
 
-        UserDefaults.standard.removeObject(forKey: "echoCancellation")
-        var fresh = RecordingConfiguration()
-        fresh.echoCancellation = false
-        Preferences.loaded(into: &fresh)
-        #expect(fresh.echoCancellation)
+        defaults.removeObject(forKey: "echoCancellation")
+        var configuration = RecordingConfiguration()
+        Preferences.loaded(into: &configuration)
+        #expect(!configuration.echoCancellation)
 
-        var off = RecordingConfiguration()
-        off.echoCancellation = false
-        Preferences.save(off)
-        var relaunched = RecordingConfiguration()
-        Preferences.loaded(into: &relaunched)
-        #expect(!relaunched.echoCancellation)
+        for enabled in [true, false] {
+            configuration.echoCancellation = enabled
+            Preferences.save(configuration)
+            var relaunched = RecordingConfiguration()
+            Preferences.loaded(into: &relaunched)
+            #expect(relaunched.echoCancellation == enabled)
+        }
     }
 }

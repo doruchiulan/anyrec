@@ -99,6 +99,19 @@ enum Wording {
     /// call banner, the notification. The window is picked either way.
     static func record(video: Bool) -> String { video ? "Record Window…" : "Record Audio Only…" }
 
+    /// With a call listed above them, the picker commands are for anything else.
+    static func otherWindow(video: Bool) -> String { video ? "Other Window…" : "Other Window, Audio Only…" }
+
+    /// A listed call's own buttons. The row above them names the call.
+    static func recordCall(video: Bool) -> String { video ? "Record Call" : "Audio Only" }
+
+    static func ongoingCalls(_ count: Int) -> String { count == 1 ? "Ongoing Call" : "Ongoing Calls" }
+
+    /// The File menu's copy of a listed call's buttons, which has no row to name the call.
+    static func recordCall(_ call: OngoingCall, video: Bool) -> String {
+        video ? "Record \(call.app.name) Call" : "Record \(call.app.name) Call, Audio Only"
+    }
+
     /// The same two in the File and Dock menus, which name what they make.
     static func newRecording(video: Bool) -> String {
         video ? "New Recording…" : "New Audio-Only Recording…"
