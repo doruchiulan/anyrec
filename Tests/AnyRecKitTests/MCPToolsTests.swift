@@ -54,6 +54,17 @@ struct MCPToolsTests {
         #expect(summary.structuredContent?.objectValue?["summary"] == nil)
     }
 
+    @Test("ChatGPT's initialize, with object-valued experimental capabilities, is accepted")
+    func chatGPTInitialize() throws {
+        let sent = Data(#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"experimental":{"codex/auth-change":{}},"elicitation":{"form":{},"url":{}}},"clientInfo":{"name":"codex-mcp-client","title":"Codex","version":"0.167.0-alpha.4.1"}}}"#.utf8)
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(Request<Initialize>.self, from: sent) }
+        let request = try JSONDecoder().decode(Request<Initialize>.self, from: TolerantTransport.tolerant(sent))
+        #expect(request.params.clientInfo.name == "codex-mcp-client")
+        #expect(request.params.protocolVersion == "2025-06-18")
+        let other = Data(#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#.utf8)
+        #expect(TolerantTransport.tolerant(other) == other)
+    }
+
     private func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-mcp-tools-\(UUID())")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

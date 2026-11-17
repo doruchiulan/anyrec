@@ -11,7 +11,7 @@ public enum MCPTools {
     public static func serve(root: URL, version: String) async throws {
         let reader = try MeetingReader(root: root)
         let server = await server(reader: reader, version: version)
-        try await server.start(transport: StdioTransport())
+        try await server.start(transport: TolerantTransport())
         await server.waitUntilCompleted()
     }
 

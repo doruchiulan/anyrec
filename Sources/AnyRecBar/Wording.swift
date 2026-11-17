@@ -265,21 +265,26 @@ enum Wording {
     }
 
     /// The line under an app's name: where it stands, and what to do after connecting.
-    static func agentDetail(_ app: AgentApp, _ state: AgentConnection, home: String = NSHomeDirectory()) -> String {
+    static func agentDetail(
+        _ app: AgentApp, _ state: AgentConnection, stale: Bool = false, home: String = NSHomeDirectory()
+    ) -> String {
+        if stale, state == .connected {
+            return app == .claudeDesktop ? "Connected. Restart Claude to load it." : "Connected. Restart ChatGPT to load it."
+        }
         switch state {
         case .notInstalled:
             return app == .claudeCode ? "The claude command wasn't found." : "Not installed."
         case .notConnected:
             switch app {
             case .claudeCode: return "Adds AnyRec to every project, through claude mcp."
-            case .claudeDesktop: return "Restart Claude after connecting."
-            case .codex: return "Both apps read one setting. Restart them after connecting."
+            case .claudeDesktop: return "Claude reads it when it opens."
+            case .codex: return "Both apps read one setting, when they open."
             }
         case .connected:
             switch app {
             case .claudeCode: return "Connected in every project. New sessions can use it."
-            case .claudeDesktop: return "Connected. Restart Claude if it was open."
-            case .codex: return "Connected. Restart ChatGPT or Codex if one was open."
+            case .claudeDesktop: return "Connected."
+            case .codex: return "Connected."
             }
         case .connectedElsewhere(let launch):
             guard let launch else { return "Has an anyrec entry that isn't a command." }
@@ -287,6 +292,10 @@ enum Wording {
         case .unreadable(let file):
             return "Couldn't read \(tilde(file.path, home: home)), so it was left alone."
         }
+    }
+
+    static func agentRestart(_ app: AgentApp) -> String {
+        app == .claudeDesktop ? "Restart Claude" : "Restart ChatGPT"
     }
 
     static let agentsFooter = "AI apps can list, search and read your recordings' transcripts, summaries and names through AnyRec's read-only server. They can't record, change or delete anything, and never get audio, video or voiceprints. What they read may be sent to that app's provider."

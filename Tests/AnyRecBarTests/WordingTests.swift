@@ -252,7 +252,9 @@ struct WordingTests {
         let home = "/Users/me"
         #expect(Wording.agentName(.codex) == "ChatGPT and Codex")
         #expect(Wording.agentDetail(.claudeCode, .notInstalled, home: home) == "The claude command wasn't found.")
-        #expect(Wording.agentDetail(.claudeDesktop, .notConnected, home: home) == "Restart Claude after connecting.")
+        #expect(Wording.agentDetail(.claudeDesktop, .notConnected, home: home) == "Claude reads it when it opens.")
+        #expect(Wording.agentDetail(.claudeDesktop, .connected, stale: true, home: home) == "Connected. Restart Claude to load it.")
+        #expect(Wording.agentDetail(.codex, .connected, home: home) == "Connected.")
         let elsewhere = MCPLaunch(command: "/Users/me/Projects/anyrec/.build/debug/anyrec", arguments: ["mcp"])
         #expect(Wording.agentDetail(.codex, .connectedElsewhere(elsewhere), home: home)
             == "Set up for another anyrec: ~/Projects/anyrec/.build/debug/anyrec")

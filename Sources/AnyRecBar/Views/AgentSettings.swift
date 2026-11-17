@@ -65,8 +65,12 @@ struct AgentSettings: View {
                     Button("Connect") { links.connect(app, to: launch) }.disabled(translocated)
                 case .connected:
                     HStack {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                            .accessibilityLabel("Connected")
+                        if links.stale.contains(app) {
+                            Button(Wording.agentRestart(app)) { links.restart(app, launch: launch) }
+                        } else {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                .accessibilityLabel("Connected")
+                        }
                         Button("Disconnect") { links.disconnect(app, launch: launch) }
                     }
                 case .connectedElsewhere:
@@ -80,7 +84,7 @@ struct AgentSettings: View {
             }
         } label: {
             Text(Wording.agentName(app))
-            if let state { Text(Wording.agentDetail(app, state)) }
+            if let state { Text(Wording.agentDetail(app, state, stale: links.stale.contains(app))) }
         }
     }
 }
@@ -91,6 +95,9 @@ struct AgentSettings: View {
 @Observable
 final class AgentLinks {
     private(set) var states: [AgentApp: AgentConnection] = [:]
+    /// Connected apps that were already running when their settings changed. Claude Desktop
+    /// and ChatGPT read MCP servers only at launch; Claude Code starts each session afresh.
+    private(set) var stale: Set<AgentApp> = []
     private(set) var working: AgentApp?
     private(set) var failure: String?
     @ObservationIgnored private let connections = AgentConnections()
@@ -100,10 +107,56 @@ final class AgentLinks {
         states = await Task.detached {
             Dictionary(uniqueKeysWithValues: AgentApp.allCases.map { ($0, connections.state(of: $0, for: launch)) })
         }.value
+        stale = Set(AgentApp.allCases.filter { app in
+            guard states[app] == .connected, let changed = changed(app) else { return false }
+            return Self.running(app).contains { ($0.launchDate ?? .distantFuture) < changed }
+        })
     }
 
     func connect(_ app: AgentApp, to launch: MCPLaunch) {
-        change(app, launch: launch) { try $0.connect(app, to: launch) }
+        change(app, launch: launch) {
+            try $0.connect(app, to: launch)
+            UserDefaults.standard.set(Date(), forKey: Self.connectedKey(app))
+        }
+    }
+
+    /// Quits the app, waits for it to go, and opens it again, so it reads its MCP servers.
+    func restart(_ app: AgentApp, launch: MCPLaunch) {
+        let running = Self.running(app)
+        guard working == nil, let bundle = running.first?.bundleURL else { return }
+        working = app
+        Task {
+            running.forEach { $0.terminate() }
+            for _ in 0..<100 where running.contains(where: { !$0.isTerminated }) {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            if running.allSatisfy(\.isTerminated) {
+                _ = try? await NSWorkspace.shared.openApplication(at: bundle, configuration: .init())
+                failure = nil
+            } else {
+                failure = "\(Wording.agentName(app)): it didn't quit. Quit it and open it again."
+            }
+            await refresh(for: launch)
+            working = nil
+        }
+    }
+
+    /// When AnyRec last connected it, else when its settings file last changed.
+    private func changed(_ app: AgentApp) -> Date? {
+        UserDefaults.standard.object(forKey: Self.connectedKey(app)) as? Date
+            ?? (try? FileManager.default.attributesOfItem(atPath: connections.settingsFile(of: app).path)[.modificationDate]) as? Date
+    }
+
+    nonisolated private static func connectedKey(_ app: AgentApp) -> String { "agentConnected.\(app.rawValue)" }
+
+    private static func running(_ app: AgentApp) -> [NSRunningApplication] {
+        let identifiers: [String] = switch app {
+        case .claudeCode: []
+        case .claudeDesktop: ["com.anthropic.claudefordesktop"]
+        /// The ChatGPT app carries Codex and identifies as it; older ChatGPT builds are com.openai.chat.
+        case .codex: ["com.openai.codex", "com.openai.chat"]
+        }
+        return identifiers.flatMap { NSRunningApplication.runningApplications(withBundleIdentifier: $0) }
     }
 
     func disconnect(_ app: AgentApp, launch: MCPLaunch) {

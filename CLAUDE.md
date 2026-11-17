@@ -148,7 +148,7 @@ second one for "UI-common" code.
 | `Transcription/RecordingSpeakers.swift` | Every speaker in the current transcript, as the Speakers panel and the terminal show them: how each was named (`SpeakerBasis`), talk time, up to three `SpeakerClip`s, ordered `SpeakerCandidate`s with reasons, whether it is probably you (`YourVoiceEvidence`, `OwnerToRemember`), pending line corrections, Call lines nobody claims. `SpeakerEditing` names a whole voice, gives lines to another speaker, or gives a whole voice to Me, Call or another speaker (`give`, `giveToMe`), taking back what naming it filed and filing a voice given to Me under the owner; only the ticked remember-me writes the library's owner. |
 | `Transcription/SpeakerSetup.swift` | Whether the speaker models are here, and the one place FluidAudio is let on the network to fetch them. |
 | `Transcription/ModelNetwork.swift` | FluidAudio's one process-wide network flag, counted: on while any download runs, off when the last ends; transcription's `offline()` leaves a running download alone. |
-| `MCP/MCPTools.swift`, `MCPArguments.swift` | The read-only MCP server's six tools over `MeetingReader`, served by `anyrec mcp` and by the app binary as `AnyRec mcp`. |
+| `MCP/MCPTools.swift`, `MCPArguments.swift`, `TolerantTransport.swift` | The read-only MCP server's six tools over `MeetingReader`, served by `anyrec mcp` and by the app binary as `AnyRec mcp`, over stdio that tolerates clients' object-valued capabilities. |
 | `MCP/AgentConnections.swift` | Each AI app's one `anyrec` entry: Claude Code (read from `~/.claude.json`, changed through `claude mcp`), Claude Desktop's JSON, and `~/.codex/config.toml`, which the ChatGPT app and Codex share; read, written, removed, everything else in the file kept. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
@@ -609,7 +609,12 @@ Invariants worth preserving:
   sessions rewrite it constantly, so changes go through `claude mcp`. The other files
   are edited in place, with only the `anyrec` entry changed, and a file that cannot be
   read is never written. A translocated app (run from Downloads) cannot connect: the
-  path it would hand out is temporary.
+  path it would hand out is temporary. Claude Desktop and ChatGPT read MCP servers only
+  at launch, so a connected app started before its settings changed offers Restart.
+  The server reads stdio through `TolerantTransport`, which empties `initialize`'s
+  `capabilities`: swift-sdk 0.12.1 types `experimental` as `[String: String]` and refused
+  the ChatGPT app's `{"codex/auth-change": {}}`, so ChatGPT never got the tools. Drop it
+  once a swift-sdk release decodes object-valued capabilities (issues 262, 287).
 - The app updates itself with Sparkle (2.10.1, app only; the CLI stays on Homebrew).
   The feed is `appcast.xml`, uploaded with every release, read from
   `releases/latest/download/appcast.xml` (`SUFeedURL`); each download is EdDSA-signed and
