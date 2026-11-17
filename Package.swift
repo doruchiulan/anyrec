@@ -25,7 +25,10 @@ let package = Package(
     targets: [
         .target(
             name: "AnyRecKit",
-            dependencies: [.product(name: "FluidAudio", package: "FluidAudio"), "whisper"],
+            dependencies: [
+                .product(name: "FluidAudio", package: "FluidAudio"), "whisper",
+                .product(name: "MCP", package: "swift-sdk"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         /// whisper.cpp as the framework its own CI builds — universal, Metal, with the
@@ -42,7 +45,6 @@ let package = Package(
             dependencies: [
                 "AnyRecKit",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "MCP", package: "swift-sdk"),
             ],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
@@ -53,7 +55,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AnyRecKitTests",
-            dependencies: ["AnyRecKit"],
+            dependencies: ["AnyRecKit", .product(name: "MCP", package: "swift-sdk")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

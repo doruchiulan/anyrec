@@ -11,28 +11,44 @@ It cannot record, transcribe, regenerate, rename, delete or update action items.
 
 ## Connect a client
 
-Use an absolute path to the `anyrec` CLI built from this version:
+In the app, **Settings › AI Apps** connects Claude Code, Claude Desktop, and ChatGPT
+and Codex with one button each, and disconnects them again. Each is pointed at the
+app's own binary, `AnyRec.app/Contents/MacOS/AnyRec mcp --recordings <folder>`, which
+serves the same tools as the CLI before anything of the app starts (no Dock icon, no
+menu bar item). The app alone is enough; the CLI is not needed.
+
+| App | Where the entry goes | How |
+| --- | --- | --- |
+| Claude Code | `~/.claude.json`, user scope | `claude mcp add --scope user anyrec -- …`, since running sessions rewrite that file |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` | `mcpServers.anyrec`, other keys kept; restart Claude |
+| ChatGPT and Codex | `~/.codex/config.toml` | `[mcp_servers.anyrec]`, replaced in place, every other line kept; the ChatGPT app carries Codex and reads the same file |
+
+An `anyrec` entry that runs something else (the CLI, a development build, a moved app)
+is shown as "set up for another anyrec", with Use This App to replace it. A settings
+file that cannot be read is left alone. Copy Configuration puts the common JSON shape
+on the clipboard for any other client:
 
 ```json
 {
   "mcpServers": {
     "anyrec": {
-      "command": "/absolute/path/to/anyrec",
+      "command": "/Applications/AnyRec.app/Contents/MacOS/AnyRec",
       "args": ["mcp", "--recordings", "/Users/you/Desktop/AnyRec Recordings"]
     }
   }
 }
 ```
 
-This is the common JSON configuration shape; adapt it to your client's format.
+The CLI serves the same thing as `anyrec mcp`, with the same `--recordings` option.
 `--recordings` defaults to `~/Desktop/AnyRec Recordings`. The folder must exist.
 Use a separate recordings folder to restrict which meetings the client can read.
 Removing the client configuration and stopping its subprocess disables access.
+A client that starts the server is the app macOS asks about the Desktop folder, so
+Claude or ChatGPT may ask for access to it the first time.
 
 For a development checkout, run `swift build --product anyrec`, then
 `swift build --show-bin-path` to locate the executable. Configure the executable
 directly, not `swift run`, so build output cannot interfere with the MCP stream.
-The published 0.4.0 CLI predates this feature; it needs a new build.
 
 ## Tools
 

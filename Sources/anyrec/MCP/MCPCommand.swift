@@ -1,7 +1,6 @@
 import AnyRecKit
 import ArgumentParser
 import Foundation
-import MCP
 
 struct MCPCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "mcp",
@@ -12,9 +11,6 @@ struct MCPCommand: AsyncParsableCommand {
 
     func run() async throws {
         let root = URL(fileURLWithPath: (recordings as NSString).expandingTildeInPath)
-        let reader = try MeetingReader(root: root)
-        let server = await MCPTools.server(reader: reader)
-        try await server.start(transport: StdioTransport())
-        await server.waitUntilCompleted()
+        try await MCPTools.serve(root: root, version: AnyRec.configuration.version)
     }
 }

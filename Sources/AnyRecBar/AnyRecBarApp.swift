@@ -1,7 +1,46 @@
+import AnyRecKit
 import AppKit
 import SwiftUI
 
+/// `AnyRec mcp [--recordings <folder>]` is the read-only MCP server, served over stdio
+/// before anything of the app is touched — no Dock icon, no menu bar item, no updater — so
+/// the app alone is enough for Settings › AI Apps to connect a client to. Anything else
+/// launches the app.
 @main
+enum AnyRecLaunch {
+    static func main() {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        guard arguments.first == "mcp" else {
+            MainActor.assumeIsolated { AnyRecBarApp.main() }
+            return
+        }
+        serve(arguments.dropFirst())
+    }
+
+    private static func serve(_ options: ArraySlice<String>) -> Never {
+        var root = Defaults.outputRoot
+        var options = options
+        while let option = options.popFirst() {
+            guard option == "--recordings", let folder = options.popFirst() else {
+                FileHandle.standardError.write(Data("usage: AnyRec mcp [--recordings <folder>]\n".utf8))
+                exit(64)
+            }
+            root = folder
+        }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        Task {
+            do {
+                try await MCPTools.serve(root: URL(fileURLWithPath: root.expandingTilde), version: version)
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+                exit(1)
+            }
+        }
+        dispatchMain()
+    }
+}
+
 struct AnyRecBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 

@@ -148,6 +148,8 @@ second one for "UI-common" code.
 | `Transcription/RecordingSpeakers.swift` | Every speaker in the current transcript, as the Speakers panel and the terminal show them: how each was named (`SpeakerBasis`), talk time, up to three `SpeakerClip`s, ordered `SpeakerCandidate`s with reasons, whether it is probably you (`YourVoiceEvidence`, `OwnerToRemember`), pending line corrections, Call lines nobody claims. `SpeakerEditing` names a whole voice, gives lines to another speaker, or gives a whole voice to Me, Call or another speaker (`give`, `giveToMe`), taking back what naming it filed and filing a voice given to Me under the owner; only the ticked remember-me writes the library's owner. |
 | `Transcription/SpeakerSetup.swift` | Whether the speaker models are here, and the one place FluidAudio is let on the network to fetch them. |
 | `Transcription/ModelNetwork.swift` | FluidAudio's one process-wide network flag, counted: on while any download runs, off when the last ends; transcription's `offline()` leaves a running download alone. |
+| `MCP/MCPTools.swift`, `MCPArguments.swift` | The read-only MCP server's six tools over `MeetingReader`, served by `anyrec mcp` and by the app binary as `AnyRec mcp`. |
+| `MCP/AgentConnections.swift` | Each AI app's one `anyrec` entry: Claude Code (read from `~/.claude.json`, changed through `claude mcp`), Claude Desktop's JSON, and `~/.codex/config.toml`, which the ChatGPT app and Codex share; read, written, removed, everything else in the file kept. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
 | `anyrec/EchoCommand.swift`, `anyrec/TimingCommand.swift` | `anyrec echo` (the echo check for one recording, as text) and `anyrec timing` (a test signal through the speakers while recording, then the offset and the devices). |
@@ -168,6 +170,7 @@ second one for "UI-common" code.
 | `AnyRecBar/Views/AggregatorSettings.swift` | `ComparisonSettings`: "Review with a second engine" and which engines it runs. |
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
+| `AnyRecBar/Views/AgentSettings.swift` | Settings › AI Apps: Connect/Disconnect per app, pointed at the app's own binary, and Copy Configuration for any other client. |
 | `AnyRecBar/Updates.swift` | Sparkle: Check for Updates…, the automatic-check switch, update windows held back during a recording, call or background work (offered in the panel instead), and a relaunch postponed until nothing is recorded or saved. |
 | `AnyRecBar/ProcessingSteps.swift` | The checklist the post-recording panel shows: saved, prepared, transcribed (and summarised), each waiting, running, done or failed. |
 | `scripts/embed-sparkle.sh`, `scripts/appcast.sh` | Sparkle.framework into the bundle (XPC services dropped: not sandboxed) and signed inside out; the one-item update feed, its download signed with the EdDSA key (`SPARKLE_PRIVATE_KEY` in CI, the keychain's `anyrec` account locally). |
@@ -598,6 +601,15 @@ Invariants worth preserving:
   Team IDs"), so the Homebrew CLI did not start from 0.5.0 until this was found in 0.7.0.
   Formulae are not quarantined, so nothing there needs notarization. `post_install` prints
   a deprecation warning on Homebrew 7; `post_install_steps` would break older Homebrews.
+- The app binary is also the MCP server. `AnyRecLaunch` checks for `mcp` before
+  `AnyRecBarApp.main()` and serves `MCPTools` over stdio without touching AppKit, so the
+  cask's app alone can be connected to AI apps (Settings › AI Apps) and no CLI is
+  embedded (it would add ~30 MB an architecture). Nothing may write to standard output
+  on that path. Claude Code's `~/.claude.json` is never written directly: running
+  sessions rewrite it constantly, so changes go through `claude mcp`. The other files
+  are edited in place, with only the `anyrec` entry changed, and a file that cannot be
+  read is never written. A translocated app (run from Downloads) cannot connect: the
+  path it would hand out is temporary.
 - The app updates itself with Sparkle (2.10.1, app only; the CLI stays on Homebrew).
   The feed is `appcast.xml`, uploaded with every release, read from
   `releases/latest/download/appcast.xml` (`SUFeedURL`); each download is EdDSA-signed and

@@ -13,7 +13,7 @@ struct SettingsWindow: View {
     @AppStorage("settingsPane") private var pane = Pane.general
 
     enum Pane: String {
-        case general, recording, transcription, summaries
+        case general, recording, transcription, summaries, agents
     }
 
     var body: some View {
@@ -30,6 +30,9 @@ struct SettingsWindow: View {
             SummarySettings(controller: controller)
                 .tabItem { Label("Summaries", systemImage: "sparkles") }
                 .tag(Pane.summaries)
+            AgentSettings(controller: controller)
+                .tabItem { Label("AI Apps", systemImage: "point.3.connected.trianglepath.dotted") }
+                .tag(Pane.agents)
         }
         .frame(width: 540)
         .task {

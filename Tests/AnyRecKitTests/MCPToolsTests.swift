@@ -1,8 +1,7 @@
-import AnyRecKit
 import Foundation
 import MCP
 import Testing
-@testable import anyrec
+@testable import AnyRecKit
 
 @Suite("MCP tools")
 struct MCPToolsTests {
@@ -53,13 +52,6 @@ struct MCPToolsTests {
         let summary = try MCPTools.call("get_summary", arguments: ["meeting_id": .string(directory.lastPathComponent)], reader: reader)
         #expect(summary.isError == false)
         #expect(summary.structuredContent?.objectValue?["summary"] == nil)
-    }
-
-    @Test("MCP command parses a custom root without launching the recording UI")
-    func command() throws {
-        let parsed = try AnyRec.parseAsRoot(["mcp", "--recordings", "/tmp/library"])
-        let command = try #require(parsed as? MCPCommand)
-        #expect(command.recordings == "/tmp/library")
     }
 
     private func folder() throws -> URL {

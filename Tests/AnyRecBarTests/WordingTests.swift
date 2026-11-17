@@ -246,4 +246,17 @@ struct WordingTests {
         #expect(Wording.printOrigin(origin, number: 1, title: "Design review") == "Design review · \(when)")
         #expect(Wording.printOrigin(.init(recording: "renamed", filed: filed), number: 1) == "renamed")
     }
+
+    @Test("AI apps: each state says what to do next, paths under home with a tilde")
+    func agents() {
+        let home = "/Users/me"
+        #expect(Wording.agentName(.codex) == "ChatGPT and Codex")
+        #expect(Wording.agentDetail(.claudeCode, .notInstalled, home: home) == "The claude command wasn't found.")
+        #expect(Wording.agentDetail(.claudeDesktop, .notConnected, home: home) == "Restart Claude after connecting.")
+        let elsewhere = MCPLaunch(command: "/Users/me/Projects/anyrec/.build/debug/anyrec", arguments: ["mcp"])
+        #expect(Wording.agentDetail(.codex, .connectedElsewhere(elsewhere), home: home)
+            == "Set up for another anyrec: ~/Projects/anyrec/.build/debug/anyrec")
+        #expect(Wording.agentDetail(.claudeDesktop, .unreadable(URL(fileURLWithPath: "/Users/me/x.json")), home: home)
+            == "Couldn't read ~/x.json, so it was left alone.")
+    }
 }

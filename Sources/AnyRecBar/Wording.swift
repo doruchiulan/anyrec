@@ -254,6 +254,48 @@ enum Wording {
 
     static let updatesFooter = "Checks github.com/doruchiulan/anyrec once a day for a newer version. Updates install when AnyRec quits, never while a recording is running or being saved."
 
+    // MARK: AI apps
+
+    static func agentName(_ app: AgentApp) -> String {
+        switch app {
+        case .claudeCode: "Claude Code"
+        case .claudeDesktop: "Claude Desktop"
+        case .codex: "ChatGPT and Codex"
+        }
+    }
+
+    /// The line under an app's name: where it stands, and what to do after connecting.
+    static func agentDetail(_ app: AgentApp, _ state: AgentConnection, home: String = NSHomeDirectory()) -> String {
+        switch state {
+        case .notInstalled:
+            return app == .claudeCode ? "The claude command wasn't found." : "Not installed."
+        case .notConnected:
+            switch app {
+            case .claudeCode: return "Adds AnyRec to every project, through claude mcp."
+            case .claudeDesktop: return "Restart Claude after connecting."
+            case .codex: return "Both apps read one setting. Restart them after connecting."
+            }
+        case .connected:
+            switch app {
+            case .claudeCode: return "Connected in every project. New sessions can use it."
+            case .claudeDesktop: return "Connected. Restart Claude if it was open."
+            case .codex: return "Connected. Restart ChatGPT or Codex if one was open."
+            }
+        case .connectedElsewhere(let launch):
+            guard let launch else { return "Has an anyrec entry that isn't a command." }
+            return "Set up for another anyrec: \(tilde(launch.command, home: home))"
+        case .unreadable(let file):
+            return "Couldn't read \(tilde(file.path, home: home)), so it was left alone."
+        }
+    }
+
+    static let agentsFooter = "AI apps can list, search and read your recordings' transcripts, summaries and names through AnyRec's read-only server. They can't record, change or delete anything, and never get audio, video or voiceprints. What they read may be sent to that app's provider."
+    static let agentsTranslocated = "Move AnyRec to Applications first: AI apps start it from where it is, and macOS runs it from a temporary copy until then."
+
+    private static func tilde(_ path: String, home: String) -> String {
+        path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+
     /// A transcript line's speaker as shown: Me by the owner's name once it is known.
     static func label(_ speaker: Speaker, me: String?) -> String {
         speaker == .me ? (me ?? speaker.label) : speaker.label
