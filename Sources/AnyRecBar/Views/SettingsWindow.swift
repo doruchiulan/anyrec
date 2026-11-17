@@ -131,6 +131,19 @@ struct RecordingSettings: View {
                 LabeledContent("Used", value: "\(Wording.size(RecordingLibrary.size(of: controller.library))) in \(Wording.count(controller.library.count))")
                 LabeledContent("Available", value: Wording.size(controller.freeSpace))
             }
+            Section {
+                Toggle("Compress recordings in the background", isOn: $controller.compressesRecordings)
+                if controller.compressesRecordings,
+                   let status = Wording.compression(
+                       current: controller.compressor.current.flatMap { directory in
+                           controller.library.first { $0.directory == directory }?.title
+                       },
+                       waiting: controller.compressor.waiting, saved: controller.compressor.saved) {
+                    LabeledContent("Status", value: status)
+                }
+            } footer: {
+                Text(Wording.compressionFooter).settingsFooter()
+            }
         }
     }
 }

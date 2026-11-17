@@ -261,4 +261,12 @@ struct WordingTests {
         #expect(Wording.agentDetail(.claudeDesktop, .unreadable(URL(fileURLWithPath: "/Users/me/x.json")), home: home)
             == "Couldn't read ~/x.json, so it was left alone.")
     }
+
+    @Test("Compression status: what runs now, what waits, what it saved")
+    func compression() {
+        #expect(Wording.compression(current: nil, waiting: 0, saved: 0) == nil)
+        #expect(Wording.compression(current: "Design review", waiting: 3, saved: 0) == "Compressing “Design review”…")
+        #expect(Wording.compression(current: nil, waiting: 1, saved: 0) == "1 recording waiting")
+        #expect(Wording.compression(current: nil, waiting: 0, saved: 1_300_000_000)?.hasSuffix("saved") == true)
+    }
 }

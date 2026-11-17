@@ -99,6 +99,7 @@ second one for "UI-common" code.
 | `MeterScale.swift` | Pure dBFS → bar/zone/verdict math. The tested part of the meters. |
 | `Permissions.swift` | TCC preflight and status. |
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. `job(for:)` takes the picture from `screen.mov`, or from the merged file once that has replaced it; with no picture it makes an audio-only `.m4a` from the same `MixPlan`. Writes a hidden temporary file, verifies it, moves it into place, records the name, then deletes `screen.mov` and any older merged file. |
+| `Compression.swift` | The one re-encode of a recording's video: x265 over the merged file, checked frame for frame, swapped in, marked `compressed` in `recording.json`; cancellable at any point. |
 | `MergeVerification.swift` | `MediaFacts` (video codec, size, frame count from a sample cursor, audio lengths, read with AVFoundation) and the check a merge's result must pass before it replaces anything. |
 | `LoudnessMatch.swift` | Measures both audio tracks (ffmpeg `ebur128=peak=true`) and balances them for the merge. |
 | `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks' and `microphone-live.json`'s size and modification time: the system track's offset (per stretch, version 3), bleed, loudness. Files written while the echo-cancelled microphone existed read with its keys ignored. Also the mix's envelope worked out from the two (aligned) track envelopes. |
@@ -152,6 +153,7 @@ second one for "UI-common" code.
 | `MCP/AgentConnections.swift` | Each AI app's one `anyrec` entry: Claude Code (read from `~/.claude.json`, changed through `claude mcp`), Claude Desktop's JSON, and `~/.codex/config.toml`, which the ChatGPT app and Codex share; read, written, removed, everything else in the file kept. |
 | `anyrec/TUI/` | `Terminal` (raw mode, keys), `Picker`, `Page`, `SecretPrompt`, `SetupScreen`, `EngineSetup`, `RecordingScreen`, `TUISession`, plus `ConfigurationRows` and `CapturePicker` — the terminal's wording and layout for Kit types. |
 | `anyrec/Report.swift`, `anyrec/TranscriptReport.swift` | Summaries, merge outcomes and transcript outcomes, as terminal text. |
+| `anyrec/CompressCommand.swift` | `anyrec compress`: the background compression, on one recording now. |
 | `anyrec/EchoCommand.swift`, `anyrec/TimingCommand.swift` | `anyrec echo` (the echo check for one recording, as text) and `anyrec timing` (a test signal through the speakers while recording, then the offset and the devices). |
 | `anyrec/SpeakersCommand.swift`, `anyrec/SpeakerPrompt.swift` | `anyrec speakers` (with `--people` and `--remove-print` for the library's prints), and the plain-terminal questions that put names to letters after any transcript: clips, numbered candidates from `RecordingSpeakers`, or a typed name. |
 | `AnyRecBar/StatusItem.swift` | The menu bar helper: the status item, its button drawn from the controller through Observation, and the panel hung under it with `MenuPanel` (`Anchor` is where it goes). |
@@ -171,6 +173,7 @@ second one for "UI-common" code.
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
 | `AnyRecBar/Views/AgentSettings.swift` | Settings › AI Apps: Connect/Disconnect per app, pointed at the app's own binary, and Copy Configuration for any other client. |
+| `AnyRecBar/Compressor.swift` | Runs `Compression` over the library in the background while nothing else is happening and the Mac is on power; stops ffmpeg the moment that changes. |
 | `AnyRecBar/Updates.swift` | Sparkle: Check for Updates…, the automatic-check switch, update windows held back during a recording, call or background work (offered in the panel instead), and a relaunch postponed until nothing is recorded or saved. |
 | `AnyRecBar/ProcessingSteps.swift` | The checklist the post-recording panel shows: saved, prepared, transcribed (and summarised), each waiting, running, done or failed. |
 | `scripts/embed-sparkle.sh`, `scripts/appcast.sh` | Sparkle.framework into the bundle (XPC services dropped: not sandboxed) and signed inside out; the one-item update feed, its download signed with the EdDSA key (`SPARKLE_PRIVATE_KEY` in CI, the keychain's `anyrec` account locally). |
@@ -654,7 +657,7 @@ Invariants worth preserving:
 - The audio tracks are masters and are never rewritten: `microphone.m4a`,
   `system-audio.m4a`. The alignment, the loudness match and the mix exist only in the merged file and the transcript's mix. The video is stored once. `screen.mov` is the
   picture's master only until a merge is verified: the merge stream-copies its video
-  (never re-encodes it) beside the mix into a hidden temporary file, and checks with
+  (never re-encodes it; only `Compression`, below, does, once) beside the mix into a hidden temporary file, and checks with
   AVFoundation that the result has exactly one video stream with `screen.mov`'s codec,
   size and frame count (or its duration within a frame) and one audio stream as long as
   the longest track (±0.5 s). Only then is the file moved into place under its name,
@@ -668,7 +671,30 @@ Invariants worth preserving:
   merged again follows the new rule, and both are replaced by the named file. Verification
   uses AVFoundation, not ffprobe, because the static ffmpeg anyrec fetches comes without
   ffprobe; a sample cursor counts frames from the sample table without decoding.
-  Copied HEVC is tagged `hvc1`, because AVFoundation will not play `hev1`.
+  Copied HEVC is tagged `hvc1`, because AVFoundation will not play `hev1`. The mix is
+  96 kbps stereo AAC; earlier merges were 192.
+- The screen is recorded in HEVC (hardware, about a third smaller than H.264 at no cost
+  to capture), and the merged video is re-encoded exactly once, later, by `Compression`:
+  x265, CRF 28, `veryfast`, full resolution, every frame (`-fps_mode passthrough`), audio
+  copied. Measured on real calls: a three-minute excerpt 60 MB → 4.1 MB at SSIM 0.995,
+  text in shared screens as sharp crop for crop; a 9½-minute call 68 → 17 MB, most of it
+  then the old 192 kbps audio. Apple's hardware HEVC could not get near it at any bitrate
+  (it spends bits on frames that do not change), and scaling a Retina capture to 1920
+  pixels smudged small text, so neither is used. Only a merged file that holds the only
+  picture (`screen.mov` gone) and is not marked `compressed` in `recording.json` is
+  compressed; older folders with `screen.mov` beside `call.mp4` are left alone. Same
+  discipline as the merge: a hidden `.compress-*` file, checked (one HEVC video stream at
+  the same size with the same frame count, audio lengths unchanged), swapped in under the
+  same name, then marked; kept only when under 80% of the original, else just marked. A
+  later merge copies the compressed video like any other. `Compressor` (the app) runs one
+  at a time, newest first, only while nothing is being recorded, started or saved, no
+  merge, transcript or summary runs, the Mac is on power and Settings › Recording allows
+  it; ffmpeg runs at utility priority on a third of the cores (background priority was
+  2.4 times slower, so a long call interrupted by the next would rarely finish) and is
+  killed with SIGKILL the moment any of that stops holding, because on SIGTERM ffmpeg
+  encodes what it has queued first (14 s on a 720p test). Quit and updates stop it, never
+  wait for it; leftovers are deleted before the next try. `anyrec compress` runs it on one
+  recording.
 - The merged file is named from `recording.json` — the title without unread counters
   or a trailing app segment, the app, and the start from the folder name, as
   "Design review – Slack – 2026-11-03 10.08.mp4" — and the name is kept in

@@ -64,6 +64,12 @@ The merge copies the video stream as it is (nothing is re-encoded) beside the mi
 audio; once the merged file is confirmed to hold every frame of `screen.mov` and the
 whole mix, `screen.mov` is deleted, so the video is stored once, not twice. If the
 merge fails, or ffmpeg is missing, `screen.mov` stays and plays as before.
+
+The app then compresses the merged video once, in the background, about fifteen times
+smaller at the same resolution: x265, every frame kept and checked before the file is
+replaced, run only while nothing is being recorded and the Mac is plugged in (Settings ›
+Recording). `anyrec compress` does the same for one recording. The audio tracks are never
+touched.
 Recordings made before this keep their `call.mp4` beside `screen.mov`, untouched.
 
 Before mixing, both audio tracks are measured and balanced to the same loudness.
@@ -268,6 +274,7 @@ truncated `.mov`.
 | `record` | Capture from flags alone, no interaction. |
 | `transcribe` | Transcribe a recording. Defaults to the newest one. |
 | `speakers` | Put names to the voices in a transcript. They are remembered for the next call. |
+| `compress` | Re-encode a recording's merged video about fifteen times smaller. |
 | `sources` | Everything capturable — windows, displays, microphones — with the ids the flags take. |
 | `doctor` | Permissions, ffmpeg, transcription engines, call apps with a window open. |
 | `mcp` | Read-only MCP access to saved meetings, transcripts, participants and summaries. The app connects Claude Code, Claude Desktop, ChatGPT and Codex from Settings › AI Apps. [Setup and tools](docs/mcp.md). |
@@ -278,7 +285,7 @@ truncated `.mov`.
 | `--window` | — | The window id to capture. Required unless `--display` is given. |
 | `--display` | — | The display to capture instead. |
 | `--fps` | `30` | 1–60. |
-| `--codec` | `h264` | `hevc` gives smaller files and costs more CPU. |
+| `--codec` | `hevc` | `h264` for players without HEVC. |
 | `--[no-]mux` | on | Merge with ffmpeg afterwards into one file named after the call, which replaces `screen.mov` once it is verified. |
 | `--[no-]video` | on | Record the picture. `--no-video` still needs `--window` or `--display`, for the sound, title, names and mute, and writes no `screen.mov`. |
 | `--hide-cursor` | off | Leave the pointer out of the video. |
@@ -499,7 +506,7 @@ Two things worth knowing:
   everything is timestamped, this shows up as a held last frame rather than
   drift.
 - Buffers are dropped rather than queued if the encoder falls behind. The
-  summary reports the count; `--fps 24` or `--codec hevc` usually clears it.
+  summary reports the count; `--fps 24` usually clears it.
 
 ## Development
 

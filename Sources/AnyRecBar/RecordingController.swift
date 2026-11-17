@@ -89,6 +89,16 @@ final class RecordingController {
     @ObservationIgnored private var callSearch: Task<Void, Never>?
     /// Stored rather than read through to the defaults, so the toggle that binds to
     /// it is observed like everything else here.
+    /// Settings › Recording: saved recordings' video compressed in the background.
+    var compressesRecordings = Preferences.compressesRecordings {
+        didSet {
+            Preferences.compressesRecordings = compressesRecordings
+            if !compressesRecordings { compressor.stop() }
+        }
+    }
+    /// Owned here, like the jobs, so it outlives every window.
+    @ObservationIgnored private(set) lazy var compressor = Compressor(controller: self)
+
     var offerToRecord = Preferences.offerToRecord {
         didSet {
             Preferences.offerToRecord = offerToRecord
@@ -180,6 +190,7 @@ final class RecordingController {
     private var reminder: CallReminder?
     private var hotKey: HotKey?
     private var quitting = false
+    var isQuitting: Bool { quitting }
     private var libraryRead = UUID()
     var showsMenuBarExtra = Preferences.menuBarExtra {
         didSet { Preferences.menuBarExtra = showsMenuBarExtra }
@@ -272,6 +283,7 @@ final class RecordingController {
         await refreshProviders()
         applyShortcut()
         watchForCalls()
+        compressor.start()
     }
 
     private func applyShortcut() {
@@ -393,6 +405,7 @@ final class RecordingController {
     /// To the Trash rather than deleted, so Finder's Put Back is the undo.
     func trash(_ entry: LibraryEntry) {
         guard !working.contains(entry.directory) else { return }
+        compressor.stop(entry.directory)
         do {
             try FileManager.default.trashItem(at: entry.directory, resultingItemURL: nil)
             if selection == entry.directory { selection = nil }
@@ -806,6 +819,9 @@ final class RecordingController {
     /// can open. Terminating waits for the writers to finalise, exactly as the
     /// terminal's signal handling does.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        /// Stopped, never waited for: a compression can take twenty minutes, and the next
+        /// launch picks it up again.
+        compressor.stop()
         if quitting { return .terminateLater }
         guard isRecording || phase == .starting || !working.isEmpty else { return .terminateNow }
         quitting = true

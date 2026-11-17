@@ -81,7 +81,7 @@ enum Report {
         if DropRate.worthReporting(summary.droppedSamples, of: captured) {
             notes.append(
                 "\(summary.droppedSamples) buffers dropped — the encoder could not keep up."
-                    + (summary.audioOnly ? "" : " Try --fps 24 or --codec hevc.")
+                    + (summary.audioOnly ? "" : " Try --fps 24.")
             )
         }
         return notes

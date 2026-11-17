@@ -254,6 +254,23 @@ enum Wording {
 
     static let updatesFooter = "Checks github.com/doruchiulan/anyrec once a day for a newer version. Updates install when AnyRec quits, never while a recording is running or being saved."
 
+    // MARK: Compression
+
+    static let compressionFooter = "Once a recording is saved, its video is re-encoded about 15 times smaller at the same resolution, with text in shared screens as sharp as before. It runs only while nothing is being recorded or processed and the Mac is plugged in, and stops the moment a recording starts. The audio tracks are never changed."
+
+    /// "Compressing “Design review”…", "3 recordings waiting · 1.2 GB saved", or nil when
+    /// there is nothing to say.
+    static func compression(current: String?, waiting: Int, saved: Int64) -> String? {
+        var parts: [String] = []
+        if let current {
+            parts.append("Compressing “\(current)”…")
+        } else if waiting > 0 {
+            parts.append(waiting == 1 ? "1 recording waiting" : "\(waiting) recordings waiting")
+        }
+        if saved > 0 { parts.append("\(size(saved)) saved") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     // MARK: AI apps
 
     static func agentName(_ app: AgentApp) -> String {

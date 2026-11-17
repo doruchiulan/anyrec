@@ -110,7 +110,9 @@ public enum Muxer {
             /// `screen.mov`'s `hvc1` on a copy; this holds it for any build that does not.
             if job.reference?.isHEVC == true { args += ["-tag:v", "hvc1"] }
         }
-        if !job.audio.isEmpty { args += ["-c:a", "aac", "-b:a", "192k"] }
+        /// 96 kbps stereo AAC is transparent for speech; 192 was twice what a call needs.
+        /// The masters keep their own encoding.
+        if !job.audio.isEmpty { args += ["-c:a", "aac", "-b:a", "96k"] }
         args.append(output.path)
         return args
     }

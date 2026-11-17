@@ -25,10 +25,13 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
     /// written when capture stops. Nil in files written before this was recorded and for a
     /// recording whose capture never finished.
     public var timing: CaptureTiming?
+    /// The merged file's video has been through `Compression` (or was found not worth
+    /// it), so it is not compressed again. False in files written before compression.
+    public var compressed: Bool
 
     public init(
         title: String, bundleID: String?, width: Int, height: Int, fps: Int, audioOnly: Bool = false,
-        mergedFile: String? = nil, timing: CaptureTiming? = nil
+        mergedFile: String? = nil, timing: CaptureTiming? = nil, compressed: Bool = false
     ) {
         self.title = title
         self.bundleID = bundleID
@@ -38,10 +41,11 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
         self.audioOnly = audioOnly
         self.mergedFile = mergedFile
         self.timing = timing
+        self.compressed = compressed
     }
 
     private enum CodingKeys: String, CodingKey {
-        case title, bundleID, width, height, fps, audioOnly, mergedFile, timing
+        case title, bundleID, width, height, fps, audioOnly, mergedFile, timing, compressed
     }
 
     public init(from decoder: Decoder) throws {
@@ -56,6 +60,7 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
         /// Evidence, never needed to read a recording: a file it cannot be read from is
         /// read without it.
         timing = try? container.decodeIfPresent(CaptureTiming.self, forKey: .timing)
+        compressed = try container.decodeIfPresent(Bool.self, forKey: .compressed) ?? false
     }
 
     /// The registry's name for the app, else nil: a bundle id is not something to show.

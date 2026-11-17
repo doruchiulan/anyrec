@@ -51,7 +51,9 @@ public struct RecordingConfiguration: Sendable {
     /// the provider.
     public var summary: SummaryRequest?
     public var fps = 30
-    public var codec: VideoCodec = .h264
+    /// HEVC: Apple's hardware encoder makes it about a third smaller than H.264 at the same
+    /// picture, at no cost to capture. The background compression pass shrinks it further.
+    public var codec: VideoCodec = .hevc
     public var showsCursor = true
     /// Off, the recording is audio only: a window or display is still picked — its filter
     /// carries the audio, and its title, call participants and mute button are read as

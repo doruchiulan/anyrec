@@ -21,7 +21,7 @@ struct AnyRec: AsyncParsableCommand {
         """,
         version: "0.8.1",
         subcommands: [
-            Tui.self, Record.self, Transcribe.self, Speakers.self, Echo.self, Timing.self, Sources.self, Doctor.self, MCPCommand.self,
+            Tui.self, Record.self, Transcribe.self, Speakers.self, Echo.self, Timing.self, Compress.self, Sources.self, Doctor.self, MCPCommand.self,
         ],
         defaultSubcommand: Tui.self
     )

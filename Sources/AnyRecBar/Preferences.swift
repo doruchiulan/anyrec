@@ -19,6 +19,7 @@ enum Preferences {
             Key.shortcut: true,
             Key.captions: true,
             Key.menuBarExtra: true,
+            Key.compressesRecordings: true,
         ])
         return defaults
     }()
@@ -29,6 +30,7 @@ enum Preferences {
         static let stopAfter = "stopAfterSeconds"
         static let microphone = "microphoneID"
         static let offerToRecord = "offerToRecord"
+        static let compressesRecordings = "compressesRecordings"
         static let recordsCallsAutomatically = "recordCallsAutomatically"
         static let automaticRecordingMode = "automaticRecordingMode"
         static let shortcut = "shortcut"
@@ -51,6 +53,13 @@ enum Preferences {
             return options
         }
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: "transcriptionOptions") }
+    }
+
+    /// Whether saved recordings' video is re-encoded smaller in the background. On unless
+    /// switched off.
+    static var compressesRecordings: Bool {
+        get { defaults.bool(forKey: Key.compressesRecordings) }
+        set { defaults.set(newValue, forKey: Key.compressesRecordings) }
     }
 
     /// Whether a call app taking the microphone is worth a notification.

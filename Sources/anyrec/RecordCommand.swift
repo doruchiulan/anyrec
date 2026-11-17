@@ -21,7 +21,7 @@ struct Record: AsyncParsableCommand {
     var fps = 30
 
     @Option(name: .long, help: "Video codec.")
-    var codec: VideoCodec = .h264
+    var codec: VideoCodec = .hevc
 
     @Option(name: .long, help: "Microphone device id (see `anyrec sources`).")
     var mic: String?
