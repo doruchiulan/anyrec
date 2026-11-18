@@ -59,6 +59,9 @@ public final class RecordingSession {
     private let participants: ParticipantMonitor
 
     public var levels: LevelMonitor { recorder.levels }
+    /// Whether the call can hear the microphone right now, from the mute monitor; nil until
+    /// a call app has done any audio. What the menu bar's "Muted in Teams" note reads.
+    public var callHearsMicrophone: Bool? { microphone.hearsMicrophone }
     public var captureEnded: Bool { recorder.captureEnded }
 
     public var elapsed: TimeInterval { (stoppedAt ?? Date()).timeIntervalSince(startedAt) }

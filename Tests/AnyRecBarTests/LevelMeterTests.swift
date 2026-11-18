@@ -6,9 +6,22 @@ import AnyRecKit
 
 @testable import AnyRecBar
 
-@Suite("Live audio meter", .serialized)
+@Suite("Live level bars", .serialized)
 @MainActor
 struct LevelMeterTests {
+    @Test("Normal speech is green, not a warning; only near clipping is orange")
+    func tints() {
+        #expect(LevelBars.bar(.systemAudio, peak: -9, muted: false).tint == .healthy,
+                "−9 dB is ordinary speech; NSLevelIndicator painted it yellow")
+        #expect(LevelBars.bar(.systemAudio, peak: -0.5, muted: false).tint == .hot)
+        #expect(LevelBars.bar(.microphone, peak: -50, muted: false).tint == .quiet)
+        #expect(LevelBars.bar(.microphone, peak: -120, muted: false).tint == .quiet)
+        let muted = LevelBars.bar(.microphone, peak: -6, muted: true)
+        #expect(muted.tint == .muted)
+        #expect(muted.fraction <= 0.1, "a muted microphone is drawn low whatever it picks up in the room")
+        #expect(abs(LevelBars.bar(.systemAudio, peak: -30, muted: false).fraction - Double(MeterScale.fraction(-30))) < 0.0001)
+    }
+
     @Observable
     final class Source {
         let levels = LevelMonitor()
@@ -20,55 +33,33 @@ struct LevelMeterTests {
 
         var body: some View {
             let _ = source.tick
-            RecordingMeters(tracks: AudioTrack.allCases, levels: source.levels)
+            LevelBars(tracks: AudioTrack.allCases, levels: source.levels, microphoneMuted: false)
         }
     }
 
-    @Test("refreshes a displayed meter when capture updates the same monitor")
+    @Test("A displayed bar redraws when capture updates the same monitor")
     func refreshes() async throws {
         let source = Source()
         let host = NSHostingView(rootView: Probe(source: source))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 280, height: 70),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = host
         defer { window.contentView = nil }
-        try await waitForMeters(in: host, source: source, peak: -48, fraction: 0.2)
-        let initial = try pixels(of: #require(indicators(in: host).first))
 
-        try await waitForMeters(in: host, source: source, peak: -6, fraction: 0.9)
-        #expect(try pixels(of: #require(indicators(in: host).first)) != initial)
-
-        try await waitForMeters(in: host, source: source, peak: nil, fraction: 0)
+        let quiet = try await settle(host, source: source, peak: -48)
+        let loud = try await settle(host, source: source, peak: -6)
+        #expect(quiet != loud)
     }
 
-    private func waitForMeters(in host: NSView, source: Source,
-                               peak: Float?, fraction: Double) async throws {
-        let deadline = ContinuousClock.now + .seconds(3)
-        while ContinuousClock.now < deadline {
-            if let peak {
-                for track in AudioTrack.allCases {
-                    source.levels.record(AudioLevel(peak: peak, rms: peak), for: track)
-                }
-            }
-            source.tick += 1
-            try await Task.sleep(for: .milliseconds(20))
-            host.layoutSubtreeIfNeeded()
-            let meters = indicators(in: host)
-            if meters.count == 2 && meters.allSatisfy({ abs($0.doubleValue - fraction) < 0.01 }) {
-                return
-            }
+    private func settle(_ host: NSView, source: Source, peak: Float) async throws -> Data {
+        for track in AudioTrack.allCases {
+            source.levels.record(AudioLevel(peak: peak, rms: peak), for: track)
         }
-        Issue.record("Meters did not reach \(fraction): \(indicators(in: host).map(\.doubleValue))")
-    }
-
-    private func indicators(in view: NSView) -> [NSLevelIndicator] {
-        if let indicator = view as? NSLevelIndicator { return [indicator] }
-        return view.subviews.flatMap { indicators(in: $0) }
-    }
-
-    private func pixels(of view: NSView) throws -> Data {
-        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: bitmap)
+        source.tick += 1
+        try await Task.sleep(for: .milliseconds(300))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
         return try #require(bitmap.representation(using: .png, properties: [:]))
     }
 }

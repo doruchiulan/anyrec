@@ -127,9 +127,34 @@ enum Wording {
     static func bannerRecord(video: Bool) -> String { video ? "Record" : "Audio Only" }
 
     /// The live panel's line under the window's title.
-    static func live(video: Bool, width: Int, height: Int, fps: Int, droppedFrames: Int?) -> String {
-        guard video else { return "Audio only — no video is being saved" }
-        return "\(width)×\(height) · \(fps) fps" + (droppedFrames.map { " · \($0) frames dropped" } ?? "")
+    /// The line under the recording panel's clock: "Extended LHO EU · Teams · audio only",
+    /// with "· 12m left" when a stop time is set.
+    static func recordingLine(title: String, app: String?, audioOnly: Bool, remaining: TimeInterval?) -> String {
+        var parts = [title]
+        if let app, !title.localizedCaseInsensitiveContains(app) { parts.append(app) }
+        if audioOnly { parts.append("audio only") }
+        if let remaining { parts.append(Self.remaining(remaining)) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Said while the call cannot hear the microphone. The microphone's own track keeps
+    /// recording; only the mix and the transcript leave it out.
+    static func mutedInCall(app: String?) -> String {
+        "Muted in \(app ?? "the call") — your microphone is left out of the mix"
+    }
+
+    static func droppedFrames(_ count: Int) -> String {
+        "\(count) frames dropped — the Mac is busy"
+    }
+
+    /// A level bar as VoiceOver reads it.
+    static func level(_ tint: LevelBars.Tint) -> String {
+        switch tint {
+        case .healthy: "good"
+        case .hot: "too loud"
+        case .quiet: "quiet"
+        case .muted: "muted"
+        }
     }
 
     /// The line under a list row's title.

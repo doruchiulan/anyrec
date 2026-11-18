@@ -1,8 +1,11 @@
 import SwiftUI
 import AnyRecKit
 
-/// The live recording: how long it has been running, what it is pointed at, and a
-/// meter for each track that is actually being written.
+/// The live recording, compact: a red dot, the clock and what is being recorded on one
+/// line with a level bar per track, then a full-width Stop Recording button — a labelled
+/// push button, not an icon, so nobody has to guess where to click. A note says when the
+/// call cannot hear the microphone, and another when frames are being dropped; nothing
+/// else is shown, because the panel is opened to check and to stop.
 struct RecordingPanel: View {
     @Bindable var controller: RecordingController
 
@@ -10,45 +13,58 @@ struct RecordingPanel: View {
         let _ = controller.tick
 
         if let session = controller.session {
+            let muted = session.configuration.microphone != nil && session.callHearsMicrophone == false
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label(session.configuration.video ? "Recording" : "Recording Audio Only",
-                          systemImage: session.configuration.video ? "record.circle.fill" : "waveform.circle.fill")
-                        .font(.headline).foregroundStyle(.red)
-                    Spacer()
-                    if let left = session.remaining {
-                        Text(Wording.remaining(left)).font(.subheadline).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Circle().fill(.red).frame(width: 8, height: 8)
+                        .accessibilityLabel("Recording")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(Wording.clock(session.elapsed))
+                            .font(.title2).monospacedDigit()
+                        Text(Wording.recordingLine(
+                            title: session.target.describing, app: app(of: session),
+                            audioOnly: !session.configuration.video, remaining: session.remaining))
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
                     }
+                    Spacer(minLength: 8)
+                    LevelBars(tracks: tracks(of: session), levels: session.levels, microphoneMuted: muted)
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(Wording.clock(session.elapsed))
-                        .font(.largeTitle).monospacedDigit()
-                    Text(session.target.describing).lineLimit(1).truncationMode(.middle)
-                    Text(detail(session)).font(.subheadline).foregroundStyle(.secondary)
-                }
-                RecordingMeters(tracks: tracks(of: session), levels: session.levels)
                 Button(role: .destructive) {
                     Task { await controller.stop() }
                 } label: {
-                    Label(controller.phase == .stopping ? "Finishing…" : "Stop Recording", systemImage: "stop.fill")
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 6) {
+                        Image(systemName: "stop.fill")
+                        Text(controller.phase == .stopping ? "Finishing…" : "Stop Recording")
+                        if controller.phase != .stopping {
+                            Text("⌘.").foregroundStyle(.white.opacity(0.75))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
                 .controlSize(.large)
                 .keyboardShortcut(".")
                 .disabled(controller.phase == .stopping)
+                if muted {
+                    Note(Wording.mutedInCall(app: app(of: session)))
+                }
+                if let dropped = droppedFrames(session) {
+                    Note(Wording.droppedFrames(dropped)).foregroundStyle(.orange)
+                }
             }
         }
     }
 
-    private func detail(_ session: RecordingSession) -> String {
+    private func app(of session: RecordingSession) -> String? {
+        session.target.bundleID.flatMap { id in CallApps.known.first { $0.bundleID == id }?.name }
+    }
+
+    private func droppedFrames(_ session: RecordingSession) -> Int? {
+        guard session.configuration.video else { return nil }
         let progress = session.progress()
-        let dropped = DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames)
-        return Wording.live(
-            video: session.configuration.video, width: session.target.width,
-            height: session.target.height, fps: session.configuration.fps,
-            droppedFrames: dropped ? progress.droppedSamples : nil)
+        return DropRate.worthReporting(progress.droppedSamples, of: progress.screenFrames) ? progress.droppedSamples : nil
     }
 
     private func tracks(of session: RecordingSession) -> [AudioTrack] {
@@ -57,5 +73,22 @@ struct RecordingPanel: View {
                 ? session.configuration.systemAudio
                 : session.configuration.microphone != nil
         }
+    }
+}
+
+/// A short line in a light rounded box under the Stop button.
+private struct Note: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
     }
 }

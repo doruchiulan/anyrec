@@ -1,74 +1,65 @@
-import AppKit
 import SwiftUI
 import AnyRecKit
 
-struct RecordingMeters: View {
-    private struct Reading {
+/// One small vertical bar per recorded track, beside the clock. Green while the level is
+/// healthy, orange only near clipping, grey when quiet, silent or muted — the zones are
+/// `MeterScale`'s. They replace `NSLevelIndicator`, whose warning colour covered the whole
+/// bar from 80% of its range: −12 dB on this scale, which normal speech passes, so every
+/// call read as a warning.
+struct LevelBars: View {
+    struct Bar: Identifiable, Equatable {
         let track: AudioTrack
-        let level: AudioLevel
+        let fraction: Double
+        let tint: Tint
+        var id: AudioTrack { track }
     }
 
-    private let readings: [Reading]
+    enum Tint: Equatable {
+        case healthy, hot, quiet, muted
+    }
 
-    init(tracks: [AudioTrack], levels: LevelMonitor) {
-        // Snapshot before ForEach so SwiftUI sees new values instead of the same monitor reference.
-        readings = tracks.map { Reading(track: $0, level: levels.level(for: $0)) }
+    let bars: [Bar]
+
+    /// Read once per redraw, so a new level on the same monitor draws a new bar.
+    init(tracks: [AudioTrack], levels: LevelMonitor, microphoneMuted: Bool) {
+        bars = tracks.map { track in
+            Self.bar(track, peak: levels.level(for: track).peak, muted: track == .microphone && microphoneMuted)
+        }
+    }
+
+    static func bar(_ track: AudioTrack, peak: Float, muted: Bool) -> Bar {
+        let fraction = Double(MeterScale.fraction(peak))
+        guard !muted else { return Bar(track: track, fraction: min(fraction, 0.1), tint: .muted) }
+        let tint: Tint = switch MeterScale.zone(peak) {
+        case .hot: .hot
+        case .healthy: .healthy
+        case .faint, .silent: .quiet
+        }
+        return Bar(track: track, fraction: fraction, tint: tint)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(readings, id: \.track) { reading in
-                LevelMeter(track: reading.track, level: reading.level)
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(bars) { bar in
+                ZStack(alignment: .bottom) {
+                    Capsule().fill(.quaternary)
+                    Capsule().fill(color(bar.tint))
+                        .frame(height: max(4, 28 * bar.fraction))
+                }
+                .frame(width: 5, height: 28)
+                .accessibilityElement()
+                .accessibilityLabel(bar.track == .systemAudio ? "Call audio level" : "Microphone level")
+                .accessibilityValue(Wording.level(bar.tint))
             }
         }
+        .animation(.linear(duration: 0.1), value: bars)
     }
-}
 
-struct LevelMeter: View {
-    let track: AudioTrack
-    let level: AudioLevel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(track == .systemAudio ? "Call audio" : "Microphone")
-                Spacer()
-                Text(reading(level.peak)).monospacedDigit().foregroundStyle(.secondary)
-            }
-            .font(.subheadline)
-            LevelIndicator(value: Double(MeterScale.fraction(level.peak)))
-                .frame(height: 12)
+    private func color(_ tint: Tint) -> Color {
+        switch tint {
+        case .healthy: .green
+        case .hot: .orange
+        case .quiet, .muted: .secondary
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(track.rawValue) level")
-        .accessibilityValue("\(MeterScale.reading(level.peak)) dBFS")
-    }
-
-    private func reading(_ peak: Float) -> String {
-        let dB = "\(MeterScale.reading(peak)) dB"
-        switch MeterScale.zone(peak) {
-        case .faint: return "Quiet · \(dB)"
-        case .hot: return "Too loud · \(dB)"
-        case .silent, .healthy: return dB
-        }
-    }
-}
-
-private struct LevelIndicator: NSViewRepresentable {
-    let value: Double
-
-    func makeNSView(context: Context) -> NSLevelIndicator {
-        let indicator = NSLevelIndicator()
-        indicator.levelIndicatorStyle = .continuousCapacity
-        indicator.minValue = 0
-        indicator.maxValue = 1
-        indicator.warningValue = 0.8
-        indicator.criticalValue = 0.95
-        indicator.isEditable = false
-        return indicator
-    }
-
-    func updateNSView(_ indicator: NSLevelIndicator, context: Context) {
-        indicator.doubleValue = value
     }
 }

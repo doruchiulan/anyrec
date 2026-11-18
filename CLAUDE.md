@@ -393,6 +393,15 @@ Invariants worth preserving:
   `WriterError error 1`.
 - The meters read the buffers already on their way to disk. Never add a second
   audio tap to feed the UI.
+- The menu bar's recording panel is one line — red dot, clock, "title · app · audio
+  only", a small bar per track — then a full-width, labelled Stop Recording button (an
+  icon-only round button read as decoration). The bars are drawn, not `NSLevelIndicator`:
+  its warning colour covered the whole bar from 80% of its range, −12 dB on the −60…0
+  scale, so ordinary speech showed yellow. Green is healthy, orange is `MeterScale`'s hot
+  zone (above −1 dB), grey is quiet or muted; no dB figures. "Muted in Teams" is shown
+  while `MicrophoneLive.Monitor.hearsMicrophone` is false (published behind its own lock,
+  read through `RecordingSession.callHearsMicrophone`). Quit AnyRec is not offered under
+  Stop while recording; Open AnyRec is.
 - Nothing slow may run between `enterRawMode` and the first frame: the alternate
   screen is already blank by then, so the wait reads as a hung, black terminal.
   The first `AudioDevices.inputs()` cold-starts AVFoundation and has been measured

@@ -16,7 +16,7 @@ struct MenuPanel: View {
             }
             Divider()
             VStack(spacing: 0) {
-                if controller.phase == .idle || controller.phase == .starting {
+                if controller.phase != .finished {
                     MenuRow("Open AnyRec") { openLibrary(nil) }
                 }
                 if controller.phase != .recording && controller.phase != .stopping {
@@ -25,7 +25,11 @@ struct MenuPanel: View {
                         controller.openSettings?()
                     }
                 }
-                MenuRow("Quit AnyRec") { NSApplication.shared.terminate(nil) }
+                /// Not under Stop Recording while one runs: AnyRec › Quit and the Dock still
+                /// quit, and wait for the recording to be saved.
+                if controller.phase != .recording && controller.phase != .stopping {
+                    MenuRow("Quit AnyRec") { NSApplication.shared.terminate(nil) }
+                }
             }
         }
         .padding(12)

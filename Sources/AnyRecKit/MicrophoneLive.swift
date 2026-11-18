@@ -112,6 +112,20 @@ extension MicrophoneLive {
         private var live = false
         private var sawCall = false
         private var transitions: [Transition] = []
+        /// What `hearsMicrophone` reports, set by each scan. Behind its own lock: the panel
+        /// reads it ten times a second, and the queue may be busy reading a call app's
+        /// accessibility tree.
+        private let published = NSLock()
+        private var publishedState: Bool?
+
+        /// Whether the call can hear the microphone right now: true while a watched app runs
+        /// microphone input and its own mute button, if any, does not say muted; false while
+        /// a call is on and it cannot; nil until any watched app has done audio.
+        public var hearsMicrophone: Bool? {
+            published.lock()
+            defer { published.unlock() }
+            return publishedState
+        }
 
         /// Each watched bundle id, with its mute button when anyrec knows how to read
         /// it. A browser's audio runs in a helper with the browser's id and a suffix,
@@ -172,6 +186,9 @@ extension MicrophoneLive {
             let listening = active.contains { id, processes in
                 processes.contains(where: \.runningInput) && !(reader(for: id)?.muted() ?? false)
             }
+            published.lock()
+            publishedState = sawCall ? listening : nil
+            published.unlock()
 
             guard listening != live else { return }
             live = listening
