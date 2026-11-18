@@ -1,7 +1,7 @@
 # Reference copy of github.com/doruchiulan/homebrew-tap/Casks/anyrec-app.rb.
 cask "anyrec-app" do
-  version "0.8.4"
-  sha256 "9b767b757e057ffa02e6b08910c34faa8eeb6174292ba656c475df5880a36b2a"
+  version "0.8.5"
+  sha256 "c60aa4b341fa836771519d7196493e672ebf2595794304d1770cb3a92adb8001"
 
   url "https://github.com/doruchiulan/anyrec/releases/download/v#{version}/AnyRec-#{version}.zip"
   name "AnyRec"
