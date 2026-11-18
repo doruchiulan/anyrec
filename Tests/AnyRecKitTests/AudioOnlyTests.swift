@@ -176,6 +176,7 @@ struct AudioOnlyTests {
 
         let video = recorder(video: true).makeConfiguration()
         #expect(video.width == 1512 && video.height == 982)
+        #expect(video.scalesToFit && video.preservesAspectRatio, "a window is fitted into the frame, never stretched")
     }
 
     /// The clock the participant monitor reads, and the session start every writer shares,

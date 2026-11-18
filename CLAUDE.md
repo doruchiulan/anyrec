@@ -358,6 +358,17 @@ Invariants worth preserving:
   half: 26% of the frame with it off, 95% with it on, the remainder being the
   letterbox `preservesAspectRatio` leaves. A 78-minute call was recorded at a
   quarter frame before this was set.
+- A window is recorded into a fixed 1920×1080 frame (`TargetResolver.windowFrame`), its
+  picture fitted inside with its proportions kept (`scalesToFit`, `preservesAspectRatio`)
+  and black around it, whatever size it starts or grows to. The frame was the window's
+  size at the start, and a file cannot change size: a Slack huddle begun as a 1920×332
+  strip kept that frame when the window grew to show a shared screen, which was then
+  recorded 332 pixels high. 1080p because a shared screen arrives as the call's video,
+  rarely sharper; 2560×1440 kept small Retina text a little sharper (compared crop for
+  crop) at twice the pixels and compression time, and 1920 wide smudges only the
+  smallest text drawn in the window itself. A window that stays small is scaled up and
+  keeps its black bands; nothing crops them. Displays keep their own pixel size, since a
+  display cannot change shape.
 - A stream that stops because its window is gone has *ended* the recording, not
   failed it. `noCaptureSource` and `userStopped` are reported in the summary and
   everything finalises as usual; every other stop still throws. Throwing these hid

@@ -477,7 +477,10 @@ public final class Recorder: NSObject {
         }
         // Off, the output only scales down: shrink the window mid-call and the frame
         // keeps its size with the picture in one corner and black around the rest.
+        // With the fixed window frame, this is also what fits a window of any shape and
+        // size into it, as large as it goes with its proportions kept.
         config.scalesToFit = true
+        config.preservesAspectRatio = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.capturesAudio = options.captureSystemAudio
         config.excludesCurrentProcessAudio = true

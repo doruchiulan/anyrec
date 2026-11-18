@@ -3,6 +3,16 @@ import Foundation
 import ScreenCaptureKit
 
 public enum TargetResolver {
+    /// Every window is recorded into this frame, its picture fitted inside with its
+    /// proportions kept and black around it. The frame used to be the window's size when
+    /// the recording started, and a file cannot change size part-way: a Slack huddle begun
+    /// as a 1920×332 strip kept that frame when the window grew to show a shared screen,
+    /// so the share was recorded 332 pixels high. 16:9 at 1080p because a shared screen
+    /// arrives as a call's video stream, rarely sharper than that, and it is what every
+    /// player takes; 2560×1440 kept small Retina text a little sharper at twice the pixels
+    /// and compression time. Displays keep their own size: they cannot change shape.
+    public static let windowFrame = (width: 1920, height: 1080)
+
     /// Windows off the current Space are included here and nowhere else. What is worth
     /// *offering* is what is on screen, but by the time an id has been picked the window
     /// may have been dragged to another desktop — and `desktopIndependentWindow` follows
@@ -46,22 +56,20 @@ public enum TargetResolver {
         /// opened a window-server connection yet. A CLI never does; this opens one.
         _ = CGMainDisplayID()
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        return describe(
-            filter, as: window.title ?? "window \(id)",
-            ownedBy: window.owningApplication?.bundleIdentifier)
+        return ResolvedTarget(
+            filter: filter, width: windowFrame.width, height: windowFrame.height,
+            describing: window.title ?? "window \(id)",
+            bundleID: window.owningApplication?.bundleIdentifier)
     }
 
-    private static func describe(
-        _ filter: SCContentFilter, as label: String, ownedBy bundleID: String? = nil
-    ) -> ResolvedTarget {
+    private static func describe(_ filter: SCContentFilter, as label: String) -> ResolvedTarget {
         let scale = CGFloat(filter.pointPixelScale)
         let rect = filter.contentRect
         return ResolvedTarget(
             filter: filter,
             width: evenPixels(rect.width * scale),
             height: evenPixels(rect.height * scale),
-            describing: label,
-            bundleID: bundleID
+            describing: label
         )
     }
 

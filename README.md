@@ -59,6 +59,10 @@ The merged file is the one you double-click. ffmpeg makes it after the recording
 (unless you pass `--no-mux`) and names it after the call: the window's title
 without its unread counters or trailing app name, the app, and when it started.
 
+A window is recorded into a 1920×1080 frame, its picture fitted inside at its own
+proportions, so a call that starts in a small window and grows when someone shares their
+screen keeps the share at full size. A display is recorded at its own resolution.
+
 The picture is recorded as `screen.mov`, and exists only until the merge is checked.
 The merge copies the video stream as it is (nothing is re-encoded) beside the mixed
 audio; once the merged file is confirmed to hold every frame of `screen.mov` and the
