@@ -71,16 +71,18 @@ second one for "UI-common" code.
 | File | |
 |---|---|
 | `Session/RecordingConfiguration.swift` | What a recording is before it starts. Every interface edits one of these. |
+| `RecordingLayout.swift` | Where every file of a recording folder lives (`Tracks/`, `Data/`, `Data/Transcripts/`, `Cache/`, the top level), the one place that knows it; `readURL` falls back to the flat layout, `writeURL` always writes the new one, `files(in:)` lists a place with the flat folder's files counted in; readable folder names (`uniqueName`, `readableDate`). Everything that names a file inside a recording goes through it. |
+| `Session/RecordingMigration.swift` | Moves a flat folder into the layout and gives it its readable name (`migrate(folder:)`, `migrateAll`), and recordings from one root to another (`moveRoot`, `validateMove`, `run` for the launch-time job). Pure file moves; idempotent. |
 | `Session/RecordingSession.swift` | One recording, start to finish: stream, folder, merge, transcript. |
 | `Session/TranscriptPass.swift`, `TranscriptPass+Review.swift` | The optional pass over closed files and the one sequence every interface runs: engines, voices and names, publish, review, name conflicts, summary. Returns an outcome; never throws. |
-| `Session/SummaryPass.swift` | The summary step: written by label for unnamed speakers, with the basis it was written from, selected beside the transcript. |
+| `Session/SummaryPass.swift` | The summary step: written by label for unnamed speakers, with the basis it was written from, selected in the transcript's layers. |
 | `Readiness/Readiness.swift` | What is installed and available here, and the single `Advisory` worth showing for a configuration. |
 | `Capture/CaptureCatalogue.swift` | Every recordable window and display, in the order worth offering them. What the terminal picks from. |
 | `Capture/PickedContent.swift` | What macOS's content picker handed back, read as a `CaptureTarget`. The inverse of `TargetResolver`. |
 | `Session/RecordingLibrary.swift` | Every finished recording under the output folder, newest first, and which artefacts each has left. What the app's library window lists. `media` is what plays (`RecordingMedia.playable`); `video` is the same but nil for an audio-only recording. |
 | `Session/RecordingMedia.swift` | Which file plays, which holds the picture, and what the merged file is called. `playable`: the name `recording.json` keeps if that file exists, else `call.mp4` (older folders), else `screen.mov`. `video`: `screen.mov` while it exists, else the merged file. `fileName`: "Design review – Slack – 2026-11-03 10.08.mp4" (`.m4a` audio only), title stripped of unread counters, a browser's "(3)" and a trailing app segment, characters Finder/zip/Windows mangle, capped. Every reader of a recording's media goes through it. |
-| `Session/RecordingInfo.swift` | `recording.json`, written when a recording starts: the window's title, its app, the picture's size, and whether it is audio only (absent in older files, which read as video); after a verified merge, `mergedFile`, the merged file's name (absent before, and in older files); when capture stops, `timing` (`CaptureTiming`, absent in older files and ignored when unreadable). What the library titles a recording by. |
-| `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `thumbnail.jpg`, for the library's list rows. None for an audio-only recording, decided from `recording.json` without trying. |
+| `Session/RecordingInfo.swift` | `Data/recording.json`, written when a recording starts: its old-style `id` (`rec-YYYY-MM-DD-HHMMSS`) and `startedAt`, the window's title, its app, the picture's size, and whether it is audio only (absent in older files, which read as video); after a verified merge, `mergedFile`, the merged file's name (absent before, and in older files); when capture stops, `timing` (`CaptureTiming`, absent in older files and ignored when unreadable). What the library titles a recording by. |
+| `Session/Thumbnail.swift` | A still from a tenth of the way into the video, kept as `Cache/thumbnail.jpg`, for the library's list rows. None for an audio-only recording, decided from `recording.json` without trying. |
 | `Session/Waveform.swift` | A recording's loudness cut into columns for drawing, read with AVFoundation so it needs no ffmpeg. |
 | `Transcription/Summary.swift` | A summary as data (overview, decisions, actions with the second they were said), its `Basis` and `Staleness`, labels filled from names at display (`named`), `SummaryProvider` (Claude Code, Codex, OpenAI API, Gemini CLI) and `Summarizer.summary`. |
 | `Recorder.swift` | Owns the `SCStream`, fans its three output types into three `TrackWriter`s — two for audio only, whose screen frames arrive at 2×2 and 1 fps and are dropped before the clock. Notes each output's buffer stamps, formats and the devices into `CaptureTiming`. Follows device changes on its `devices` queue: moves the microphone (`updateConfiguration`) and restarts a stream a change stopped. |
@@ -100,9 +102,10 @@ second one for "UI-common" code.
 | `Permissions.swift` | TCC preflight and status. |
 | `Muxer.swift` | Builds and runs the optional ffmpeg merge. `job(for:)` takes the picture from `screen.mov`, or from the merged file once that has replaced it; with no picture it makes an audio-only `.m4a` from the same `MixPlan`. Writes a hidden temporary file, verifies it, moves it into place, records the name, then deletes `screen.mov` and any older merged file. |
 | `Compression.swift` | The one re-encode of a recording's video: x265 over the merged file, checked frame for frame, swapped in, marked `compressed` in `recording.json`; cancellable at any point. |
+| `Session/RecordingShare.swift` | What leaves the Mac when a recording is shared: a stream copy of the merged file in `Cache/Share/` with the named transcript as a `mov_text` captions track and the title, date and summary overview as metadata, beside `Summary.md` and `Transcript.md`; reused until what it was made from changes. `CloudFolder`: the OneDrive (`~/Library/CloudStorage/OneDrive-*`) and iCloud Drive folders on this Mac, and copying a set into `AnyRec/<recording>/` there. |
 | `MergeVerification.swift` | `MediaFacts` (video codec, size, frame count from a sample cursor, audio lengths, read with AVFoundation) and the check a merge's result must pass before it replaces anything. |
 | `LoudnessMatch.swift` | Measures both audio tracks (ffmpeg `ebur128=peak=true`) and balances them for the merge. |
-| `MixDecision.swift` | The mix decided once per recording and kept as `mix.json` beside the tracks, keyed to the tracks' and `microphone-live.json`'s size and modification time: the system track's offset (per stretch, version 3), bleed, loudness. Files written while the echo-cancelled microphone existed read with its keys ignored. Also the mix's envelope worked out from the two (aligned) track envelopes. |
+| `MixDecision.swift` | The mix decided once per recording and kept as `Cache/mix.json`, keyed to the tracks' and `microphone-live.json`'s size and modification time: the system track's offset (per stretch, version 3), bleed, loudness. Files written while the echo-cancelled microphone existed read with its keys ignored. Also the mix's envelope worked out from the two (aligned) track envelopes. |
 | `MixPlan.swift` | How the two audio tracks go together — the system track moved onto the microphone's timeline (`Alignment`), matched by loudness or the mic held under the call when it bleeds, and silenced wherever the call was not listening. Both mixes are built from it; `aligned` lines up the envelopes everything else compares. |
 | `MicrophoneLive.swift` | When the call could hear the microphone: the monitor that watches the call app's mic for the length of a recording, and the file it leaves. |
 | `AudioProcesses.swift` | Who is doing audio right now, read from Core Audio's process objects. The list behind the orange dot. |
@@ -113,7 +116,7 @@ second one for "UI-common" code.
 | `AnyRecBar/CallAutoRecording.swift` | Whether a call is recorded without asking (Slack or Teams, switched on, window found, nothing recording) and when that recording stops (the call over for `endGrace`). Pure state; `AutomaticRecordingMode` is Window or Audio only. |
 | `AnyRecBar/CallNotifier.swift` | The native notification fallback; Record and Record Audio Only open the capture picker. Also the automatic recording's started notification, whose Stop Recording stops it. |
 | `AudioEnvelope.swift` | Loudness over time, as 20 ms frames. What bleed detection, speech detection and speaker attribution all read; the last few decoded are remembered by path, size and modification time. |
-| `Transcription/DiarizationCache.swift` | Diarization segments and prints kept as `diarization.json`, keyed by a SHA-256 of the exact mix the diarizer heard. |
+| `Transcription/DiarizationCache.swift` | Diarization segments and prints kept as `Cache/diarization.json`, keyed by a SHA-256 of the exact mix the diarizer heard. |
 | `SpeakerBleed.swift` | Spots the call re-entering through the microphone, and words the warning for it. |
 | `Shell.swift` | Child processes, via temp files rather than pipes. |
 | `OutputPlan.swift` | The recording folder and the track paths. |
@@ -173,6 +176,7 @@ second one for "UI-common" code.
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
 | `AnyRecBar/Views/AgentSettings.swift` | Settings › AI Apps: Connect/Disconnect per app, pointed at the app's own binary, and Copy Configuration for any other client. |
+| `AnyRecBar/Views/ShareButton.swift` | The recording page's Share button: prepares `RecordingShare`'s set, then the system share menu on it, with "Save to OneDrive" / "Save to iCloud Drive" added for each synced folder. File › Share… and the list's Share… reach it through `RecordingController.shareRequest`. |
 | `AnyRecBar/Compressor.swift` | Runs `Compression` over the library in the background while nothing else is happening and the Mac is on power; stops ffmpeg the moment that changes. |
 | `AnyRecBar/Updates.swift` | Sparkle: Check for Updates…, the automatic-check switch, update windows held back during a recording, call or background work (offered in the panel instead), and a relaunch postponed until nothing is recorded or saved. |
 | `AnyRecBar/ProcessingSteps.swift` | The checklist the post-recording panel shows: saved, prepared, transcribed (and summarised), each waiting, running, done or failed. |
@@ -184,7 +188,43 @@ second one for "UI-common" code.
 
 Invariants worth preserving:
 
-- What is derived from the audio is kept beside it and keyed to what it came from:
+- A recording is a folder named for the call and laid out the same way every time, and
+  `RecordingLayout` is the only code that knows it:
+  ```
+  <yyyy-MM-dd HH.mm> <title> – <App>/       e.g. 2026-11-18 15.29 QA & Doru - Blueprint – Slack
+    <merged file>.mp4 | .m4a   (call.mp4 in older folders; .merge-*/.compress-* temporaries here too, beside what they replace)
+    Transcript.md, Summary.md  (renderings of the CURRENT selection; no SRT, no per-generation Markdown)
+    Tracks/   microphone.m4a, system-audio.m4a, screen.mov until a verified merge, microphone-clean.m4a (dead)
+    Data/     recording.json, call-participants.json, microphone-live.json, transcription.json (the selection)
+    Data/Transcripts/   transcript-*, speakers-*, wording-*, summary-*, and older voices-*/review-* and any
+                        per-generation .md/.srt, moved as they are and never read
+    Cache/    mix.json, diarization.json, waveform.json, thumbnail.jpg, mix.wav — all derived, all deletable
+  ```
+  The name uses `RecordingMedia`'s title cleaning, is unique in the root (" (2)", " (3)"),
+  and carries only the minute; the exact start and the old `rec-YYYY-MM-DD-HHMMSS` id are
+  `recording.json`'s `startedAt` and `id`. Anything that needs a date reads `recording.json`,
+  then a legacy `rec-` name, then a readable name's prefix (`RecordingLibrary.knownStart`).
+  A voiceprint's `PrintOrigin` and an MCP meeting id may hold the old id, which
+  `LibraryEntry.recordingID` / `MeetingReader` resolve through `recording.json`.
+  **Reads fall back to the flat layout** (`RecordingLayout.readURL`, `files(in:)`), so a
+  folder nothing has migrated reads correctly; **writes always go to the new layout**. A
+  plan (`OutputPlan`) resolves its paths when it is made, so make it after the files exist.
+  **Migration** (`RecordingMigration`) is pure file moves: idempotent, resumable (the
+  rename is last), never deletes user data, never overwrites a destination (a clashing file
+  stays where it was), keeps modification times (a rename does, which `mix.json`'s keys
+  rely on), renders the missing `Transcript.md`/`Summary.md`, adds `id`/`startedAt`, and
+  renames only a `rec-` folder that has a `recording.json` to name it from. The app runs
+  it once at launch before the library is first read, off the main thread, skipping a
+  folder being recorded or processed (`RecordingController.migrateRecordings`); the CLI
+  migrates the one folder `transcribe`, `speakers` or `compress` is about to write to; the
+  MCP server and the library's readers never migrate. The default root is
+  `~/Library/Application Support/anyrec/Recordings`; recordings still in
+  `~/Desktop/AnyRec Recordings` are moved into it when the default is in use (the old
+  folder removed only if nothing but `.DS_Store` is left), and Settings › Recording ›
+  Storage › Change… moves them to a chosen folder the same way (`Preferences` keeps it;
+  refused while anything is recording or processing, or when the folder is inside the
+  current one, around it or not writable).
+- What is derived from the audio is kept in the recording's `Cache/` and keyed to what it came from:
   `mix.json` to the tracks and the mute record, `diarization.json` to a hash of the mix,
   `waveform.json` and `thumbnail.jpg` to the recording. (The merged file is not one of
   these once it has replaced `screen.mov`: it then holds the only copy of the picture.) Each is deleted and made again
@@ -538,8 +578,8 @@ Invariants worth preserving:
   rows of a bold title, the time or date beside a line of what was said (the summary's
   first sentence, else the transcript's first words), and the app and length where Notes
   puts the folder; a status badge in the leading margin and a still on the right.
-- A recording's waveform is decoded once and kept as `waveform.json` beside the tracks;
-  its list thumbnail likewise as `thumbnail.jpg`.
+- A recording's waveform is decoded once and kept as `Cache/waveform.json`;
+  its list thumbnail likewise as `Cache/thumbnail.jpg`.
   Decoding is the cost — about 4 s of CPU for a 100-minute call, however the samples are
   summed — and like `mix.json` it is derived: delete it and it is made again.
 - The app is built from the system's components and follows the macOS HIG, not a
@@ -692,7 +732,8 @@ Invariants worth preserving:
   decision, a changed `microphone-live.json`) copies the video from it, verifies against
   it, and replaces it atomically: there is always one verified file holding the picture.
   A failed merge, missing ffmpeg or `--no-mux` leaves `screen.mov` as it was. Older
-  folders with `call.mp4` beside `screen.mov` are read unchanged and never migrated; one
+  folders with `call.mp4` beside `screen.mov` keep both (`call.mp4` stays at the top
+  level when a folder is migrated, `screen.mov` goes to `Tracks/`); one
   merged again follows the new rule, and both are replaced by the named file. Verification
   uses AVFoundation, not ffprobe, because the static ffmpeg anyrec fetches comes without
   ffprobe; a sample cursor counts frames from the sample table without decoding.
@@ -720,13 +761,26 @@ Invariants worth preserving:
   encodes what it has queued first (14 s on a 720p test). Quit and updates stop it, never
   wait for it; leftovers are deleted before the next try. `anyrec compress` runs it on one
   recording.
+- Sharing never touches the recording. What is shared is the video (or audio) with the
+  transcript inside as captions and the title, date and summary overview as metadata,
+  plus `Summary.md` and `Transcript.md`: `RecordingShare.prepare` stream-copies the merged
+  file into `Cache/Share/` with a `mov_text` track made from `TranscriptStore.srt` (names
+  in, "Maya: …"), checks the copy frame for frame and audio length for length, and keeps it
+  until the merged file, the transcript or the summary renderings change (a signature of
+  their sizes and times and the captions' text), so a name corrected after sharing is in
+  the next share. 0.6 s on a 38-minute call; `.m4a` takes captions too. Without ffmpeg or
+  a transcript the merged file is shared as it is. OneDrive installs no share extension
+  (only a File Provider and a Finder extension), so it never appears in the system share
+  menu: the menu gets "Save to OneDrive" / "Save to iCloud Drive" for each synced folder
+  `CloudFolder` finds, copying the set into `AnyRec/<recording>/` for that service's app to
+  upload, then showing it in Finder. No sign-in, no Graph API: the Azure CLI's Graph token
+  carries no file scopes, and an app of our own would need tenant consent.
 - The merged file is named from `recording.json` — the title without unread counters
-  or a trailing app segment, the app, and the start from the folder name, as
+  or a trailing app segment, the app, and the start (`recording.json`'s `startedAt`, else the folder's name), as
   "Design review – Slack – 2026-11-03 10.08.mp4" — and the name is kept in
   `recording.json`, which every reader resolves through `RecordingMedia`, never by
   naming a file. A later merge keeps the stored name. A folder without `recording.json`
-  has nowhere to keep one, so its merge is `call.mp4`. Recording folders keep their
-  `rec-YYYY-MM-DD-HHMMSS` names. Slack's workspace segment stays in the name: nothing in
+  has nowhere to keep one, so its merge is `call.mp4`. Slack's workspace segment stays in the name: nothing in
   the title marks which segment it is.
 - Loudness is measured with `ebur128=peak=true`, not `loudnorm`'s analysis pass: the same
   integrated loudness and true peak in about a seventh of the time.
@@ -985,11 +1039,14 @@ Invariants worth preserving:
   (`speakers-<UUID>.json`: per-line speakers when they differ from the source, voices,
   decided suggestions), wording (`wording-<UUID>.json`: review changes to specific
   lines, what was compared, suggestions, failures) and the summary (with its basis).
-  `.transcription.json` selects one of each; files are complete before they are
+  `Data/transcription.json` selects one of each (all in `Data/Transcripts/`); files are complete before they are
   selected and nothing selected is deleted, so older versions stay viewable ("View
   Sources" lists every source). Naming a voice, accepting one speaker correction or
   re-running review changes one layer — the summary is no longer dropped by a
-  correction. Markdown, SRT, the app and MCP render from `RecordingTranscript`.
+  correction. The app and MCP render from `RecordingTranscript`; the only Markdown kept is
+  `Transcript.md` and `Summary.md` at the top of the folder, rewritten whenever the
+  selection or a layer changes. There are no per-generation `.md`/`.srt` files and no kept
+  SRT: `TranscriptStore.srt(in:)` renders the current transcript's subtitles on demand.
   Generations from before layers and recordings without a selection read unchanged and
   are migrated (their transcript becomes the source, their summary stays selected) only
   when the owner changes something. Regeneration uses the background queue without

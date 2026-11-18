@@ -34,7 +34,7 @@ public struct CallParticipants: Codable, Equatable, Sendable {
     public var observations: [Observation]
 
     public static func read(in directory: URL) -> Self? {
-        let url = directory.appendingPathComponent(fileName)
+        let url = RecordingLayout(directory: directory).readURL(fileName)
         guard let data = try? Data(contentsOf: url),
               let result = try? JSONDecoder().decode(Self.self, from: data),
               result.observations.allSatisfy({ $0.at.isFinite && $0.at >= 0 }) else { return nil }
@@ -42,7 +42,7 @@ public struct CallParticipants: Codable, Equatable, Sendable {
     }
 
     public func write(in directory: URL) throws {
-        try JSONEncoder().encode(self).write(to: directory.appendingPathComponent(Self.fileName), options: .atomic)
+        try JSONEncoder().encode(self).write(to: RecordingLayout(directory: directory).writeURL(Self.fileName), options: .atomic)
     }
 
     /// A stretch between two polls in which the same people were marked speaking in both.

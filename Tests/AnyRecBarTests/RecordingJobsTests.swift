@@ -120,7 +120,7 @@ struct RecordingJobsTests {
         jobs.enqueue(request)
         await jobs.waitUntilIdle()
         #expect(jobs.items[request.directory]?.result?.issue != nil)
-        #expect(TranscriptStore.activeTranscript(in: directory) == previous[2])
+        #expect(TranscriptStore.activeTranscript(in: directory) == previous[1])
     }
 
     private func saved(_ request: RecordingJobs.Request) throws -> SavedRecording {

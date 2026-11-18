@@ -25,7 +25,7 @@ cask "anyrec-app" do
     under System Settings > Privacy & Security, then quit and reopen it. The
     grant only applies to newly launched processes.
 
-    Recordings land in ~/Desktop/AnyRec Recordings. The first launch walks through
+    Recordings land in ~/Library/Application Support/anyrec/Recordings. The first launch walks through
     permissions and setup: transcription on this Mac is a download (Parakeet,
     25 languages, or Whisper, 99). AnyRec also downloads ffmpeg when needed to
     merge the tracks into call.mp4. The terminal tool is a separate install:

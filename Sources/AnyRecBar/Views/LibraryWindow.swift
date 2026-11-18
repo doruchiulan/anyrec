@@ -335,8 +335,8 @@ private struct LibraryList: View {
     /// also in the File and Recording menus.
     @ViewBuilder private func menu(for entry: LibraryEntry) -> some View {
         Button("Show in Finder") { controller.reveal(entry) }
-        if let media = entry.media {
-            ShareLink(item: media)
+        if entry.media != nil {
+            Button("Share…") { controller.share(entry) }
         }
         TranscriptAction(controller: controller, entry: entry)
         if entry.transcript != nil, controller.activeSummaryProvider != nil {

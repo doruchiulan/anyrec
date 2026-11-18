@@ -116,8 +116,8 @@ public struct Summary: Sendable, Equatable, Codable {
 
     private static let meLabel = try! NSRegularExpression(pattern: #"\bMe\b"#)
 
-    /// The summary beside the transcript it came from. Written next to a Markdown copy
-    /// so `anyrec` and a text editor read the same thing.
+    /// The summary beside the transcript it came from, in `Data/Transcripts`. The Markdown
+    /// anyone reads is `Summary.md`, rendered by `TranscriptStore` for the current one.
     public static func fileName(engine: String) -> String { "summary-\(engine).json" }
 
     public static func read(_ url: URL) -> Summary? {
@@ -125,16 +125,10 @@ public struct Summary: Sendable, Equatable, Codable {
         return try? JSONDecoder().decode(Summary.self, from: data)
     }
 
-    /// The JSON keeps the labels; the Markdown beside it reads with `names` filled in.
+    /// The JSON keeps the labels. (`names` is kept for callers; the Markdown with them
+    /// filled in is `Summary.md`, which `TranscriptStore` rewrites.)
     public func write(to url: URL, names: [String: String] = [:]) throws {
         try JSONEncoder().encode(self).write(to: url, options: .atomic)
-        try renderMarkdown(beside: url, names: names)
-    }
-
-    public func renderMarkdown(beside url: URL, names: [String: String]) throws {
-        try named(names).markdown.write(
-            to: url.deletingPathExtension().appendingPathExtension("md"),
-            atomically: true, encoding: .utf8)
     }
 
     public var markdown: String {

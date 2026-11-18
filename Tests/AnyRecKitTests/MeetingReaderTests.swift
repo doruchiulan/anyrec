@@ -121,7 +121,7 @@ struct MeetingReaderTests {
     func corruptSelection() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        try Data("bad JSON".utf8).write(to: fixture.directory.appendingPathComponent(".transcription.json"))
+        try Data("bad JSON".utf8).write(to: RecordingLayout(directory: fixture.directory).writeURL(RecordingLayout.selectionName))
         let reader = try MeetingReader(root: fixture.root)
         let entry = try #require(reader.list().items.first)
         #expect(!entry.transcriptAvailable && !entry.warnings.isEmpty)
@@ -134,7 +134,7 @@ struct MeetingReaderTests {
     func legacy() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let selected = fixture.directory.appendingPathComponent(".transcription.json")
+        let selected = RecordingLayout(directory: fixture.directory).selection
         try FileManager.default.removeItem(at: selected)
         try "Old summary".write(to: fixture.directory.appendingPathComponent("summary-apple.md"), atomically: true, encoding: .utf8)
         let reader = try MeetingReader(root: fixture.root)
@@ -154,12 +154,48 @@ struct MeetingReaderTests {
         try RecordingVoices(voices: [.init(letter: "A", print: [], sample: "", start: 0, end: 4, name: "Maria")])
             .write(to: directory.appendingPathComponent("voices-g.json"))
         try Data(#"{"transcript":"\#(name).json","voices":"voices-g.json"}"#.utf8)
-            .write(to: directory.appendingPathComponent(".transcription.json"))
+            .write(to: RecordingLayout(directory: directory).writeURL(RecordingLayout.selectionName))
         let reader = try MeetingReader(root: fixture.root)
         let transcript = try reader.transcript(fixture.id)
         #expect(transcript.lines.map(\.text) == ["Generation text"])
         #expect(transcript.lines.first?.speakerName == "Maria")
         #expect(try reader.summary(fixture.id).summary == nil)
+    }
+
+    @Test("A flat folder and a migrated one read the same, side by side, and the old id still finds the renamed folder")
+    func bothLayouts() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-mcp-\(UUID())").resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        func make(_ name: String, flat: Bool) throws -> URL {
+            let directory = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let info = RecordingInfo(title: "Planning call - Slack", bundleID: "com.tinyspeck.slackmacgap", width: 1, height: 1, fps: 1,
+                                     id: flat ? nil : "rec-2026-11-02-100000", startedAt: flat ? nil : Date(timeIntervalSince1970: 1_793_000_000))
+            let transcript = Transcript(utterances: [.init(start: 0, end: 5, text: "Ship on Friday.", speaker: .me)], language: "en", engine: "apple")
+            if flat {
+                try JSONEncoder().encode(info).write(to: directory.appendingPathComponent("recording.json"))
+                try JSONEncoder().encode(transcript).write(to: directory.appendingPathComponent("transcript-apple.json"))
+            } else {
+                try info.write(to: directory)
+                try TranscriptStore.publish(transcript, voices: nil, in: directory)
+            }
+            return directory
+        }
+        _ = try make("rec-2026-11-01-120000", flat: true)
+        _ = try make("2026-11-02 10.00 Planning call – Slack", flat: false)
+        let flatBefore = try FileManager.default.subpathsOfDirectory(atPath: root.path).sorted()
+        let reader = try MeetingReader(root: root)
+
+        let listed = try reader.list().items
+        #expect(listed.count == 2)
+        for item in listed {
+            #expect(try reader.transcript(item.id).lines.map(\.text) == ["Ship on Friday."])
+            #expect(try reader.meeting(item.id).title == "Planning call - Slack")
+        }
+        #expect(try reader.meeting("rec-2026-11-02-100000").id == "2026-11-02 10.00 Planning call – Slack")
+        #expect(try reader.search("Friday").items.count == 2)
+        #expect(throws: (any Error).self) { try reader.meeting("rec-2026-11-09-000000") }
+        #expect(try FileManager.default.subpathsOfDirectory(atPath: root.path).sorted() == flatBefore, "the reader moves and writes nothing")
     }
 
     @Test("Layers render for agents as for the app: wording applied, labels in the summary filled, staleness said")
@@ -211,18 +247,22 @@ struct MeetingReaderTests {
             ], language: "en", engine: "reviewed")
             let voices = RecordingVoices(voices: [.init(letter: "A", print: [1, 0], sample: "Voice sample", start: 0, end: 5, name: "Alex")])
             let files = try TranscriptStore.publish(current, voices: voices, in: directory)
-            let summary = TranscriptStore.summaryDestination(for: files[2])
+            let summary = TranscriptStore.summaryDestination(for: files[1])
             try Summary(overview: "Release planning", decisions: ["Ship Friday"],
                 actions: [.init(task: "Prepare release checklist", owner: "Alex", at: 10, done: true)], provider: "test").write(to: summary)
-            try TranscriptStore.selectSummary(summary, for: files[2])
+            try TranscriptStore.selectSummary(summary, for: files[1])
             try CallParticipants(observations: [.init(at: 1, source: "slack", participants: ["Alex", "Silent guest"], speaking: ["Alex"])]).write(in: directory)
         }
 
         func remove() { try? FileManager.default.removeItem(at: root) }
 
         func contents() throws -> [String: Data] {
-            let urls = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-            return try Dictionary(uniqueKeysWithValues: urls.map { ($0.lastPathComponent, try Data(contentsOf: $0)) })
+            let walker = try #require(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey]))
+            var found: [String: Data] = [:]
+            for case let url as URL in walker where (try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                found[String(url.path.dropFirst(directory.path.count))] = try Data(contentsOf: url)
+            }
+            return found
         }
     }
 }

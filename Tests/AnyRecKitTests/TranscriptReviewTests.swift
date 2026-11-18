@@ -179,7 +179,7 @@ struct TranscriptReviewTests {
         #expect(current.transcript.engine == "reviewed")
         #expect(Transcript.read(current.url)?.utterances == fixture().primary.transcript.utterances)
         #expect(current.wording?.compared.count == 1)
-        let markdown = try String(contentsOf: current.url.deletingPathExtension().appendingPathExtension("md"), encoding: .utf8)
+        let markdown = try String(contentsOf: directory.appendingPathComponent(RecordingLayout.transcriptMarkdown), encoding: .utf8)
         #expect(markdown.contains("launch on Friday."))
     }
 

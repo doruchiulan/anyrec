@@ -36,14 +36,14 @@ flowchart TD
 
 ## Stages, in order
 
-1. **Capture ends** (`RecordingSession.finishCapture`). Writes `screen.mov`,
-   `system-audio.m4a`, `microphone.m4a`, `microphone-live.json` (when the call could
-   hear the microphone) and `call-participants.json` (what the call window showed).
+1. **Capture ends** (`RecordingSession.finishCapture`). Writes `Tracks/screen.mov`,
+   `Tracks/system-audio.m4a`, `Tracks/microphone.m4a`, `Data/microphone-live.json` (when the call could
+   hear the microphone) and `Data/call-participants.json` (what the call window showed).
    The recorder is released before anything below starts.
 2. **Mix decision** (`MixPlan.decided(for:)`). Decodes both track envelopes (shared,
    and remembered for the rest of the pass), checks bleed, measures each track with
    ffmpeg `ebur128=peak=true` (both at once, and only when the microphone does not
-   bleed), and writes `mix.json`, keyed to the tracks' and `microphone-live.json`'s
+   bleed), and writes `Cache/mix.json`, keyed to the tracks' and `microphone-live.json`'s
    size and modification time. A later run reads it instead.
 3. **Merge and transcript, side by side** (`RecordingJobs`).
    - **Merge** (`Muxer`): reads `mix.json`, copies the video from `screen.mov` (or, on a
@@ -62,7 +62,7 @@ flowchart TD
         (agreement, alias, conflict, fused voice); the owner's own voice given back to
         "Me" where the microphone spoke; "Call" lines named from the window.
      6. *Publish*: one `transcript-<engine>-<UUID>.json` per engine run (never
-        rewritten) and a `speakers-<UUID>.json`, selected in `.transcription.json`.
+        rewritten) and a `speakers-<UUID>.json`, selected in `Data/transcription.json` (all under `Data/Transcripts/`); `Transcript.md` at the top of the folder is rendered from it.
         The transcript is usable from here.
      7. *Review* (opt-in): wording patches in sections, three in flight; then competing
         names resolved. Writes `wording-<UUID>.json` and a new speakers layer, selected

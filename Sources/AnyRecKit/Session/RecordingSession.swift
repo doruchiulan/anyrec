@@ -112,15 +112,19 @@ public final class RecordingSession {
         guard configuration.recordsAnything else { throw SessionError.noTracks }
 
         let target = try await TargetResolver.resolve(capture.target, ownerPID: capture.ownerPID)
-        let plan = try OutputPlan.create(in: configuration.outputDirectory)
+        let started = Date()
+        let info = RecordingInfo(
+            title: target.describing, bundleID: target.bundleID, width: target.width,
+            height: target.height, fps: configuration.fps, audioOnly: !configuration.video,
+            id: OutputPlan.folderName(for: started), startedAt: started)
+        let plan = try OutputPlan.create(
+            in: configuration.outputDirectory, at: started,
+            title: info.title, app: RecordingMedia.appName(for: info))
         let session = RecordingSession(
             configuration: configuration, target: target, plan: plan,
             recorder: Recorder(options: configuration.options, target: target, plan: plan)
         )
-        try? RecordingInfo(
-            title: target.describing, bundleID: target.bundleID, width: target.width,
-            height: target.height, fps: configuration.fps, audioOnly: !configuration.video
-        ).write(to: plan.directory)
+        try? info.write(to: plan.directory)
         try await session.recorder.start()
         session.startedAt = Date()
         session.microphone.start()
@@ -152,7 +156,7 @@ public final class RecordingSession {
             info.timing = timing
             try? info.write(to: plan.directory)
         }
-        try? live?.write(to: plan.microphoneLive)
+        try? live?.write(to: plan.layout.writeURL("microphone-live.json"))
         if evidence.observations.contains(where: { !$0.participants.isEmpty }) {
             try? evidence.write(in: plan.directory)
         }

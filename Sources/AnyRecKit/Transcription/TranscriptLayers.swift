@@ -102,23 +102,24 @@ public struct RecordingTranscript: Sendable {
         guard let selection = TranscriptStore.selection(in: directory) else {
             guard let url = TranscriptStore.activeTranscript(in: directory), let transcript = Transcript.read(url) else { return nil }
             return RecordingTranscript(url: url, transcript: transcript,
-                                       voices: RecordingVoices.read(directory.appendingPathComponent(RecordingVoices.fileName)),
+                                       voices: RecordingVoices.read(RecordingLayout(directory: directory).readURL(RecordingVoices.fileName)),
                                        speakers: nil, wording: nil, legacyReview: nil, selection: nil)
         }
-        let url = directory.appendingPathComponent(selection.transcript)
+        let layout = RecordingLayout(directory: directory)
+        let url = layout.readURL(selection.transcript)
         guard let source = Transcript.read(url) else { return nil }
         guard let speakersName = selection.speakers else {
             return RecordingTranscript(url: url, transcript: source,
-                voices: selection.voices.flatMap { RecordingVoices.read(directory.appendingPathComponent($0)) },
+                voices: selection.voices.flatMap { RecordingVoices.read(layout.readURL($0)) },
                 speakers: nil, wording: nil,
-                legacyReview: selection.review.flatMap { TranscriptStore.decode(TranscriptReview.self, directory.appendingPathComponent($0)) },
+                legacyReview: selection.review.flatMap { TranscriptStore.decode(TranscriptReview.self, layout.readURL($0)) },
                 selection: selection)
         }
-        let speakers = TranscriptStore.decode(SpeakerLayer.self, directory.appendingPathComponent(speakersName))
+        let speakers = TranscriptStore.decode(SpeakerLayer.self, layout.readURL(speakersName))
             .flatMap { $0.source == selection.transcript && $0.lineCount == source.utterances.count ? $0 : nil }
-        let wording = selection.wording.flatMap { TranscriptStore.decode(WordingLayer.self, directory.appendingPathComponent($0)) }
+        let wording = selection.wording.flatMap { TranscriptStore.decode(WordingLayer.self, layout.readURL($0)) }
             .flatMap { $0.source == selection.transcript && $0.lineCount == source.utterances.count ? $0 : nil }
-        let legacy = selection.review.flatMap { TranscriptStore.decode(TranscriptReview.self, directory.appendingPathComponent($0)) }
+        let legacy = selection.review.flatMap { TranscriptStore.decode(TranscriptReview.self, layout.readURL($0)) }
         return RecordingTranscript(url: url, transcript: render(source, speakers: speakers, wording: wording),
                                    voices: speakers?.voices, speakers: speakers, wording: wording,
                                    legacyReview: legacy, selection: selection)

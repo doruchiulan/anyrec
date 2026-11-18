@@ -33,7 +33,7 @@ struct SummaryTests {
         #expect(summary.markdown == "Short.\n")
     }
 
-    @Test("round trips through its file with the Markdown beside it")
+    @Test("round trips through its file; the Markdown is Summary.md, not a copy beside it")
     func file() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("anyrec-summary-\(UUID().uuidString)")
@@ -47,7 +47,7 @@ struct SummaryTests {
         try summary.write(to: url)
 
         #expect(Summary.read(url) == summary)
-        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("summary-whisper.md").path))
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("summary-whisper.md").path))
     }
 }
 

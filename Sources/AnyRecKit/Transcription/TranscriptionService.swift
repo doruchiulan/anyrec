@@ -159,7 +159,7 @@ public enum TranscriptionService {
     static func cacheDirectory(for job: Job) -> URL? {
         guard let microphone = job.tracks.first(where: { $0.speaker == .me })?.url,
               let system = job.tracks.first(where: { $0.speaker == .others })?.url else { return nil }
-        let plan = OutputPlan(directory: microphone.deletingLastPathComponent())
+        let plan = OutputPlan(directory: RecordingLayout.containing(microphone).directory)
         guard plan.microphone == microphone.standardizedFileURL.resolvingSymlinksInPath(),
               plan.systemAudio == system.standardizedFileURL.resolvingSymlinksInPath() else { return nil }
         return plan.directory

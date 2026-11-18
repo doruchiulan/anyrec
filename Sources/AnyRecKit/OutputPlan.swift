@@ -7,6 +7,8 @@ extension String {
 }
 
 /// Where each of the three streams lands on disk, and what was learned alongside them.
+/// Paths come from `RecordingLayout`: a flat (older) folder's files are found where they
+/// are, anything not on disk yet is where the new layout puts it.
 public struct OutputPlan: Sendable, Equatable {
     public let directory: URL
     public let screen: URL
@@ -15,16 +17,19 @@ public struct OutputPlan: Sendable, Equatable {
     /// When the call could hear the microphone. Absent when nothing watched.
     public let microphoneLive: URL
 
+    public var layout: RecordingLayout { RecordingLayout(directory: directory) }
+
     public init(directory: URL) {
-        let directory = URL(fileURLWithPath: directory.path, isDirectory: true)
-            .resolvingSymlinksInPath().standardizedFileURL
-        self.directory = directory
-        screen = directory.appendingPathComponent("screen.mov")
-        systemAudio = directory.appendingPathComponent("system-audio.m4a")
-        microphone = directory.appendingPathComponent("microphone.m4a")
-        microphoneLive = directory.appendingPathComponent("microphone-live.json")
+        let layout = RecordingLayout(directory: directory)
+        self.directory = layout.directory
+        screen = layout.readURL("screen.mov")
+        systemAudio = layout.readURL("system-audio.m4a")
+        microphone = layout.readURL("microphone.m4a")
+        microphoneLive = layout.readURL("microphone-live.json")
     }
 
+    /// The old-style identity, `rec-YYYY-MM-DD-HHMMSS`: what `recording.json` keeps as `id`
+    /// and what a folder without a readable name is called.
     public static func folderName(for date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -33,24 +38,41 @@ public struct OutputPlan: Sendable, Equatable {
         return "rec-\(formatter.string(from: date))"
     }
 
-    /// The start a `rec-<timestamp>` folder name carries; nil for any other name.
+    /// The start a folder name carries: a `rec-<timestamp>` id, or a readable name's date
+    /// prefix; nil for any other name.
     public static func date(fromFolderName name: String) -> Date? {
-        guard name.hasPrefix("rec-") else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        return formatter.date(from: String(name.dropFirst(4)))
+        if name.hasPrefix("rec-") {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = .current
+            formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+            return formatter.date(from: String(name.dropFirst(4).prefix(17)))
+        }
+        return RecordingLayout.readableDate(fromName: name)
     }
 
-    /// Creates `<root>/rec-<timestamp>` on disk and returns the plan for it.
+    /// Creates the recording's folder on disk, with the folders it writes into, and returns
+    /// the plan for it. Named `name`, else from `title` and `app` as "2026-11-18 15.29 Title
+    /// – App" (made unique in `root`), else the old `rec-` id.
     public static func create(
-        in root: URL, named name: String? = nil, at date: Date = Date()
+        in root: URL, named name: String? = nil, at date: Date = Date(),
+        title: String? = nil, app: String? = nil
     ) throws -> OutputPlan {
-        let directory = root.appendingPathComponent(name ?? folderName(for: date))
+        let chosen: String
+        if let name {
+            chosen = name
+        } else if let title {
+            chosen = RecordingLayout.uniqueName(
+                RecordingMedia.folderName(title: title, app: app, started: date), in: root)
+        } else {
+            chosen = folderName(for: date)
+        }
+        let directory = root.appendingPathComponent(chosen)
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true
         )
-        return OutputPlan(directory: directory)
+        let plan = OutputPlan(directory: directory)
+        try plan.layout.prepare()
+        return plan
     }
 }

@@ -7,11 +7,11 @@ extension TranscriptStore {
         let modified: Date
     }
 
-    private static let silenceName = ".transcription-no-speech.json"
+    private static let silenceName = "transcription-no-speech.json"
 
     public static func noSpeechDetected(in directory: URL) -> Bool {
         let plan = OutputPlan(directory: directory)
-        guard let data = try? Data(contentsOf: plan.directory.appendingPathComponent(silenceName)),
+        guard let data = try? Data(contentsOf: plan.layout.readURL(silenceName)),
             let previous = try? JSONDecoder().decode([AudioRevision].self, from: data),
             let current = audioRevision(plan), !current.isEmpty else { return false }
         return previous == current
@@ -21,11 +21,13 @@ extension TranscriptStore {
         let plan = OutputPlan(directory: directory)
         guard let revision = audioRevision(plan), !revision.isEmpty else { return }
         try JSONEncoder().encode(revision)
-            .write(to: plan.directory.appendingPathComponent(silenceName), options: .atomic)
+            .write(to: plan.layout.writeURL(silenceName), options: .atomic)
     }
 
     static func clearNoSpeech(in directory: URL) {
-        try? FileManager.default.removeItem(at: directory.appendingPathComponent(silenceName))
+        let layout = RecordingLayout(directory: directory)
+        try? FileManager.default.removeItem(at: layout.url(silenceName))
+        try? FileManager.default.removeItem(at: layout.legacyURL(silenceName))
     }
 
     private static func audioRevision(_ plan: OutputPlan) -> [AudioRevision]? {

@@ -53,12 +53,26 @@ public enum RecordingMedia {
     // MARK: Naming
 
     /// The merged file's name for a recording folder: from its `recording.json` and the
-    /// time in its folder name. Without a `recording.json` there is nowhere to keep a
-    /// name, so the merge stays `call.mp4`, which every reader already finds.
+    /// time it started (`recording.json`, else the folder's name). Without a `recording.json`
+    /// there is nowhere to keep a name, so the merge stays `call.mp4`, which every reader already finds.
     public static func mergedName(in directory: URL, info: RecordingInfo?, audioOnly: Bool) -> String {
         guard let info else { return legacyMergedName }
         return fileName(title: info.title, app: appName(for: info),
-                        started: RecordingLibrary.started(directory), audioOnly: audioOnly)
+                        started: RecordingLibrary.started(directory, info: info), audioOnly: audioOnly)
+    }
+
+    /// "2026-11-03 10.08 Design review – Slack": a recording folder's name. The same
+    /// cleaning as the merged file's name, with the start leading so folders sort by time.
+    /// Minute resolution, no colons.
+    public static func folderName(
+        title: String, app: String?, started: Date, timeZone: TimeZone = .current
+    ) -> String {
+        let app = app.map(sanitized).map { capped($0, bytes: 40) }.flatMap { $0.isEmpty ? nil : $0 }
+        let cleaned = capped(sanitized(cleanTitle(title, app: app)), bytes: 120)
+        let name = cleaned.isEmpty ? (app ?? "Recording") : cleaned
+        var parts = [name]
+        if let app, app.caseInsensitiveCompare(name) != .orderedSame { parts.append(app) }
+        return stamp(started, timeZone: timeZone) + " " + parts.joined(separator: " – ")
     }
 
     /// "Design review – Slack – 2026-11-03 10.08.mp4": the title with its noise taken out,

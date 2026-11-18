@@ -1,7 +1,10 @@
 import Foundation
 
 public enum Defaults {
-    public static let outputRoot = "~/Desktop/AnyRec Recordings"
+    public static let outputRoot = "~/Library/Application Support/anyrec/Recordings"
+    /// Where recordings were kept before they moved into the app's own folder. Moved from
+    /// by `RecordingMigration` when the root in use is the default.
+    public static let legacyOutputRoot = "~/Desktop/AnyRec Recordings"
 }
 
 /// A window or a display, with the name to show for it.

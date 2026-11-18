@@ -50,12 +50,12 @@ struct CaptureTimingTests {
         #expect(RecordingInfo.read(directory) == info)
 
         let old = #"{"title":"Design review","bundleID":"com.tinyspeck.slackmacgap","width":10,"height":10,"fps":30}"#
-        try Data(old.utf8).write(to: directory.appendingPathComponent(RecordingInfo.fileName))
+        try Data(old.utf8).write(to: RecordingLayout(directory: directory).writeURL(RecordingInfo.fileName))
         let read = try #require(RecordingInfo.read(directory))
         #expect(read.timing == nil && read.title == "Design review")
 
         let broken = #"{"title":"Design review","width":10,"height":10,"fps":30,"timing":{"streams":7}}"#
-        try Data(broken.utf8).write(to: directory.appendingPathComponent(RecordingInfo.fileName))
+        try Data(broken.utf8).write(to: RecordingLayout(directory: directory).writeURL(RecordingInfo.fileName))
         #expect(RecordingInfo.read(directory)?.timing == nil)
         #expect(RecordingInfo.read(directory)?.title == "Design review")
     }

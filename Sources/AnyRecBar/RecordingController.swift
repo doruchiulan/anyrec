@@ -54,6 +54,9 @@ final class RecordingController {
     /// Preserved with the saved recording when capture ends.
     private(set) var note: String?
     private(set) var failure: String?
+    /// What the last change of recordings folder did, or why it was refused. Shown in
+    /// Settings › Recording › Storage.
+    var storageNotice: String?
     private(set) var canSeeScreen = Permissions.screenRecordingGranted()
 
     private(set) var setupProgress: String?
@@ -279,6 +282,7 @@ final class RecordingController {
         }
         readiness = await probe
         reloadPeople()
+        await migrateRecordings()
         await reloadLibrary()
         await refreshProviders()
         applyShortcut()
@@ -323,7 +327,7 @@ final class RecordingController {
     /// The title of the recording a voiceprint was named in, when it is still in the library.
     func recordingTitle(folder: String?) -> String? {
         guard let folder else { return nil }
-        return library.first { $0.directory.lastPathComponent == folder }?.info?.title
+        return library.first { $0.directory.lastPathComponent == folder || $0.recordingID == folder }?.info?.title
     }
 
     /// What each summary provider can do on this machine. Finding one is a search of
@@ -402,6 +406,56 @@ final class RecordingController {
         library.first { $0.directory == selection }
     }
 
+    /// The recordings folder in use.
+    var recordingsFolder: URL { URL(fileURLWithPath: configuration.outputRoot.expandingTilde) }
+
+    /// Folders something is recording or processing, which a migration leaves alone.
+    private func busyFolders() -> Set<URL> {
+        var busy = Set(working.map { RecordingLayout(directory: $0).directory })
+        if let directory = session?.plan.directory { busy.insert(directory) }
+        return busy
+    }
+
+    /// Once a launch, before the library is first read: recordings kept on the Desktop move
+    /// into the app's folder (when the default folder is in use) and every folder is brought
+    /// into the current layout. Off the main thread; nothing busy is touched.
+    func migrateRecordings() async {
+        let root = recordingsFolder
+        let isDefault = configuration.outputRoot == Defaults.outputRoot
+        let busy = busyFolders()
+        _ = await Task.detached {
+            RecordingMigration.run(root: root, movesLegacyRoot: isDefault) {
+                busy.contains(RecordingLayout(directory: $0).directory)
+            }
+        }.value
+    }
+
+    /// Settings › Recording › Storage › Change…: points the library at `folder` and moves
+    /// the recordings there. Refused, with the reason in `storageNotice`, while anything is
+    /// recording or being processed, or when the folder cannot be used.
+    func changeRecordingsFolder(to folder: URL) async {
+        guard phase == .idle, session == nil, working.isEmpty else {
+            storageNotice = "Finish the current recording and its processing before moving recordings."
+            return
+        }
+        let old = recordingsFolder
+        do { try RecordingMigration.validateMove(from: old, to: folder) } catch {
+            storageNotice = error.localizedDescription
+            return
+        }
+        let report = await Task.detached {
+            let moved = RecordingMigration.moveRoot(from: old, to: folder)
+            _ = RecordingMigration.migrateAll(in: folder)
+            return moved
+        }.value
+        configuration.outputRoot = folder.path
+        storageNotice = report.failures.isEmpty
+            ? "Moved \(Wording.count(report.moved.count)) to \(folder.path)."
+            : "Moved \(Wording.count(report.moved.count)); \(report.failures.count) could not be moved: \(report.failures.joined(separator: "; "))"
+        selection = nil
+        await reloadLibrary()
+    }
+
     /// To the Trash rather than deleted, so Finder's Put Back is the undo.
     func trash(_ entry: LibraryEntry) {
         guard !working.contains(entry.directory) else { return }
@@ -413,6 +467,29 @@ final class RecordingController {
             failure = "It could not be moved to the Trash: \(error.localizedDescription)"
         }
         Task { await reloadLibrary() }
+    }
+
+    /// Set to a recording's folder to have its page's Share button open the share menu:
+    /// how File › Share… and the list's Share… reach the one button that has a view to
+    /// hang the menu from.
+    var shareRequest: URL?
+
+    func share(_ entry: LibraryEntry) {
+        selection = entry.directory
+        shareRequest = entry.directory
+    }
+
+    /// Sharing is started from the library window, where the panel's failure notice is
+    /// not on screen, so it says so in an alert on that window.
+    func shareFailed(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't share this recording"
+        alert.informativeText = message
+        if let window = NSApplication.shared.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     func reveal(_ entry: LibraryEntry) {
@@ -428,7 +505,7 @@ final class RecordingController {
     func reloadLibrary() async {
         let read = UUID()
         libraryRead = read
-        let root = URL(fileURLWithPath: configuration.outputRoot.expandingTilde)
+        let root = recordingsFolder
         let (entries, free) = await Task.detached {
             (RecordingLibrary.entries(in: root), Wording.freeSpace(for: root.path))
         }.value

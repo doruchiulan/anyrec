@@ -29,6 +29,9 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public let noSpeechDetected: Bool
 
     public var id: URL { directory }
+    /// The old-style `rec-…` identity `recording.json` keeps, which a voiceprint's origin
+    /// names; nil before the folder was renamed.
+    public var recordingID: String? { info?.id }
     public var name: String { directory.lastPathComponent }
     /// The window's title when there is one, else the folder's name.
     public var title: String { info?.title ?? name }
@@ -44,9 +47,9 @@ public enum RecordingLibrary {
             (try? FileManager.default.contentsOfDirectory(
                 at: root, includingPropertiesForKeys: nil)) ?? []
         return folders
-            .filter { $0.lastPathComponent.hasPrefix("rec-") && isDirectory($0) }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .filter(isRecording)
             .map(entry)
+            .sorted { ($0.started, $0.name) > ($1.started, $1.name) }
     }
 
     /// Bytes under the root, for the sidebar's storage line.
@@ -57,10 +60,7 @@ public enum RecordingLibrary {
     public static func entry(at directory: URL) -> LibraryEntry {
         let plan = OutputPlan(directory: directory)
         let directory = plan.directory
-        let files =
-            (try? FileManager.default.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: [.fileSizeKey])) ?? []
-        let bytes = files.reduce(Int64(0)) {
+        let bytes = RecordingLayout.Place.allCases.flatMap { plan.layout.files(in: $0) }.reduce(Int64(0)) {
             $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         }
         let info = RecordingInfo.read(directory)
@@ -73,7 +73,7 @@ public enum RecordingLibrary {
         let summary = TranscriptStore.activeSummary(in: directory)
 
         return LibraryEntry(
-            directory: directory, started: started(directory),
+            directory: directory, started: started(directory, info: info),
             duration: duration(of: [media, plan.systemAudio, plan.microphone]),
             bytes: bytes, media: media, audioOnly: info?.audioOnly ?? false, tracks: tracks,
             transcript: transcript,
@@ -103,16 +103,25 @@ public enum RecordingLibrary {
     }
 
     /// The folder name carries the start; the creation date covers one renamed by hand.
-    public static func started(_ directory: URL) -> Date {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        if let date = formatter.date(from: String(directory.lastPathComponent.dropFirst(4))) {
-            return date
-        }
+    public static func started(_ directory: URL, info: RecordingInfo? = nil) -> Date {
+        if let known = knownStart(directory, info: info) { return known }
         let created = try? directory.resourceValues(forKeys: [.creationDateKey]).creationDate
         return created ?? .distantPast
+    }
+
+    /// `recording.json`'s `startedAt`, else a legacy `rec-` name's second, else a readable
+    /// name's minute. Nil for a folder renamed by hand with no `recording.json` to say.
+    public static func knownStart(_ directory: URL, info: RecordingInfo? = nil) -> Date? {
+        if let date = (info ?? RecordingInfo.read(directory))?.startedAt { return date }
+        return OutputPlan.date(fromFolderName: directory.lastPathComponent)
+    }
+
+    /// A folder that is a recording: named like one, or holding a `recording.json`.
+    public static func isRecording(_ directory: URL) -> Bool {
+        guard isDirectory(directory) else { return false }
+        if RecordingLayout.looksLikeRecording(directory.lastPathComponent) { return true }
+        let layout = RecordingLayout(directory: directory)
+        return FileManager.default.fileExists(atPath: layout.recordingInfo.path)
     }
 
     /// The longest of the files that exist: the tracks run side by side, so the longest

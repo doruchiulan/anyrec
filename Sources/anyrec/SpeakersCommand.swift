@@ -129,12 +129,12 @@ struct Speakers: AsyncParsableCommand {
             guard Recordings.isDirectory(url) else {
                 throw ValidationError("\(path) is not a recording folder.")
             }
-            return url
+            return Recordings.prepared(url)
         }
         guard let latest = Recordings.newest(in: URL(filePath: output.expandingTilde)) else {
             throw ValidationError("No recordings in \(output). Pass a folder instead.")
         }
-        return latest
+        return Recordings.prepared(latest)
     }
 }
 

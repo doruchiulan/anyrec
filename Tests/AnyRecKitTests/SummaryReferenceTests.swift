@@ -74,7 +74,7 @@ struct SummaryReferenceTests {
         #expect(stored.staleness(of: current.transcript, names: current.voices?.names ?? [:]) == .current)
 
         try VoiceNaming.apply(["B": "Maria"], in: directory, library: directory.appendingPathComponent("voices"))
-        let markdown = try String(contentsOf: url.deletingPathExtension().appendingPathExtension("md"), encoding: .utf8)
+        let markdown = try String(contentsOf: directory.appendingPathComponent(RecordingLayout.summaryMarkdown), encoding: .utf8)
         #expect(markdown.contains("Maria will send the report") && markdown.contains("— Maria"))
 
         let failed = try await TranscriptPass.publish(candidates, in: directory, options: TranscriptionOptions(),

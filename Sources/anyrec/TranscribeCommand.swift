@@ -77,7 +77,8 @@ struct Transcribe: AsyncParsableCommand {
 
     func run() async throws {
         let source = try resolveSource()
-        let directory = Recordings.isDirectory(source) ? source : source.deletingLastPathComponent()
+        let directory = Recordings.isDirectory(source)
+            ? source : RecordingLayout.containing(source).directory
         let job = TranscriptionService.Job(
             tracks: try tracks(of: source),
             engine: engine,
@@ -115,7 +116,7 @@ struct Transcribe: AsyncParsableCommand {
                 print(report(current.transcript, started: started, written: files))
             }
             switch summary {
-            case .written(let url): print("Wrote \(url.path)\nWrote \(url.deletingPathExtension().appendingPathExtension("md").path)")
+            case .written(let url): print("Wrote \(url.path)\nWrote \(RecordingLayout(directory: directory).directory.appendingPathComponent(RecordingLayout.summaryMarkdown).path)")
             case .failed(let reason): print("\nNo summary: \(reason)")
             case nil: break
             }
@@ -129,13 +130,13 @@ struct Transcribe: AsyncParsableCommand {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw ValidationError("\(path) does not exist.")
             }
-            return url
+            return Recordings.prepared(url)
         }
         guard let latest = Recordings.newest(in: URL(filePath: output.expandingTilde)) else {
             throw ValidationError(
                 "No recordings in \(output). Pass a folder or an audio file instead.")
         }
-        return latest
+        return Recordings.prepared(latest)
     }
 
     private func tracks(of source: URL) throws -> [TranscriptionService.Track] {

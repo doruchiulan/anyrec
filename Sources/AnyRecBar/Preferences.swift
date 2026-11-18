@@ -41,6 +41,7 @@ enum Preferences {
         static let summarize = "summarizeAfterTranscribing"
         static let summaryProvider = "summaryProvider"
         static let summaryLanguage = "summaryLanguage"
+        static let recordingsFolder = "recordingsFolder"
     }
 
     static var transcriptionOptions: TranscriptionOptions {
@@ -135,6 +136,9 @@ enum Preferences {
     static func loaded(into configuration: inout RecordingConfiguration) {
         configuration.systemAudio = defaults.bool(forKey: Key.systemAudio)
         configuration.mux = true
+        if let folder = defaults.string(forKey: Key.recordingsFolder), !folder.isEmpty {
+            configuration.outputRoot = folder
+        }
         configuration.transcribe = TranscriptionEngine(
             rawValue: defaults.string(forKey: Key.transcribe) ?? "")
         let seconds = defaults.double(forKey: Key.stopAfter)
@@ -148,6 +152,12 @@ enum Preferences {
         defaults.set(configuration.systemAudio, forKey: Key.systemAudio)
         defaults.set(configuration.transcribe?.rawValue ?? "", forKey: Key.transcribe)
         defaults.set(configuration.stopAfter ?? 0, forKey: Key.stopAfter)
+        /// Only a folder somebody chose is kept; the default follows the app.
+        if configuration.outputRoot == Defaults.outputRoot {
+            defaults.removeObject(forKey: Key.recordingsFolder)
+        } else {
+            defaults.set(configuration.outputRoot, forKey: Key.recordingsFolder)
+        }
     }
 
     /// Written only when someone picks one, so a headset in a drawer today is still the

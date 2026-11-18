@@ -31,6 +31,7 @@ struct TranscriptSilenceTests {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-no-speech-\(UUID())")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let plan = OutputPlan(directory: folder)
+        try plan.layout.prepare()
         try Data(repeating: 0, count: 2_048).write(to: plan.microphone)
         return plan
     }

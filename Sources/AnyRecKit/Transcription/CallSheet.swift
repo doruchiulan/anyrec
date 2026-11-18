@@ -42,11 +42,16 @@ public struct CallSheet: Codable, Sendable, Equatable {
             topic: nil, terms: unique(vocabulary, limit: maximumTerms))
     }
 
-    /// "2026-11-16" from "rec-2026-11-16-095833".
+    /// "2026-11-16": from `recording.json`, else a `rec-2026-11-16-095833` folder name, else
+    /// a readable name's date prefix.
     static func date(of directory: URL) -> String? {
-        let name = directory.lastPathComponent
-        guard name.hasPrefix("rec-"), name.count >= 14 else { return nil }
-        return String(name.dropFirst(4).prefix(10))
+        guard let started = RecordingLibrary.knownStart(directory) else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: started)
     }
 
     /// One pass over the whole call for its topic and terms. A failure leaves the sheet as

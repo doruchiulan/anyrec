@@ -7,10 +7,12 @@ import Foundation
 /// - **Wording** — `wording-<UUID>.json`: the review's corrections to specific lines.
 /// - **Summary** — `summary-<engine>-<UUID>.json`, with the basis it was written from.
 ///
-/// `.transcription.json` selects one of each. Every file is complete before it is selected,
-/// so a failed run leaves the previous selection in place, and nothing selected is deleted,
-/// so older versions stay on disk. Markdown and SRT beside the selected source are renderings,
-/// rewritten whenever a layer changes. Generations written before layers (a transcript,
+/// `Data/transcription.json` selects one of each. Every file is complete before it is
+/// selected, so a failed run leaves the previous selection in place, and nothing selected is
+/// deleted, so older versions stay on disk. They all live in `Data/Transcripts`
+/// (`RecordingLayout`); folders made before that kept them flat and are read as they are.
+/// `Transcript.md` and `Summary.md` at the top of the folder are
+/// renderings of the current selection, rewritten whenever the selection or a layer changes. Generations written before layers (a transcript,
 /// `voices-<UUID>.json` and `review-<UUID>.json` selected together) and recordings older
 /// than generations read as they are, and are moved into layers only when the owner
 /// changes something.
@@ -33,14 +35,13 @@ public enum TranscriptStore {
         }
     }
 
-    private static let selectionName = ".transcription.json"
-
     public static func selection(in directory: URL) -> Selection? {
         let directory = OutputPlan(directory: directory).directory
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(selectionName)),
+        let layout = RecordingLayout(directory: directory)
+        guard let data = try? Data(contentsOf: layout.selection),
             let selection = try? JSONDecoder().decode(Selection.self, from: data),
             selection.files.allSatisfy(validName),
-            FileManager.default.fileExists(atPath: directory.appendingPathComponent(selection.transcript).path)
+            FileManager.default.fileExists(atPath: layout.readURL(selection.transcript).path)
         else { return nil }
         return selection
     }
@@ -49,37 +50,36 @@ public enum TranscriptStore {
     /// file that is not an uncommitted generation.
     public static func activeTranscript(in directory: URL) -> URL? {
         let directory = OutputPlan(directory: directory).directory
-        if let selection = selection(in: directory) { return directory.appendingPathComponent(selection.transcript) }
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
-        return files.filter {
+        let layout = RecordingLayout(directory: directory)
+        if let selection = selection(in: directory) { return layout.readURL(selection.transcript) }
+        return layout.files(in: .transcripts).filter {
             $0.lastPathComponent.hasPrefix("transcript-") && $0.pathExtension == "json"
                 && UUID(uuidString: String($0.deletingPathExtension().lastPathComponent.suffix(36))) == nil
         }
             .max { (modified($0), $0.lastPathComponent) < (modified($1), $1.lastPathComponent) }
-            .map { directory.appendingPathComponent($0.lastPathComponent) }
     }
 
     /// Every file the current transcript is made of, for knowing when it last changed.
     public static func layerFiles(in directory: URL) -> [URL] {
         let directory = OutputPlan(directory: directory).directory
         guard let selection = selection(in: directory) else {
-            return [activeTranscript(in: directory), directory.appendingPathComponent(RecordingVoices.fileName)].compactMap { $0 }
+            return [activeTranscript(in: directory), RecordingLayout(directory: directory).readURL(RecordingVoices.fileName)]
+                .compactMap { $0 }
         }
         return [selection.transcript, selection.voices, selection.speakers, selection.wording, selection.summary]
-            .compactMap { $0 }.map(directory.appendingPathComponent)
+            .compactMap { $0 }.map(RecordingLayout(directory: directory).readURL)
     }
 
     public static func activeSummary(in directory: URL) -> URL? {
         let directory = OutputPlan(directory: directory).directory
-        if let selection = selection(in: directory) { return selection.summary.map(directory.appendingPathComponent) }
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        let layout = RecordingLayout(directory: directory)
+        if let selection = selection(in: directory) { return selection.summary.map(layout.readURL) }
+        let files = layout.files(in: .transcripts)
         let engine = activeTranscript(in: directory).flatMap(Transcript.read)?.engine
         return files.filter { file in
             let matches = engine.map { file.deletingPathExtension().lastPathComponent == "summary-\($0)" } ?? true
             return file.lastPathComponent.hasPrefix("summary-") && matches
         }.max { ($0.pathExtension == "json" ? 1 : 0, $0.lastPathComponent) < ($1.pathExtension == "json" ? 1 : 0, $1.lastPathComponent) }
-            .map { directory.appendingPathComponent($0.lastPathComponent) }
     }
 
     /// The transcript as it reads now, rendered from its layers.
@@ -107,14 +107,13 @@ public enum TranscriptStore {
         let selection = selection(in: directory)
         let selected = activeTranscript(in: directory)?.lastPathComponent
         let compared = Set(selection?.compared ?? [])
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let files = RecordingLayout(directory: directory).files(in: .transcripts)
         let versions = files.filter { $0.lastPathComponent.hasPrefix("transcript-") && $0.pathExtension == "json" }
             .compactMap { url -> SourceVersion? in
                 guard let transcript = Transcript.read(url) else { return nil }
                 let name = url.lastPathComponent
                 let role: SourceVersion.Role = name == selected ? .selected : compared.contains(name) ? .compared : .earlier
-                return SourceVersion(url: directory.appendingPathComponent(name), engine: transcript.engine,
+                return SourceVersion(url: url, engine: transcript.engine,
                                      written: modified(url), role: role)
             }
         let rank: (SourceVersion.Role) -> Int = { $0 == .selected ? 0 : $0 == .compared ? 1 : 2 }
@@ -136,11 +135,11 @@ public enum TranscriptStore {
 
         let source = try writeSource(transcript, in: directory, written: &written)
         let compared = try others.map { try writeSource($0, in: directory, written: &written).lastPathComponent }
-        let speakers = directory.appendingPathComponent("speakers-\(UUID().uuidString).json")
+        let speakers = RecordingLayout(directory: directory).writeURL("speakers-\(UUID().uuidString).json")
         try encode(SpeakerLayer(source: source.lastPathComponent, lineCount: transcript.utterances.count, voices: voices),
                    to: speakers)
         written.append(speakers)
-        let rendered = try renderFiles(transcript.named(voices?.names ?? [:]), beside: source, written: &written)
+        let rendered = try renderFiles(transcript.named(voices?.names ?? [:]), in: directory, written: &written)
         try save(Selection(transcript: source.lastPathComponent, voices: nil, summary: nil, review: nil,
                            speakers: speakers.lastPathComponent, wording: nil, compared: compared.isEmpty ? nil : compared),
                  in: directory)
@@ -150,7 +149,7 @@ public enum TranscriptStore {
     }
 
     private static func writeSource(_ transcript: Transcript, in directory: URL, written: inout [URL]) throws -> URL {
-        let url = directory.appendingPathComponent("transcript-\(transcript.engine)-\(UUID().uuidString).json")
+        let url = RecordingLayout(directory: directory).writeURL("transcript-\(transcript.engine)-\(UUID().uuidString).json")
         try JSONEncoder().encode(transcript).write(to: url, options: .withoutOverwriting)
         written.append(url)
         return url
@@ -169,12 +168,13 @@ public enum TranscriptStore {
         var written: [URL] = []
         var published = false
         defer { if !published { for file in written { try? FileManager.default.removeItem(at: file) } } }
-        let wordingURL = directory.appendingPathComponent("wording-\(UUID().uuidString).json")
+        let layout = RecordingLayout(directory: directory)
+        let wordingURL = layout.writeURL("wording-\(UUID().uuidString).json")
         try encode(wording, to: wordingURL)
         written.append(wordingURL)
         var layer = current.speakers ?? SpeakerLayer(source: wording.source, lineCount: wording.lineCount, voices: nil)
         layer.voices = voices
-        let speakersURL = directory.appendingPathComponent("speakers-\(UUID().uuidString).json")
+        let speakersURL = layout.writeURL("speakers-\(UUID().uuidString).json")
         try encode(layer, to: speakersURL)
         written.append(speakersURL)
         selection.wording = wordingURL.lastPathComponent
@@ -200,16 +200,16 @@ public enum TranscriptStore {
             throw TranscriptionError.engineFailed(engine: "transcript", log: "This recording's transcript could not be read.")
         }
         try change(&layer, current)
-        try encode(layer, to: directory.appendingPathComponent(name))
+        try encode(layer, to: RecordingLayout(directory: directory).writeURL(name))
         return try render(in: directory)
     }
 
     static func migrateToLayers(in directory: URL) throws {
         try pinSelection(in: directory)
         guard var selection = selection(in: directory), selection.speakers == nil,
-              let transcript = Transcript.read(directory.appendingPathComponent(selection.transcript)) else { return }
-        let voices = selection.voices.flatMap { RecordingVoices.read(directory.appendingPathComponent($0)) }
-        let speakers = directory.appendingPathComponent("speakers-\(UUID().uuidString).json")
+              let transcript = Transcript.read(RecordingLayout(directory: directory).readURL(selection.transcript)) else { return }
+        let voices = selection.voices.flatMap { RecordingVoices.read(RecordingLayout(directory: directory).readURL($0)) }
+        let speakers = RecordingLayout(directory: directory).writeURL("speakers-\(UUID().uuidString).json")
         try encode(SpeakerLayer(source: selection.transcript, lineCount: transcript.utterances.count, voices: voices), to: speakers)
         selection.speakers = speakers.lastPathComponent
         selection.voices = nil
@@ -221,7 +221,7 @@ public enum TranscriptStore {
     public static func summaryDestination(for transcript: URL) -> URL {
         let name = transcript.lastPathComponent.replacingOccurrences(of: "transcript-", with: "summary-",
                                                                     options: .anchored)
-        return OutputPlan(directory: transcript.deletingLastPathComponent()).directory.appendingPathComponent(name)
+        return RecordingLayout.containing(transcript).writeURL(name)
     }
 
     /// Writes a summary of the transcript read from `transcript` and selects it — unless
@@ -236,40 +236,83 @@ public enum TranscriptStore {
 
     @discardableResult
     public static func selectSummary(_ summary: URL, for transcript: URL) throws -> Bool {
-        let directory = OutputPlan(directory: transcript.deletingLastPathComponent()).directory
+        let directory = RecordingLayout.containing(transcript).directory
         guard activeTranscript(in: directory)?.standardizedFileURL == transcript.standardizedFileURL else { return false }
         try pinSelection(in: directory)
         guard var selection = selection(in: directory) else { return false }
         selection.summary = summary.lastPathComponent
         try save(selection, in: directory)
+        try? renderSummary(in: directory)
         return true
     }
 
     // MARK: - Rendering
 
-    /// Markdown and SRT for the selected transcript with names in, beside its source, and
-    /// the summary's Markdown with labels filled in. Renderings only: the JSON is the truth.
+    /// `Transcript.md` for the selected transcript with names in, and `Summary.md` for the
+    /// selected summary with labels filled in, at the top of the folder. Renderings only:
+    /// the JSON is the truth. Subtitles are not kept; `srt(in:)` renders them on demand.
     @discardableResult
     public static func render(in directory: URL) throws -> [URL] {
         let directory = OutputPlan(directory: directory).directory
         guard let current = RecordingTranscript.read(in: directory) else { return [] }
         var written: [URL] = []
-        let files = try renderFiles(current.named, beside: current.url, written: &written)
-        if let summary = activeSummary(in: directory), summary.pathExtension == "json", let stored = Summary.read(summary) {
-            try? stored.renderMarkdown(beside: summary, names: current.voices?.names ?? [:])
-        }
+        let files = try renderFiles(current.named, in: directory, written: &written)
+        try? renderSummary(in: directory, names: current.voices?.names)
         return files + [current.url]
     }
 
-    private static func renderFiles(_ transcript: Transcript, beside source: URL, written: inout [URL]) throws -> [URL] {
-        let base = source.deletingPathExtension()
-        let markdown = base.appendingPathExtension("md"), subtitles = base.appendingPathExtension("srt")
-        try transcript.markdown(title: source.deletingLastPathComponent().lastPathComponent)
+    /// The current transcript as SubRip text, with names in; nil when there is none. Not
+    /// kept on disk: made when something needs captions.
+    public static func srt(in directory: URL) -> String? {
+        RecordingTranscript.read(in: directory)?.named.srt
+    }
+
+    /// `Summary.md` from the selected summary; removed when there is none selected.
+    static func renderSummary(in directory: URL, names: [String: String]? = nil) throws {
+        let layout = RecordingLayout(directory: directory)
+        let target = layout.directory.appendingPathComponent(RecordingLayout.summaryMarkdown)
+        guard let summary = activeSummary(in: directory) else {
+            try? FileManager.default.removeItem(at: target)
+            return
+        }
+        if summary.pathExtension == "json", let stored = Summary.read(summary) {
+            let names = names ?? RecordingTranscript.read(in: directory)?.voices?.names ?? [:]
+            try stored.named(names).markdown.write(to: target, atomically: true, encoding: .utf8)
+        } else if let text = try? String(contentsOf: summary, encoding: .utf8) {
+            try text.write(to: target, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Writes the three renderings that are missing, from whatever is selected (or, for a
+    /// folder older than selections, the newest transcript). Used by the migration.
+    @discardableResult
+    static func renderMissing(in directory: URL) -> Bool {
+        let layout = RecordingLayout(directory: directory)
+        let top = [layout.directory.appendingPathComponent(RecordingLayout.transcriptMarkdown)]
+        let summary = layout.directory.appendingPathComponent(RecordingLayout.summaryMarkdown)
+        let fm = FileManager.default
+        var changed = false
+        if let current = RecordingTranscript.read(in: layout.directory),
+           !top.allSatisfy({ fm.fileExists(atPath: $0.path) }) {
+            var written: [URL] = []
+            changed = ((try? renderFiles(current.named, in: layout.directory, written: &written)) != nil) || changed
+        }
+        if !fm.fileExists(atPath: summary.path), activeSummary(in: layout.directory) != nil {
+            try? renderSummary(in: layout.directory)
+            changed = true
+        }
+        return changed
+    }
+
+    private static func renderFiles(
+        _ transcript: Transcript, in directory: URL, written: inout [URL]
+    ) throws -> [URL] {
+        let top = RecordingLayout(directory: directory).directory
+        let markdown = top.appendingPathComponent(RecordingLayout.transcriptMarkdown)
+        try transcript.markdown(title: top.lastPathComponent)
             .write(to: markdown, atomically: true, encoding: .utf8)
         written.append(markdown)
-        try transcript.srt.write(to: subtitles, atomically: true, encoding: .utf8)
-        written.append(subtitles)
-        return [markdown, subtitles]
+        return [markdown]
     }
 
     // MARK: - Files
@@ -283,7 +326,7 @@ public enum TranscriptStore {
     static func pinSelection(in directory: URL) throws {
         let directory = OutputPlan(directory: directory).directory
         guard selection(in: directory) == nil, let transcript = activeTranscript(in: directory) else { return }
-        let voices = directory.appendingPathComponent(RecordingVoices.fileName)
+        let voices = RecordingLayout(directory: directory).readURL(RecordingVoices.fileName)
         try save(Selection(transcript: transcript.lastPathComponent,
                            voices: FileManager.default.fileExists(atPath: voices.path) ? voices.lastPathComponent : nil,
                            summary: activeSummary(in: directory)?.lastPathComponent), in: directory)
@@ -301,7 +344,8 @@ public enum TranscriptStore {
     private static func modified(_ url: URL) -> Date { revision(of: [url]) ?? .distantPast }
 
     private static func save(_ selection: Selection, in directory: URL) throws {
-        try JSONEncoder().encode(selection).write(to: directory.appendingPathComponent(selectionName), options: .atomic)
+        try JSONEncoder().encode(selection)
+            .write(to: RecordingLayout(directory: directory).writeURL(RecordingLayout.selectionName), options: .atomic)
     }
 
     private static func validName(_ name: String) -> Bool {

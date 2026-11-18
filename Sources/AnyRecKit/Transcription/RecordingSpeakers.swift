@@ -637,7 +637,7 @@ public enum SpeakerEditing {
         var filing: RecordingVoices.Voice.Filing?
         if target == .me, let voice, let owner = saved.owner,
            let filed = saved.file(owner.name, voice.print,
-                                  origin: .init(recording: OutputPlan(directory: directory).directory.lastPathComponent)) {
+                                  origin: .init(recording: RecordingLayout(directory: directory).identity)) {
             filing = .init(person: filed.name, createdPerson: false)
         }
         if let made { saved.removeIfEmpty(made) }

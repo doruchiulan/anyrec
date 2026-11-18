@@ -16,8 +16,8 @@ public enum Waveform {
     /// The recording's envelope, read from its file when it has one and decoded (then
     /// written) when it has not. Slow the first time; call it off the main thread.
     public static func of(_ directory: URL, duration: TimeInterval) -> [Float] {
-        let cache = directory.appendingPathComponent(fileName)
-        if let data = try? Data(contentsOf: cache),
+        let layout = RecordingLayout(directory: directory)
+        if let data = try? Data(contentsOf: layout.readURL(fileName)),
             let peaks = try? JSONDecoder().decode([Float].self, from: data),
             peaks.count == columns
         {
@@ -26,7 +26,7 @@ public enum Waveform {
         let plan = OutputPlan(directory: directory)
         let peaks = peaks(of: [plan.systemAudio, plan.microphone], buckets: columns, duration: duration)
         if !peaks.isEmpty, let data = try? JSONEncoder().encode(peaks) {
-            try? data.write(to: cache, options: .atomic)
+            try? data.write(to: layout.writeURL(fileName), options: .atomic)
         }
         return peaks
     }

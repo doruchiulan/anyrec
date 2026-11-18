@@ -68,7 +68,7 @@ public struct MixPlan: Sendable, Equatable {
     public static func decide(
         systemAudio: URL, microphone: URL, live: MicrophoneLive?, using ffmpeg: String
     ) -> MixPlan {
-        let plan = OutputPlan(directory: microphone.deletingLastPathComponent())
+        let plan = OutputPlan(directory: RecordingLayout.containing(microphone).directory)
         if plan.microphone == microphone.standardizedFileURL.resolvingSymlinksInPath(),
            plan.systemAudio == systemAudio.standardizedFileURL.resolvingSymlinksInPath() {
             var decided = decided(for: plan, using: ffmpeg)

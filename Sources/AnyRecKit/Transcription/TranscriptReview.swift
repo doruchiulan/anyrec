@@ -56,7 +56,7 @@ public struct TranscriptReview: Codable, Sendable {
 
     public static func read(in directory: URL) -> TranscriptReview? {
         guard let name = TranscriptStore.selection(in: directory)?.review,
-              let data = try? Data(contentsOf: directory.appendingPathComponent(name)) else { return nil }
+              let data = try? Data(contentsOf: RecordingLayout(directory: directory).readURL(name)) else { return nil }
         return try? JSONDecoder().decode(Self.self, from: data)
     }
 }

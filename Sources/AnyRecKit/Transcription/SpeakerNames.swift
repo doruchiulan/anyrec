@@ -183,7 +183,7 @@ public enum VoiceNaming {
             throw Failure.nothingToName(folder: folder.lastPathComponent)
         }
         var library = VoiceLibrary.load(from: libraryDirectory)
-        let origin = VoiceLibrary.PrintOrigin(recording: OutputPlan(directory: folder).directory.lastPathComponent)
+        let origin = VoiceLibrary.PrintOrigin(recording: RecordingLayout(directory: folder).identity)
         var emptied: [String] = []
         for (letter, name) in names {
             guard let index = voices.voices.firstIndex(where: { $0.letter == letter }) else {

@@ -81,7 +81,7 @@ public struct MixDecision: Codable, Equatable, Sendable {
     }
 
     public static func read(in directory: URL) -> MixDecision? {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(fileName)),
+        guard let data = try? Data(contentsOf: RecordingLayout(directory: directory).readURL(fileName)),
               let decision = try? JSONDecoder().decode(MixDecision.self, from: data),
               decision.version == version else { return nil }
         return decision
@@ -89,7 +89,7 @@ public struct MixDecision: Codable, Equatable, Sendable {
 
     func write(in directory: URL) {
         guard let data = try? JSONEncoder().encode(self) else { return }
-        try? data.write(to: directory.appendingPathComponent(Self.fileName), options: .atomic)
+        try? data.write(to: RecordingLayout(directory: directory).writeURL(Self.fileName), options: .atomic)
     }
 }
 

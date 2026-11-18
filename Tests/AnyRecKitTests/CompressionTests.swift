@@ -68,7 +68,7 @@ struct CompressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(Compression.candidate(in: directory)?.lastPathComponent == mergedName)
 
-        let screen = OutputPlan(directory: directory).screen
+        let screen = RecordingLayout(directory: directory).writeURL("screen.mov")
         FileManager.default.createFile(atPath: screen.path, contents: Data())
         #expect(Compression.candidate(in: directory) == nil, "screen.mov is still the master")
         try FileManager.default.removeItem(at: screen)

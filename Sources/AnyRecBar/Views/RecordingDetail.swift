@@ -179,8 +179,8 @@ private struct RecordingPage: View {
                 Label("Show in Finder", systemImage: "folder")
             }
             .help("Show in Finder")
-            if let media = entry.media {
-                ShareLink(item: media).help("Share")
+            if entry.media != nil {
+                ShareButton(controller: controller, entry: entry)
             }
         }
         if #available(macOS 26, *) {
@@ -464,7 +464,8 @@ private struct RecordingPage: View {
     private func tick(_ index: Int, _ done: Bool) {
         guard var summary, let url = entry.summary, url.pathExtension == "json" else { return }
         summary.actions[index].done = done
-        try? summary.write(to: url, names: voices?.names ?? [:])
+        try? summary.write(to: url)
+        _ = try? TranscriptStore.render(in: entry.directory)
         self.summary = summary
     }
 
@@ -579,13 +580,16 @@ private struct RecordingPage: View {
     }
 
     private var files: some View {
-        let urls = (try? FileManager.default.contentsOfDirectory(
-            at: entry.directory, includingPropertiesForKeys: [.fileSizeKey], options: .skipsHiddenFiles)) ?? []
+        let layout = RecordingLayout(directory: entry.directory)
+        let urls = RecordingLayout.Place.allCases.flatMap { layout.files(in: $0) }
+            .filter { !$0.lastPathComponent.hasPrefix(".") }
+        let prefix = layout.directory.path + "/"
+        func label(_ url: URL) -> String { url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent }
         return VStack(spacing: 0) {
-            ForEach(urls.sorted { $0.lastPathComponent < $1.lastPathComponent }, id: \.self) { url in
+            ForEach(urls.sorted { label($0) < label($1) }, id: \.self) { url in
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
                     HStack {
-                        Text(url.lastPathComponent).font(.system(size: 13))
+                        Text(label(url)).font(.system(size: 13))
                         Spacer()
                         Text(Wording.size(Wording.bytes(of: url))).font(.system(size: 11)).foregroundStyle(.secondary)
                     }

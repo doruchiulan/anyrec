@@ -13,6 +13,7 @@ struct TranscriptAvailabilityTests {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let plan = OutputPlan(directory: folder)
+        try plan.layout.prepare()
         try Data(repeating: 0, count: 2_048).write(to: plan.microphone)
         let controller = RecordingController(completedSetup: true)
         #expect(controller.canTranscribe(RecordingLibrary.entry(at: folder)))

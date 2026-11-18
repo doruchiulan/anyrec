@@ -14,16 +14,23 @@ public struct MeetingReader: Sendable {
 
     func directories() throws -> [URL] {
         try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey])
-            .filter { $0.lastPathComponent.hasPrefix("rec-") && safeDirectory($0) }
-            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .filter { safeDirectory($0) && RecordingLibrary.isRecording($0) }
+            .map { ($0, RecordingLibrary.started($0)) }
+            .sorted { ($0.1, $0.0.lastPathComponent) > ($1.1, $1.0.lastPathComponent) }
+            .map(\.0)
     }
 
+    /// A meeting's id is its folder's name. A folder that has been renamed since an id was
+    /// handed out is still found by the `rec-` identity `recording.json` keeps. Reads both
+    /// layouts and moves nothing.
     func directory(_ id: String) throws -> URL {
-        guard id.hasPrefix("rec-"), id == (id as NSString).lastPathComponent, !id.contains("\\"),
-              safeDirectory(root.appendingPathComponent(id)) else {
-            throw MeetingReadError.invalid("Unknown meeting ID. Use an ID returned by list_meetings or search_meetings.")
-        }
-        return root.appendingPathComponent(id)
+        let invalid = MeetingReadError.invalid("Unknown meeting ID. Use an ID returned by list_meetings or search_meetings.")
+        guard !id.isEmpty, id == (id as NSString).lastPathComponent, !id.contains("\\"), !id.hasPrefix(".") else { throw invalid }
+        let direct = root.appendingPathComponent(id)
+        if safeDirectory(direct), RecordingLibrary.isRecording(direct) { return direct }
+        if id.hasPrefix("rec-"),
+           let renamed = try directories().first(where: { RecordingInfo.read($0)?.id == id }) { return renamed }
+        throw invalid
     }
 
     private func safeDirectory(_ url: URL) -> Bool {
@@ -51,9 +58,9 @@ struct MeetingSnapshot {
     init(directory: URL) throws {
         self.directory = directory
         info = read(RecordingInfo.self, file: RecordingInfo.fileName)
-        let selectionURL = directory.appendingPathComponent(".transcription.json")
+        let selectionURL = RecordingLayout(directory: directory).selection
         if FileManager.default.fileExists(atPath: selectionURL.path) {
-            if let selection = read(TranscriptStore.Selection.self, file: ".transcription.json") {
+            if let selection = read(TranscriptStore.Selection.self, file: RecordingLayout.selectionName) {
                 if selection.speakers != nil {
                     loadLayers(selection)
                 } else {
@@ -102,7 +109,7 @@ struct MeetingSnapshot {
     }
 
     private func legacySummary(engine: String?) -> String? {
-        let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let files = RecordingLayout(directory: directory).files(in: .transcripts).map(\.lastPathComponent)
         return files.filter { name in
             guard name.hasPrefix("summary-"), ["json", "md"].contains((name as NSString).pathExtension) else { return false }
             if let engine { return (name as NSString).deletingPathExtension == "summary-\(engine)" }
@@ -120,7 +127,7 @@ struct MeetingSnapshot {
     }
 
     private mutating func data(_ file: String) -> Data? {
-        let url = directory.appendingPathComponent(file)
+        let url = RecordingLayout(directory: directory).readURL(file)
         guard !file.isEmpty, file != ".", file != "..", file == (file as NSString).lastPathComponent,
               !file.contains("\\"), url.resolvingSymlinksInPath().standardizedFileURL.path == url.standardizedFileURL.path else {
             warnings.append("Blocked a file outside this meeting.")

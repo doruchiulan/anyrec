@@ -26,7 +26,7 @@ anyrec
 
     Start recording
 
-  Folder  ~/Desktop/AnyRec Recordings
+  Folder  ~/Library/Application Support/anyrec/Recordings
 
   ↑↓ move   ←→ change   ⏎ open   r record   q quit
 ```
@@ -45,13 +45,26 @@ is over rather than after:
 ```
 
 ```
-~/Desktop/AnyRec Recordings/rec-2026-07-25-131411
+~/Library/Application Support/anyrec/Recordings/2026-07-25 13.14 Huddle with Costi – Slack
   Huddle with Costi – Slack – 2026-07-25 13.14.mp4   everything together — play this one
-  system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
-  microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
-  transcript-apple-<id>.md  who said what, in order
-  transcript-apple-<id>.srt subtitles for the merged file
+  Transcript.md       who said what, in order
+  Summary.md          the summary, when there is one
+  Tracks/system-audio.m4a    2251 buffers, 43 MB, peak  -8.1 dB
+  Tracks/microphone.m4a      2251 buffers, 41 MB, peak -11.4 dB
+  Data/               recording.json, who was in the call, the transcript's layers
+  Cache/              what is worked out from the audio and can be deleted: the mix, waveform, still
 ```
+
+A recording's folder is named after the call — when it started, the window's title, the
+app — so it reads in Finder. Only the merged file, `Transcript.md` and `Summary.md` sit at
+the top; the masters are in `Tracks/`, everything the app keeps about the recording in
+`Data/` (`Data/Transcripts/` holds every version of the transcript, kept as JSON), and
+anything that can be made again in `Cache/`. Subtitles are not kept as a file; they are
+made from the current transcript when something needs them. Folders made by earlier
+versions (flat, named `rec-YYYY-MM-DD-HHMMSS`, on the Desktop) are moved here by the app
+at launch, and `anyrec transcribe`, `speakers` and `compress` bring the one folder they
+work on up to date first. Nothing is deleted. Settings › Recording › Storage shows the
+folder and can move it.
 
 Separate tracks mean you can drop your own microphone, duck one side against the
 other, or — see below — get a transcript that already knows who was talking.
@@ -285,7 +298,7 @@ truncated `.mov`.
 
 | Flag | Default | |
 |---|---|---|
-| `--output` | `~/Desktop/AnyRec Recordings` | Directory the timestamped folder is created in. |
+| `--output` | `~/Library/Application Support/anyrec/Recordings` | Directory each recording's folder is created in. |
 | `--window` | — | The window id to capture. Required unless `--display` is given. |
 | `--display` | — | The display to capture instead. |
 | `--fps` | `30` | 1–60. |
@@ -323,7 +336,7 @@ guesswork, and no engine that has to be told there are two people:
 
 ```
 anyrec transcribe                  # the newest recording
-anyrec transcribe ~/Desktop/AnyRec\ Recordings/rec-2026-07-25-131411
+anyrec transcribe ~/Library/Application\ Support/anyrec/Recordings/2026-07-25\ 13.14\ Huddle\ with\ Costi\ –\ Slack
 anyrec transcribe --engine whisper --language ro
 anyrec transcribe --engine openai   # OpenAI's API, with your own key
 ```
@@ -358,7 +371,7 @@ choose from, and the lines the review thinks are someone else's; clicking a spea
 name on any transcript line changes that line or the whole voice.
 
 ```markdown
-# rec-2026-07-25-131411
+# 2026-07-25 13.14 Huddle with Costi – Slack
 
 00:19 · English · transcribed by apple
 
@@ -369,9 +382,10 @@ wiring plan for the Costi house before we get to the budget.
 Zigbee sensors or move everything to KNX.
 ```
 
-You get `transcript-<engine>-<id>.md`, a matching `.srt` you can drop onto
-the merged file, and `.json` data. `.transcription.json` selects the active version;
-previous files remain in the recording folder. Older unversioned recordings still
+You get `Transcript.md` (and `Summary.md`) at the top of the recording's folder,
+rendered from the current version. The JSON — one source per engine run, the speakers,
+the wording review, the summary — is in `Data/Transcripts/`, and `Data/transcription.json`
+selects the active version; previous versions stay. Older unversioned recordings still
 open normally. [The processing pipeline](docs/pipeline.md) shows the full flow.
 
 Four engines:

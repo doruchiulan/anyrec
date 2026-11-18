@@ -50,6 +50,8 @@ struct AnyRecCommands: Commands {
             Divider()
             Button("Show in Finder") { controller.selectedEntry.map(controller.reveal) }
                 .keyboardShortcut("r", modifiers: [.command, .option])
+            Button("Share…") { controller.selectedEntry.map(controller.share) }
+                .disabled(controller.selectedEntry?.media == nil)
                 .disabled(controller.selectedEntry == nil)
             Button("Move to Trash") { controller.selectedEntry.map(controller.trash) }
                 .keyboardShortcut(.delete)

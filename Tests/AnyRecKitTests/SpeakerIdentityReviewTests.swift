@@ -23,14 +23,14 @@ struct SpeakerIdentityReviewTests {
         #expect(voices?.names == ["A": "Costin"])
         #expect(voices?.voices[0].print == candidates.primary.voices?.voices[0].print)
         #expect(RecordingVoices.read(in: directory) == voices)
-        #expect(Transcript.read(files[2])?.utterances == candidates.primary.transcript.utterances)
+        #expect(Transcript.read(files[1])?.utterances == candidates.primary.transcript.utterances)
         #expect(try String(contentsOf: files[0], encoding: .utf8).contains("Costin"))
         let evidence = try #require(voices?.voices[0].identityEvidence)
         #expect(!evidence.conflict && evidence.callNames == ["Costin"] && evidence.voiceprintName == "Alex")
         #expect(evidence.resolution?.name == "Costin" && evidence.resolution?.provider == options.reviewProvider)
         #expect(evidence.resolution?.reason == "The speaker introduces himself as Costin.")
         #expect(RecordingTranscript.read(in: directory)?.nameSuggestions.isEmpty == true)
-        let stored = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        let stored = RecordingLayout(directory: directory).files(in: .transcripts)
         let layers = stored.filter { $0.lastPathComponent.hasPrefix("speakers-") }
             .compactMap { try? JSONDecoder().decode(SpeakerLayer.self, from: Data(contentsOf: $0)) }
         #expect(layers.count == 2)

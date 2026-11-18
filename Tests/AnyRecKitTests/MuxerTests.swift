@@ -11,7 +11,7 @@ struct MuxerTests {
             .appendingPathComponent("anyrec-mux-\(UUID().uuidString)")
         let plan = try OutputPlan.create(in: root, named: "call")
         for track in tracks {
-            let url = plan.directory.appendingPathComponent(track)
+            let url = plan.layout.writeURL(track)
             try Data("x".utf8).write(to: url)
         }
         return plan

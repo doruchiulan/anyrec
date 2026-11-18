@@ -23,14 +23,15 @@ struct Compress: AsyncParsableCommand {
 
     func run() async throws {
         guard let ffmpeg = Muxer.ffmpegPath() else { throw ValidationError(MuxError.ffmpegNotFound.description) }
-        let folder: URL
+        let chosen: URL
         if let recording {
-            folder = URL(fileURLWithPath: recording.expandingTilde)
+            chosen = URL(fileURLWithPath: recording.expandingTilde)
         } else if let newest = Recordings.newest(in: URL(fileURLWithPath: output.expandingTilde)) {
-            folder = newest
+            chosen = newest
         } else {
             throw ValidationError("No recording found in \(output).")
         }
+        let folder = Recordings.prepared(chosen)
         guard let merged = Compression.candidate(in: folder) else {
             throw ValidationError("\(folder.lastPathComponent) has nothing to compress: no merged video, "
                 + "screen.mov still beside it, audio only, or already compressed.")

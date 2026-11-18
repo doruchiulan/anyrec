@@ -279,6 +279,14 @@ enum Wording {
 
     static let updatesFooter = "Checks github.com/doruchiulan/anyrec once a day for a newer version. Updates install when AnyRec quits, never while a recording is running or being saved."
 
+    // MARK: Sharing
+
+    /// The share menu's entry for a synced folder: "Save to OneDrive", "Save to OneDrive –
+    /// Blueprint", "Save to iCloud Drive".
+    static func saveTo(_ folder: CloudFolder) -> String {
+        "Save to \(folder.name)"
+    }
+
     // MARK: Compression
 
     static let compressionFooter = "Once a recording is saved, its video is re-encoded about 15 times smaller at the same resolution, with text in shared screens as sharp as before. It runs only while nothing is being recorded or processed and the Mac is plugged in, and stops the moment a recording starts. The audio tracks are never changed."

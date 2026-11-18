@@ -15,8 +15,10 @@ public enum Thumbnail {
     /// `recording.json` alone: there is no picture to try for, now or on the next look.
     public static func of(_ entry: LibraryEntry) async -> URL? {
         guard wanted(for: entry) else { return nil }
-        let cache = entry.directory.appendingPathComponent(fileName)
-        if FileManager.default.fileExists(atPath: cache.path) { return cache }
+        let layout = RecordingLayout(directory: entry.directory)
+        let existing = layout.readURL(fileName)
+        if FileManager.default.fileExists(atPath: existing.path) { return existing }
+        let cache = layout.writeURL(fileName)
         guard let video = entry.video else { return nil }
 
         let generator = AVAssetImageGenerator(asset: AVURLAsset(url: video))

@@ -33,18 +33,21 @@ on the clipboard for any other client:
   "mcpServers": {
     "anyrec": {
       "command": "/Applications/AnyRec.app/Contents/MacOS/AnyRec",
-      "args": ["mcp", "--recordings", "/Users/you/Desktop/AnyRec Recordings"]
+      "args": ["mcp", "--recordings", "/Users/you/Library/Application Support/anyrec/Recordings"]
     }
   }
 }
 ```
 
 The CLI serves the same thing as `anyrec mcp`, with the same `--recordings` option.
-`--recordings` defaults to `~/Desktop/AnyRec Recordings`. The folder must exist.
+`--recordings` defaults to `~/Library/Application Support/anyrec/Recordings` (the app's
+folder, or the one chosen in Settings › Recording › Storage — the app's own entry passes
+it). The folder must exist. The server reads both the current folder layout and the flat
+one older versions made, and never moves or writes a file; the app migrates recordings.
 Use a separate recordings folder to restrict which meetings the client can read.
 Removing the client configuration and stopping its subprocess disables access.
-A client that starts the server is the app macOS asks about the Desktop folder, so
-Claude or ChatGPT may ask for access to it the first time.
+A recordings folder on the Desktop or in Documents is one macOS asks the client's app
+about the first time; the default is not.
 
 For a development checkout, run `swift build --product anyrec`, then
 `swift build --show-bin-path` to locate the executable. Configure the executable
@@ -61,8 +64,10 @@ directly, not `swift run`, so build output cannot interfere with the MCP stream.
 | `get_participants` | Names observed in the call, how many seconds the call window was readable, transcript speakers and available identity evidence |
 | `get_summary` | Overview, decisions and actions with owners, timestamps and completion state, speaker labels filled with current names, and `stale` when it no longer matches; legacy Markdown when applicable |
 
-Use a `meeting_id` returned by listing or search. IDs are recording folder names,
-not paths. The server rejects traversal and symlinked meetings or artifact files.
+Use a `meeting_id` returned by listing or search. IDs are recording folder names
+("2026-11-18 15.29 QA & Doru - Blueprint – Slack"), not paths; the older `rec-YYYY-MM-DD-HHMMSS`
+id of a renamed folder is still accepted. The server rejects traversal and symlinked
+meetings, subfolders or artifact files.
 It never returns media, embeddings, voice samples, API keys or shared voice files.
 
 Listing accepts `query` for a title substring, `participant` for a partial name,

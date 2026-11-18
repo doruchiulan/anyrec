@@ -96,13 +96,13 @@ struct MergeIntegrationTests {
         defer { try? FileManager.default.removeItem(at: root) }
         /// A microphone track that is not audio: ffmpeg refuses it after reading the picture.
         try Data("not audio".utf8).write(to: plan.microphone)
-        let before = try Data(contentsOf: plan.directory.appendingPathComponent(RecordingInfo.fileName))
+        let before = try Data(contentsOf: plan.layout.recordingInfo)
 
         let outcome = await capture(plan).merged(enabled: true)
 
         if case .failed = outcome.merge {} else { Issue.record("expected a failed merge, got \(outcome.merge)") }
         #expect(FileManager.default.fileExists(atPath: plan.screen.path))
-        #expect(try Data(contentsOf: plan.directory.appendingPathComponent(RecordingInfo.fileName)) == before)
+        #expect(try Data(contentsOf: plan.layout.recordingInfo) == before)
         #expect(RecordingMedia.playable(in: plan.directory) == plan.screen)
         #expect(try leftovers(in: plan).isEmpty)
     }

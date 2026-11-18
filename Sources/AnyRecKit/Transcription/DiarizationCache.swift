@@ -23,14 +23,14 @@ enum DiarizationCache {
         _ audio: URL, in directory: URL?, diarize: (URL) async throws -> Heard
     ) async throws -> Heard {
         guard let directory, let digest = digest(of: audio) else { return try await diarize(audio) }
-        let file = directory.appendingPathComponent(fileName)
-        if let data = try? Data(contentsOf: file), let stored = try? JSONDecoder().decode(Stored.self, from: data),
+        let layout = RecordingLayout(directory: directory)
+        if let data = try? Data(contentsOf: layout.readURL(fileName)), let stored = try? JSONDecoder().decode(Stored.self, from: data),
            stored.version == Stored.version, stored.audio == digest {
             return (stored.segments, stored.prints)
         }
         let heard = try await diarize(audio)
         if let data = try? JSONEncoder().encode(Stored(audio: digest, segments: heard.segments, prints: heard.prints)) {
-            try? data.write(to: file, options: .atomic)
+            try? data.write(to: layout.writeURL(fileName), options: .atomic)
         }
         return heard
     }

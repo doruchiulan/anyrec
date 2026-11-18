@@ -338,15 +338,15 @@ struct RecordingSpeakersTests {
         let files = try TranscriptStore.publish(source, voices: voices, in: folder)
         let summary = try TranscriptStore.publishSummary(
             Summary(overview: "Ana said hi.", decisions: [], actions: [], provider: "t",
-                    basis: .init(transcript: source, names: voices.names)), for: files[2], names: voices.names)
-        let sourceData = try Data(contentsOf: files[2]), summaryData = try Data(contentsOf: summary)
+                    basis: .init(transcript: source, names: voices.names)), for: files[1], names: voices.names)
+        let sourceData = try Data(contentsOf: files[1]), summaryData = try Data(contentsOf: summary)
         let before = try #require(TranscriptStore.selection(in: folder))
 
         try SpeakerEditing.reassign([1], to: SpeakerEditing.speaker(named: "mihai", in: voices), in: folder)
 
         let current = try #require(RecordingTranscript.read(in: folder))
         #expect(current.transcript.utterances.map(\.speaker) == [.voice("A"), .voice("B")])
-        #expect(try Data(contentsOf: files[2]) == sourceData)
+        #expect(try Data(contentsOf: files[1]) == sourceData)
         #expect(try Data(contentsOf: summary) == summaryData)
         let after = try #require(TranscriptStore.selection(in: folder))
         #expect(after.transcript == before.transcript && after.wording == before.wording && after.summary == before.summary)

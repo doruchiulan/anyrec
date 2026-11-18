@@ -102,6 +102,19 @@ struct GeneralSettings: View {
 struct RecordingSettings: View {
     @Bindable var controller: RecordingController
 
+    /// Directories only. The recordings already made move to the folder chosen.
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Move Recordings Here"
+        panel.directoryURL = controller.recordingsFolder.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { await controller.changeRecordingsFolder(to: folder) }
+    }
+
     var body: some View {
         SettingsPane {
             Section {
@@ -123,10 +136,18 @@ struct RecordingSettings: View {
             }
             Section("Storage") {
                 LabeledContent("Recordings folder") {
-                    Button("Show in Finder") {
-                        NSWorkspace.shared.open(
-                            URL(fileURLWithPath: controller.configuration.outputRoot.expandingTilde))
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text(controller.recordingsFolder.path)
+                            .font(.callout).foregroundStyle(.secondary)
+                            .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                        HStack {
+                            Button("Show in Finder") { NSWorkspace.shared.open(controller.recordingsFolder) }
+                            Button("Change…") { chooseFolder() }
+                        }
                     }
+                }
+                if let notice = controller.storageNotice {
+                    Text(notice).font(.callout).foregroundStyle(.secondary)
                 }
                 LabeledContent("Used", value: "\(Wording.size(RecordingLibrary.size(of: controller.library))) in \(Wording.count(controller.library.count))")
                 LabeledContent("Available", value: Wording.size(controller.freeSpace))

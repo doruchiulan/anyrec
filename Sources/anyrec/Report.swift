@@ -29,7 +29,7 @@ enum SummaryReport {
             """
               Not merged into one file: ffmpeg is not on PATH. The two audio tracks are
               intact — install ffmpeg (brew install ffmpeg) and merge them with:
-                ffmpeg -i system-audio.m4a -i microphone.m4a \\
+                ffmpeg -i Tracks/system-audio.m4a -i Tracks/microphone.m4a \\
                   -filter_complex "[0:a][1:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
                   -map "[a]" -c:a aac call.mp4
             """
@@ -38,7 +38,7 @@ enum SummaryReport {
               Not merged into one file: ffmpeg is not on PATH, so screen.mov carries no
               audio. The separate tracks are intact — install ffmpeg (brew install ffmpeg)
               and merge them with:
-                ffmpeg -i screen.mov -i system-audio.m4a -i microphone.m4a \\
+                ffmpeg -i Tracks/screen.mov -i Tracks/system-audio.m4a -i Tracks/microphone.m4a \\
                   -filter_complex "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]" \\
                   -map 0:v -map "[a]" -c:v copy -c:a aac call.mp4
             """

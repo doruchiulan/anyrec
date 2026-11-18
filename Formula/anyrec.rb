@@ -37,7 +37,7 @@ class Anyrec < Formula
 
         anyrec doctor
 
-      Recordings land in ~/Desktop/AnyRec Recordings. ffmpeg is what merges the
+      Recordings land in ~/Library/Application Support/anyrec/Recordings. ffmpeg is what merges the
       three tracks into a playable call.mp4; run anyrec with no arguments and
       ⏎ on Transcript fetches it along with Parakeet, the on-device engine, or:
 

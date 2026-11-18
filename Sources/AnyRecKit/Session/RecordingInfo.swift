@@ -28,10 +28,18 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
     /// The merged file's video has been through `Compression` (or was found not worth
     /// it), so it is not compressed again. False in files written before compression.
     public var compressed: Bool
+    /// The old-style identity, `rec-YYYY-MM-DD-HHMMSS`, which the folder was called before
+    /// folders were named after the call. What a voiceprint's origin and older MCP ids
+    /// refer to. Nil in files written before folders were renamed.
+    public var id: String?
+    /// When capture began. The folder's name carries only the minute; this is what every
+    /// reader dates a recording by (older files fall back to the folder's name).
+    public var startedAt: Date?
 
     public init(
         title: String, bundleID: String?, width: Int, height: Int, fps: Int, audioOnly: Bool = false,
-        mergedFile: String? = nil, timing: CaptureTiming? = nil, compressed: Bool = false
+        mergedFile: String? = nil, timing: CaptureTiming? = nil, compressed: Bool = false,
+        id: String? = nil, startedAt: Date? = nil
     ) {
         self.title = title
         self.bundleID = bundleID
@@ -42,10 +50,33 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
         self.mergedFile = mergedFile
         self.timing = timing
         self.compressed = compressed
+        self.id = id
+        self.startedAt = startedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case title, bundleID, width, height, fps, audioOnly, mergedFile, timing, compressed
+        case title, bundleID, width, height, fps, audioOnly, mergedFile, timing, compressed, id, startedAt
+    }
+
+    private static func stamp() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(bundleID, forKey: .bundleID)
+        try container.encode(width, forKey: .width)
+        try container.encode(height, forKey: .height)
+        try container.encode(fps, forKey: .fps)
+        try container.encode(audioOnly, forKey: .audioOnly)
+        try container.encodeIfPresent(mergedFile, forKey: .mergedFile)
+        try container.encodeIfPresent(timing, forKey: .timing)
+        try container.encode(compressed, forKey: .compressed)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(startedAt.map { Self.stamp().string(from: $0) }, forKey: .startedAt)
     }
 
     public init(from decoder: Decoder) throws {
@@ -61,6 +92,9 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
         /// read without it.
         timing = try? container.decodeIfPresent(CaptureTiming.self, forKey: .timing)
         compressed = try container.decodeIfPresent(Bool.self, forKey: .compressed) ?? false
+        id = try? container.decodeIfPresent(String.self, forKey: .id)
+        startedAt = (try? container.decodeIfPresent(String.self, forKey: .startedAt))
+            .flatMap { $0 }.flatMap { Self.stamp().date(from: $0) }
     }
 
     /// The registry's name for the app, else nil: a bundle id is not something to show.
@@ -72,13 +106,13 @@ public struct RecordingInfo: Sendable, Equatable, Codable {
     public var isCall: Bool { bundleID.map(CallApps.isKnown) ?? false }
 
     public static func read(_ directory: URL) -> RecordingInfo? {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent(fileName))
+        guard let data = try? Data(contentsOf: RecordingLayout(directory: directory).recordingInfo)
         else { return nil }
         return try? JSONDecoder().decode(RecordingInfo.self, from: data)
     }
 
     public func write(to directory: URL) throws {
         try JSONEncoder().encode(self)
-            .write(to: directory.appendingPathComponent(Self.fileName), options: .atomic)
+            .write(to: RecordingLayout(directory: directory).writeURL(Self.fileName), options: .atomic)
     }
 }
