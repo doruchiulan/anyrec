@@ -10,7 +10,47 @@ struct TrackWriterTests {
     func keepsUsableRates() {
         #expect(TrackWriter.encodableRate(48_000) == 48_000)
         #expect(TrackWriter.encodableRate(44_100) == 44_100)
-        #expect(TrackWriter.encodableRate(96_000) == 96_000)
+    }
+
+    /// The crash on a colleague's Intel Mac (0.8.4): a microphone at 96 kHz, and
+    /// `AVAssetWriterInput` raising "96000 Hz is not a valid sample rate for Format ID 'aac '".
+    @Test("brings a studio microphone's rate down to one AAC takes")
+    func lowersHighRates() {
+        #expect(TrackWriter.encodableRate(96_000) == 48_000)
+        #expect(TrackWriter.encodableRate(192_000) == 48_000)
+        #expect(TrackWriter.encodableRate(88_200) == 44_100)
+        #expect(TrackWriter.encodableRate(176_400) == 44_100)
+    }
+
+    @Test("every source rate and channel count gives settings AVFoundation accepts")
+    func settingsApply() throws {
+        let writer = try AVAssetWriter(
+            outputURL: FileManager.default.temporaryDirectory.appendingPathComponent("rates-\(UUID()).m4a"),
+            fileType: .m4a)
+        for rate in [8_000.0, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000, 176_400, 192_000] {
+            for channels: UInt32 in [1, 2, 4, 8] {
+                var asbd = AudioStreamBasicDescription()
+                asbd.mSampleRate = rate
+                asbd.mChannelsPerFrame = channels
+                let settings = TrackWriter.audioSettings(for: asbd)
+                #expect(writer.canApply(outputSettings: settings, forMediaType: .audio),
+                        "\(Int(rate)) Hz, \(channels) channels")
+            }
+        }
+    }
+
+    @Test("a microphone at 96 kHz gets a writer instead of crashing the app")
+    func writerAt96k() throws {
+        var asbd = AudioStreamBasicDescription(
+            mSampleRate: 96_000, mFormatID: kAudioFormatLinearPCM,
+            mFormatFlags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked, mBytesPerPacket: 4,
+            mFramesPerPacket: 1, mBytesPerFrame: 4, mChannelsPerFrame: 1, mBitsPerChannel: 32, mReserved: 0)
+        var hint: CMAudioFormatDescription?
+        CMAudioFormatDescriptionCreate(allocator: nil, asbd: &asbd, layoutSize: 0, layout: nil, magicCookieSize: 0,
+                                       magicCookie: nil, extensions: nil, formatDescriptionOut: &hint)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("mic-96k-\(UUID()).m4a")
+        defer { try? FileManager.default.removeItem(at: url) }
+        _ = try TrackWriter(url: url, kind: .audio, formatHint: hint)
     }
 
     @Test("lifts a bluetooth headset's rate to one the encoder accepts")

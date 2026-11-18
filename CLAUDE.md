@@ -381,11 +381,16 @@ Invariants worth preserving:
 - Only windows in layer 0 and at least 120px on a side are offered. macOS shares
   wallpaper backstops, the menu bar, the Dock, every Control Center status item
   and the recording indicator, and none of them is a recording target.
-- Audio tracks are never encoded below 44.1 kHz. AAC here refuses the job rather
+- Audio tracks are never encoded below 44.1 kHz or above 48 kHz. AAC here refuses the job rather
   than resampling, and fails in whichever place is least helpful: `startWriting`
   when a source format hint is set, `append` when it is not. Bluetooth is what
   hits it — as an input, AirPods run HFP at 16 kHz — and the whole recording used
-  to die on it. Anything lower is lifted to 48 kHz.
+  to die on it. Anything lower is lifted to 48 kHz. Above 48 kHz it refuses as well, and
+  from `AVAssetWriterInput`'s initialiser, by raising an Objective-C exception Swift cannot
+  catch: a 96 kHz microphone (USB interfaces, some webcams) crashed 0.8.4 on its first
+  buffer. Higher rates are encoded at 44.1 kHz when a multiple of it, else 48 kHz, and every
+  input's settings go to `canApply` first, with plain 48 kHz AAC as the fallback and a
+  thrown `WriterError.unsupportedSettings` after that — never the initialiser's exception.
 - Errors that carry a message conform to `LocalizedError`, not just
   `CustomStringConvertible`. Anything reported through `localizedDescription`
   otherwise prints "the operation couldn't be completed" and a case number, which

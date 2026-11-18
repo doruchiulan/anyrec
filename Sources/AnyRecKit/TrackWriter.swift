@@ -4,6 +4,9 @@ import Foundation
 enum WriterError: Error, LocalizedError, CustomStringConvertible {
     case cannotAddInput(URL)
     case cannotStartWriting(URL, Error?)
+    /// AVAssetWriter would refuse these settings by raising an Objective-C exception,
+    /// which Swift cannot catch: it is asked first, and this is the answer.
+    case unsupportedSettings(URL, String)
 
     var description: String {
         switch self {
@@ -11,6 +14,8 @@ enum WriterError: Error, LocalizedError, CustomStringConvertible {
             "AVAssetWriter rejected the input for \(url.lastPathComponent)."
         case .cannotStartWriting(let url, let error):
             "Could not start writing \(url.lastPathComponent): \(error?.localizedDescription ?? "unknown error")."
+        case .unsupportedSettings(let url, let what):
+            "\(url.lastPathComponent) cannot be encoded as \(what)."
         }
     }
 
@@ -68,7 +73,7 @@ final class TrackWriter {
         self.url = url
         let fileType: AVFileType = if case .video = kind { .mov } else { .m4a }
         writer = try AVAssetWriter(outputURL: url, fileType: fileType)
-        input = Self.makeInput(kind: kind, formatHint: formatHint)
+        input = try Self.makeInput(kind: kind, formatHint: formatHint, writer: writer, url: url)
         input.expectsMediaDataInRealTime = true
         if case .audio = kind {
             isAudio = true
@@ -96,13 +101,38 @@ final class TrackWriter {
     /// Bluetooth is what hits this: as an input, a pair of AirPods runs at 16 kHz.
     static let lowestEncodableRate = 44_100.0
 
+    /// And above 48 kHz it refuses too — "96000 Hz is not a valid sample rate for Format ID
+    /// 'aac '" — by raising from `AVAssetWriterInput`'s initialiser, which killed the app
+    /// the moment a microphone running at 96 kHz (USB interfaces, some webcams) delivered
+    /// its first buffer. A rate above is encoded at 44.1 kHz when it is a multiple of it,
+    /// else at 48 kHz; the input resamples.
+    static let highestEncodableRate = 48_000.0
+
     static func encodableRate(_ rate: Double) -> Double {
-        rate >= lowestEncodableRate ? rate : 48_000
+        if rate >= lowestEncodableRate && rate <= highestEncodableRate { return rate }
+        if rate > highestEncodableRate, rate.truncatingRemainder(dividingBy: lowestEncodableRate) == 0 {
+            return lowestEncodableRate
+        }
+        return 48_000
     }
 
+    /// The AAC settings for a source format, before they are checked.
+    static func audioSettings(for asbd: AudioStreamBasicDescription?) -> [String: Any] {
+        [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: encodableRate(asbd?.mSampleRate ?? 48_000),
+            AVNumberOfChannelsKey: max(min(Int(asbd?.mChannelsPerFrame ?? 2), 2), 1),
+            AVEncoderBitRateKey: 128_000,
+        ]
+    }
+
+    /// Every input's settings are put to `canApply` before the input is made: the
+    /// initialiser raises an Objective-C exception for settings it refuses, which no Swift
+    /// code can catch. Audio the encoder will not take as asked falls back to plain 48 kHz
+    /// AAC at the encoder's own bitrate; anything still refused is a thrown error.
     private static func makeInput(
-        kind: Kind, formatHint: CMFormatDescription?
-    ) -> AVAssetWriterInput {
+        kind: Kind, formatHint: CMFormatDescription?, writer: AVAssetWriter, url: URL
+    ) throws -> AVAssetWriterInput {
         switch kind {
         case let .video(codec, width, height):
             let settings: [String: Any] = [
@@ -110,19 +140,24 @@ final class TrackWriter {
                 AVVideoWidthKey: width,
                 AVVideoHeightKey: height,
             ]
+            guard writer.canApply(outputSettings: settings, forMediaType: .video) else {
+                throw WriterError.unsupportedSettings(url, "\(codec.rawValue) at \(width)×\(height)")
+            }
             return AVAssetWriterInput(mediaType: .video, outputSettings: settings)
 
         case .audio:
             let asbd = formatHint.flatMap {
                 CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee
             }
-            let channels = min(Int(asbd?.mChannelsPerFrame ?? 2), 2)
-            let settings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: encodableRate(asbd?.mSampleRate ?? 48_000),
-                AVNumberOfChannelsKey: max(channels, 1),
-                AVEncoderBitRateKey: 128_000,
-            ]
+            var settings = audioSettings(for: asbd)
+            if !writer.canApply(outputSettings: settings, forMediaType: .audio) {
+                settings[AVSampleRateKey] = 48_000.0
+                settings[AVEncoderBitRateKey] = nil
+            }
+            guard writer.canApply(outputSettings: settings, forMediaType: .audio) else {
+                throw WriterError.unsupportedSettings(
+                    url, "AAC from \(Int(asbd?.mSampleRate ?? 0)) Hz, \(asbd?.mChannelsPerFrame ?? 0) channels")
+            }
             return AVAssetWriterInput(
                 mediaType: .audio, outputSettings: settings, sourceFormatHint: formatHint
             )
