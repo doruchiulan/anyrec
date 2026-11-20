@@ -139,7 +139,7 @@ extension RecordingSpeakers {
                 }
         }
         var callNames: [String] = []
-        for (name, _) in participants?.roster ?? [] where !context.isOwner(name) && !answersTaken(name) {
+        for name in context.roster where !context.isOwner(name) && !answersTaken(name) {
             callNames.append(name)
             taken.append(name)
         }

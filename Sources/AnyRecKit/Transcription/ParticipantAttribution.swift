@@ -216,7 +216,7 @@ enum ParticipantAttribution {
             guard end > start else { continue }
             previousEnd = end
             var heard: [String: Double] = [:]
-            for span in spans {
+            for span in spans.near(start, end) {
                 let overlap = min(end, span.end) - max(start, span.start)
                 guard overlap > 0 else { continue }
                 score.total += overlap
@@ -241,7 +241,7 @@ enum ParticipantAttribution {
         guard length > 0 else { return nil }
         var heard: [String: Double] = [:]
         var others = 0.0
-        for span in spans {
+        for span in spans.near(start, end) {
             let overlap = min(end, span.end) - max(start, span.start)
             guard overlap > 0 else { continue }
             if span.names.count == 1 { heard[span.names[0], default: 0] += overlap } else { others += overlap }
@@ -289,7 +289,7 @@ enum ParticipantAttribution {
     /// anyone else, or several people together, were.
     static func showsOwner(from start: TimeInterval, to end: TimeInterval, spans: [CallParticipants.Span], owners: Set<String>) -> Bool {
         var mine = 0.0, others = 0.0
-        for span in spans {
+        for span in spans.near(start, end) {
             let overlap = min(end, span.end) - max(start, span.start)
             guard overlap > 0 else { continue }
             if span.names.count == 1, owners.contains(VoiceLibrary.normalized(span.names[0])) { mine += overlap } else { others += overlap }
@@ -391,9 +391,10 @@ enum ParticipantAttribution {
         let letter = letterFor(voices, excluding: [])[VoiceLibrary.normalized(other)]
         guard letter != nil || voices.unnamed.isEmpty else { return 0 }
         var named = 0
+        let spans = evidence.spans
         for index in lines.indices where lines[index].speaker == .others {
             /// Not where the window showed the owner: that line stays for the owner to decide.
-            guard !showsOwner(from: lines[index].start, to: lines[index].end, spans: evidence.spans, owners: owners)
+            guard !showsOwner(from: lines[index].start, to: lines[index].end, spans: spans, owners: owners)
             else { continue }
             lines[index].speaker = letter.map { .voice($0) } ?? .named(other)
             named += 1

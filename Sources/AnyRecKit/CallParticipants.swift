@@ -54,12 +54,17 @@ public struct CallParticipants: Codable, Equatable, Sendable {
         let names: [String]
     }
 
+    /// Polls further apart than this say nothing about the time between them, so no span is
+    /// longer.
+    static let pollGap: TimeInterval = 1.5
+
+    /// In time order, since polls are: what `[Span].near` relies on.
     var spans: [Span] {
         guard zip(observations, observations.dropFirst()).allSatisfy({ $0.at < $1.at }) else { return [] }
         return zip(observations, observations.dropFirst()).compactMap { first, next in
             // Missing polls and changing indicators provide no evidence between their endpoints.
             guard first.at.isFinite, next.at.isFinite, first.at >= 0, !first.source.isEmpty,
-                  next.at > first.at, next.at - first.at <= 1.5, first.source == next.source else { return nil }
+                  next.at > first.at, next.at - first.at <= Self.pollGap, first.source == next.source else { return nil }
             let names = Set(first.speaking).intersection(next.speaking)
                 .filter { first.participants.contains($0) && next.participants.contains($0) }
             guard !names.isEmpty else { return nil }
@@ -89,4 +94,25 @@ public struct CallParticipants: Codable, Equatable, Sendable {
 
     /// The recording person's own tile names, where the app labelled them.
     var selfNames: Set<String> { Set(observations.compactMap(\.me)) }
+}
+
+extension [CallParticipants.Span] {
+    /// The spans that can overlap `start..<end`, found by binary search: spans are in time
+    /// order and none is longer than `pollGap`. A scan of every span for each line was 2,271
+    /// lines × 10,000 spans for one voice of a three-hour call, and the People panel took
+    /// seconds to come back after every answer.
+    func near(_ start: TimeInterval, _ end: TimeInterval) -> ArraySlice<CallParticipants.Span> {
+        let from = firstIndex(startingFrom: start - CallParticipants.pollGap)
+        let to = firstIndex(startingFrom: end)
+        return from < to ? self[from..<to] : []
+    }
+
+    private func firstIndex(startingFrom time: TimeInterval) -> Int {
+        var low = 0, high = count
+        while low < high {
+            let middle = (low + high) / 2
+            if self[middle].start < time { low = middle + 1 } else { high = middle }
+        }
+        return low
+    }
 }

@@ -50,6 +50,9 @@ public struct WordingLayer: Codable, Equatable, Sendable {
     /// What the reviewer was told about the whole call (`CallSheet`), so a change, or a word
     /// left alone, can be traced to it. Absent in layers written before it existed.
     public var callSheet: CallSheet? = nil
+    /// Lines nobody claimed that the review's model was asked about (`UnclaimedLineReview`),
+    /// answered or not, so they are not offered for asking again. Absent in older layers.
+    public var unclaimedAsked: [Int]? = nil
 }
 
 /// A recording's transcript as it reads now, rendered from its layers: the source an

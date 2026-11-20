@@ -8,6 +8,9 @@ public struct SpeakerCorrection: Codable, Equatable, Sendable, Identifiable {
     public let reason: String
     public let quote: String
     public let evidenceLine: Int
+    /// For a line nobody claimed (`UnclaimedLineReview`): whether the model was sure, which
+    /// puts it in the group offered to assign all at once. Absent for the review's own.
+    public var sure: Bool? = nil
 }
 
 struct ProposedSpeakerChange: Decodable, Sendable {
@@ -41,6 +44,24 @@ public enum TranscriptSpeakerReview {
             speakers[correction.line] = correction.to
             layer.speakers = speakers
             layer.decided.append(correction.line)
+        }
+    }
+
+    /// Accepts several at once, as one change to the speakers layer: one write and one render,
+    /// where a hundred one by one were a hundred of each. Corrections that no longer apply are
+    /// skipped; it fails only when none does.
+    @discardableResult
+    public static func apply(_ corrections: [SpeakerCorrection], in directory: URL) throws -> [URL] {
+        try TranscriptStore.updateSpeakers(in: directory) { layer, current in
+            let pending = current.pendingSpeakerChanges
+            let applying = corrections.filter(pending.contains)
+            guard !applying.isEmpty else {
+                throw TranscriptionError.engineFailed(engine: "review", log: "The transcript changed. Reopen this recording to review its current suggestions.")
+            }
+            var speakers = layer.speakers ?? current.transcript.utterances.map(\.speaker)
+            for correction in applying { speakers[correction.line] = correction.to }
+            layer.speakers = speakers
+            layer.decided.append(contentsOf: applying.map(\.line))
         }
     }
 

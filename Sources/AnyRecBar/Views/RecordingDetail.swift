@@ -19,11 +19,16 @@ final class OpenRecording {
     private(set) var transcript: Transcript?
     private(set) var voices: RecordingVoices?
     private(set) var observed: CallParticipants?
+    private var observedRead = false
     private(set) var desk: SpeakerDesk?
     private(set) var summary: RecordingSummaryPresentation?
     private(set) var legacySummary: String?
     /// The transcript with names in, worked out when it loads rather than on each redraw.
     private(set) var lines: [Utterance] = []
+    /// The inspector's transcript shows only this speaker's lines when set. The People panel
+    /// sets it to the lines nobody claimed, which are answered there one by one: 175 of them
+    /// laid out in the panel at once slowed the whole page.
+    var transcriptFilter: Speaker?
 
     init(_ entry: LibraryEntry, controller: RecordingController) {
         playback = Playback(entry)
@@ -36,9 +41,17 @@ final class OpenRecording {
         let current = RecordingTranscript.read(in: entry.directory)
         transcript = current?.transcript
         voices = current?.voices
-        observed = CallParticipants.read(in: entry.directory)
+        /// The call window's polls do not change once the call is over, and a long call's take
+        /// half a second to decode: read once, not on every answer that moves the entry.
+        if !observedRead {
+            observed = CallParticipants.read(in: entry.directory)
+            observedRead = true
+        }
         named()
-        if desk?.directory != entry.directory { desk = SpeakerDesk(directory: entry.directory, controller: controller) }
+        if desk?.directory != entry.directory {
+            desk = SpeakerDesk(directory: entry.directory, controller: controller)
+            desk?.participants = .some(observed)
+        }
         if let desk { Task { await desk.load() } }
         summary = nil
         legacySummary = nil
@@ -498,7 +511,10 @@ private struct RecordingPage: View {
     /// transcript to have speakers.
     @ViewBuilder private var speakersSection: some View {
         if let desk, let speakers = desk.speakers, transcript != nil {
-            PeoplePanel(desk: desk, speakers: speakers, playback: playback, app: entry.info?.appName)
+            PeoplePanel(desk: desk, speakers: speakers, playback: playback, app: entry.info?.appName) { speaker in
+                recording.transcriptFilter = speaker
+                showsInspector = true
+            }
         } else if let observed, !observed.roster.isEmpty {
             GroupBox {
                 ObservedParticipants(participants: observed).padding(4)
@@ -528,6 +544,7 @@ struct RecordingInspector: View {
     var body: some View {
         ResizeViewport { content }
             .inspectorColumnWidth(min: 300, ideal: 400, max: 600)
+            .onChange(of: recording.transcriptFilter) { _, filter in if filter != nil { tab = .transcript } }
             /// Only while shown: a collapsed inspector still contributes its toolbar items,
             /// which then crowded into the page's section with nothing under them.
             .toolbar {
@@ -552,7 +569,13 @@ struct RecordingInspector: View {
     private var content: some View {
         VStack(spacing: 0) {
             if tab == .transcript, transcript != nil {
-                HStack { Spacer(); TranscriptAction(controller: controller, entry: entry) }.padding(12)
+                HStack {
+                    TranscriptFilter(lines: lines, meName: recording.voices?.meName,
+                                     filter: Binding(get: { recording.transcriptFilter }, set: { recording.transcriptFilter = $0 }))
+                    Spacer()
+                    TranscriptAction(controller: controller, entry: entry)
+                }
+                .padding(12)
                 Divider()
             }
             Group {
@@ -573,7 +596,8 @@ struct RecordingInspector: View {
 
     @ViewBuilder private var transcriptLines: some View {
         if transcript != nil {
-            TranscriptList(lines: lines, meName: recording.voices?.meName, playback: playback, desk: recording.desk)
+            TranscriptList(lines: lines, meName: recording.voices?.meName, playback: playback, desk: recording.desk,
+                           filter: Binding(get: { recording.transcriptFilter }, set: { recording.transcriptFilter = $0 }))
         } else {
             TranscriptPlaceholder(controller: controller, entry: entry)
         }
@@ -775,13 +799,22 @@ private struct TranscriptList: View {
     let meName: String?
     let playback: Playback
     let desk: SpeakerDesk?
+    @Binding var filter: Speaker?
 
     var body: some View {
         let current = playback.currentLine
+        let shown = filter.map { speaker in lines.indices.filter { lines[$0].speaker == speaker } } ?? Array(lines.indices)
         ScrollViewReader { reader in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(lines.indices, id: \.self) { index in
+                    if filter != nil, shown.isEmpty {
+                        VStack(spacing: 8) {
+                            Text("No lines left here.").foregroundStyle(.secondary)
+                            Button("Show All Lines") { filter = nil }
+                        }
+                        .frame(maxWidth: .infinity).padding(.top, 40)
+                    }
+                    ForEach(shown, id: \.self) { index in
                         TranscriptRow(line: lines[index], index: index, isCurrent: index == current,
                                       meName: meName, desk: desk, playback: playback) {
                             playback.play(from: lines[index].start)
@@ -796,10 +829,48 @@ private struct TranscriptList: View {
             /// Only while playing: a click on a line seeks there, and scrolling away to read
             /// ahead while paused should not be undone.
             .onChange(of: current) { _, line in
-                guard playback.isPlaying, let line else { return }
+                guard playback.isPlaying, let line, shown.contains(line) else { return }
                 withAnimation { reader.scrollTo(line, anchor: .center) }
             }
         }
+    }
+}
+
+/// Which lines the transcript shows: all of them, or one speaker's, with how many each has.
+/// The lines nobody claimed read as "Not sure who", as the People panel calls them.
+private struct TranscriptFilter: View {
+    let lines: [Utterance]
+    let meName: String?
+    @Binding var filter: Speaker?
+
+    var body: some View {
+        var counts: [Speaker: Int] = [:]
+        var order: [Speaker] = []
+        for line in lines {
+            if counts[line.speaker] == nil { order.append(line.speaker) }
+            counts[line.speaker, default: 0] += 1
+        }
+        let speakers = order.sorted { (counts[$0] ?? 0) > (counts[$1] ?? 0) }
+        return Menu {
+            Picker("Show", selection: $filter) {
+                Text("All Lines").tag(Speaker?.none)
+                Divider()
+                ForEach(speakers, id: \.self) { speaker in
+                    Text("\(name(speaker)) (\(counts[speaker] ?? 0))").tag(Speaker?.some(speaker))
+                }
+            }
+            .pickerStyle(.inline).labelsHidden()
+        } label: {
+            Label(filter.map(name) ?? "All Lines",
+                  systemImage: filter == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+        }
+        .menuStyle(.borderlessButton).fixedSize()
+        .help("Show only one person's lines")
+        .accessibilityLabel("Show lines from")
+    }
+
+    private func name(_ speaker: Speaker) -> String {
+        speaker == .others ? "Not sure who" : Wording.label(speaker, me: meName)
     }
 }
 
@@ -817,6 +888,9 @@ private struct TranscriptRow: View, Equatable {
         a.line == b.line && a.index == b.index && a.isCurrent == b.isCurrent && a.meName == b.meName && a.desk === b.desk
     }
 
+    /// Lines nobody claimed read as the People panel and the filter call them.
+    private var label: String { line.speaker == .others ? "Not sure who" : Wording.label(line.speaker, me: meName) }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button(Wording.clock(line.start), action: play)
@@ -830,14 +904,14 @@ private struct TranscriptRow: View, Equatable {
                 Button { choosing = true } label: {
                     HStack(spacing: 6) {
                         Circle().fill(RecordingPage.colour(line.speaker)).frame(width: 8, height: 8)
-                        Text(Wording.label(line.speaker, me: meName)).font(.caption.bold())
+                        Text(label).font(.caption.bold())
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(desk == nil)
                 .help("Change who said this")
-                .accessibilityLabel("\(Wording.label(line.speaker, me: meName)). Change who said this")
+                .accessibilityLabel("\(label). Change who said this")
                 .popover(isPresented: $choosing, arrowEdge: .leading) {
                     if let desk {
                         LinePersonPicker(desk: desk, line: index, playback: playback) { choosing = false }

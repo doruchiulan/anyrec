@@ -17,7 +17,9 @@ struct RecordingMetadataLine: View {
         HStack(spacing: 5) {
             Text(Wording.meta(of: entry))
             if uploaded {
-                Image(systemName: "cloud")
+                /// The list's badge, so a synced recording looks synced everywhere.
+                Image(systemName: "icloud.fill")
+                    .foregroundStyle(Color.accentColor)
                     .accessibilityLabel("Recording available in the cloud")
                     .help("Recording available in the cloud")
             }

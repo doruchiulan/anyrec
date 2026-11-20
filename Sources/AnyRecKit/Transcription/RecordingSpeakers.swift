@@ -17,6 +17,23 @@ public struct SpeakerClip: Equatable, Hashable, Sendable {
     public var length: TimeInterval { end - start }
 
     /// A clip of one line, centred and capped, whatever the line's length.
+    /// The lines another speaker's line overlaps, in one sweep in time order. Asked of
+    /// every line against every other, per speaker, it was most of the People panel's
+    /// reload on a three-hour call.
+    public static func overlapped(_ lines: [Utterance]) -> Set<Int> {
+        let order = lines.indices.filter { !lines[$0].start.isNaN && !lines[$0].end.isNaN }.sorted { lines[$0].start < lines[$1].start }
+        var found: Set<Int> = []
+        for (position, index) in order.enumerated() {
+            let line = lines[index]
+            for other in order[(position + 1)...] {
+                let next = lines[other]
+                guard next.start < line.end else { break }
+                if next.speaker != line.speaker, next.end > line.start { found.insert(index); found.insert(other) }
+            }
+        }
+        return found
+    }
+
     public static func of(_ line: Utterance, index: Int) -> SpeakerClip {
         let length = max(0, min(line.end - line.start, maximumLength))
         let middle = (line.start + line.end) / 2
@@ -31,14 +48,15 @@ public struct SpeakerClip: Equatable, Hashable, Sendable {
     /// a part with none is filled from the rest of the call, as far as possible from the
     /// clips already taken. Fewer clips when fewer lines qualify.
     public static func clips(
-        of speaker: Speaker, in lines: [Utterance], excluding pending: Set<Int> = [], limit: Int = 3
+        of speaker: Speaker, in lines: [Utterance], excluding pending: Set<Int> = [], limit: Int = 3,
+        overlapped: Set<Int>? = nil
     ) -> [SpeakerClip] {
         guard limit > 0 else { return [] }
+        let overlapped = overlapped ?? Self.overlapped(lines)
         let qualifying = lines.indices.filter { index in
             let line = lines[index]
             return line.speaker == speaker && !pending.contains(index) && line.start.isFinite && line.end.isFinite
-                && line.end - line.start >= minimumLine
-                && !lines.contains { $0.speaker != speaker && $0.start < line.end && $0.end > line.start }
+                && line.end - line.start >= minimumLine && !overlapped.contains(index)
         }
         guard !qualifying.isEmpty else { return [] }
         let duration = max(lines.map(\.end).max() ?? 0, 1)
@@ -211,6 +229,8 @@ public struct RecordingSpeakers: Sendable {
     public let unclaimedTime: TimeInterval
     /// Corrections the review proposed for Call lines.
     public let callCorrections: [SpeakerCorrection]
+    /// Call lines the review's model has been asked about, answered or not.
+    public var askedAboutUnclaimed: Set<Int> = []
     /// Candidate names for a Call line: only the call window's roster and the window title
     /// can say anything about it.
     public let callCandidates: [SpeakerCandidate]
@@ -242,13 +262,21 @@ public struct RecordingSpeakers: Sendable {
     }
 
     public static func read(in directory: URL, library: VoiceLibrary = VoiceLibrary.load()) -> RecordingSpeakers? {
+        read(in: directory, library: library, participants: CallParticipants.read(in: OutputPlan(directory: directory).directory))
+    }
+
+    /// With the call window's polls already read: they do not change once the call is over,
+    /// and decoding them is most of a read on a long call.
+    public static func read(in directory: URL, library: VoiceLibrary = VoiceLibrary.load(), participants: CallParticipants?) -> RecordingSpeakers? {
         let directory = OutputPlan(directory: directory).directory
         guard let current = RecordingTranscript.read(in: directory) else { return nil }
-        return build(lines: current.transcript.utterances, voices: current.voices,
-                     suggestions: current.wording?.suggestions ?? current.legacyReview?.suggestions ?? [],
-                     corrections: current.pendingSpeakerChanges,
-                     participants: CallParticipants.read(in: directory), info: RecordingInfo.read(directory),
-                     library: library)
+        var speakers = build(lines: current.transcript.utterances, voices: current.voices,
+                             suggestions: current.wording?.suggestions ?? current.legacyReview?.suggestions ?? [],
+                             corrections: current.pendingSpeakerChanges,
+                             participants: participants, info: RecordingInfo.read(directory),
+                             library: library)
+        speakers.askedAboutUnclaimed = Set(current.wording?.unclaimedAsked ?? [])
+        return speakers
     }
 
     static func build(
@@ -256,6 +284,7 @@ public struct RecordingSpeakers: Sendable {
         participants: CallParticipants?, info: RecordingInfo?, library: VoiceLibrary
     ) -> RecordingSpeakers {
         let pending = Set(corrections.map(\.line))
+        let overlapped = SpeakerClip.overlapped(lines)
         let context = CandidateContext(lines: lines, voices: voices, participants: participants, info: info, library: library)
 
         /// Speakers with lines: a voice whose every line was given to someone else is gone.
@@ -285,7 +314,7 @@ public struct RecordingSpeakers: Sendable {
             return Row(
                 speaker: speaker, name: name, basis: basis,
                 talkTime: own.reduce(0) { $0 + max(0, $1.end - $1.start) }, lineCount: own.count,
-                clips: SpeakerClip.clips(of: speaker, in: lines, excluding: pending),
+                clips: SpeakerClip.clips(of: speaker, in: lines, excluding: pending, overlapped: overlapped),
                 candidates: candidates,
                 corrections: corrections.filter { $0.from == speaker },
                 fusedNames: voice?.identityEvidence?.fusedNames ?? [],
@@ -339,6 +368,15 @@ struct CandidateContext: Sendable {
     let lines: [Utterance]
     let voices: RecordingVoices?
     let participants: CallParticipants?
+    /// The call window's spans and everyone it listed, worked out once: each is a pass over
+    /// every poll.
+    let spans: [CallParticipants.Span]
+    let roster: [String]
+    /// Those of them the window showed speaking alone at some point.
+    let talkers: Set<String>
+    /// `library.person(answering:)` remembered by name: the candidate lists ask it of the same
+    /// few names thousands of times, and each asks every person.
+    private let answering = PersonLookup()
     let info: RecordingInfo?
     let library: VoiceLibrary
     let ownerNames: Set<String>
@@ -360,6 +398,10 @@ struct CandidateContext: Sendable {
         self.lines = lines
         self.voices = voices
         self.participants = participants
+        spans = participants?.spans ?? []
+        let listed = participants?.roster ?? []
+        roster = listed.map(\.name)
+        talkers = Set(listed.filter { $0.speaking > 0 }.map(\.name))
         self.info = info
         self.library = library
         let fromCall = ParticipantAttribution.callOwnerNames(participants, lines: lines).sorted()
@@ -368,10 +410,10 @@ struct CandidateContext: Sendable {
         ownerNames = owner
         callOwnerDisplayNames = fromCall
         callOwnerNames = Set(fromCall.map(VoiceLibrary.normalized))
-        if let participants, !participants.roster.isEmpty {
+        if let participants, !roster.isEmpty {
             let duration = max(lines.map(\.end).max() ?? 0, participants.observations.map(\.at).max() ?? 0)
             knownRoster = duration > 0 && participants.readable >= Self.rosterReadableShare * duration
-                ? participants.roster.map(\.name) : nil
+                ? roster : nil
         } else {
             knownRoster = nil
         }
@@ -390,7 +432,7 @@ struct CandidateContext: Sendable {
         var seen: Set<String> = []
         return offered.filter { candidate in
             let key = VoiceLibrary.normalized(candidate.name)
-            let person = library.person(answering: candidate.name)?.name ?? key
+            let person = person(answering: candidate.name)?.name ?? key
             return !taken.contains(key) && seen.insert(person).inserted
         }
     }
@@ -398,7 +440,7 @@ struct CandidateContext: Sendable {
     /// The saved person a speaker is: the one its name belongs to, else the one the voice was
     /// matched to, else the nearest print close enough to claim it.
     func person(named name: String?, voice: RecordingVoices.Voice?) -> VoiceLibrary.Person? {
-        if let name, let person = library.people.first(where: { $0.name == name }) ?? library.person(answering: name) {
+        if let name, let person = library.people.first(where: { $0.name == name }) ?? person(answering: name) {
             return person
         }
         if let saved = voice?.identityEvidence?.voiceprintName, let person = library.people.first(where: { $0.name == saved }) {
@@ -447,13 +489,12 @@ struct CandidateContext: Sendable {
     /// owner for most of the time this speaker's lines were indicated: at least three
     /// seconds of it, over two lines or more.
     func shownSpeaking(_ speaker: Speaker) -> String? {
-        let spans = participants?.spans ?? []
         guard !spans.isEmpty, !ownerNames.isEmpty else { return nil }
         var mine: [String: Double] = [:]
         var total = 0.0, turns = 0
         for line in lines where line.speaker == speaker {
             var lineMine = 0.0
-            for span in spans {
+            for span in spans.near(line.start, line.end) {
                 let overlap = min(line.end, span.end) - max(line.start, span.start)
                 guard overlap > 0 else { continue }
                 total += overlap
@@ -476,15 +517,19 @@ struct CandidateContext: Sendable {
     }
 
     /// Whether two names are one person: the same words, or one library person answering to both.
+    func person(answering name: String) -> VoiceLibrary.Person? {
+        answering.person(answering: name, in: library)
+    }
+
     func samePerson(_ a: String, _ b: String) -> Bool {
         if VoiceLibrary.normalized(a) == VoiceLibrary.normalized(b) { return true }
-        guard let first = library.person(answering: a), let second = library.person(answering: b) else { return false }
+        guard let first = person(answering: a), let second = person(answering: b) else { return false }
         return first.name == second.name
     }
 
     func isOwner(_ name: String) -> Bool {
         ownerNames.contains(VoiceLibrary.normalized(name))
-            || library.person(answering: name).map { person in person.isOwner } == true
+            || person(answering: name).map { person in person.isOwner } == true
     }
 
     /// Names carried by every speaker but `speaker`.
@@ -522,7 +567,7 @@ struct CandidateContext: Sendable {
 
         let evidence = voice?.identityEvidence
         let callNames = evidence.map { ev in (ev.callName.map { [$0] } ?? []) + ev.callNames } ?? []
-        let roster = (participants?.roster ?? []).map(\.name)
+        let roster = roster
             .filter { name in !isOwner(name) && !taken.contains { samePerson($0, name) } }
         let leftOver = roster.count == 1 ? roster[0] : nil
 
@@ -726,5 +771,19 @@ public enum SpeakerEditing {
             for line in lines { speakers[line] = speaker }
             layer.speakers = speakers
         }
+    }
+}
+
+/// What `CandidateContext.person(answering:)` has looked up. The context is a value read
+/// from many places; this is its one piece of memory, behind a lock.
+final class PersonLookup: @unchecked Sendable {
+    private let lock = NSLock()
+    private var found: [String: VoiceLibrary.Person?] = [:]
+
+    func person(answering name: String, in library: VoiceLibrary) -> VoiceLibrary.Person? {
+        if let known = lock.withLock({ found[name] }) { return known }
+        let person = library.person(answering: name)
+        lock.withLock { found[name] = person }
+        return person
     }
 }

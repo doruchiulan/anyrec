@@ -117,6 +117,66 @@ struct RecordingSpeakersTests {
         #expect(guesses == [0: "Mihai", 1: "Tudor"])
     }
 
+    @Test("an unnamed voice the call window showed as different people is asked about line by line")
+    func eachLineQuestion() {
+        let lines = [Utterance(start: 0, end: 4, text: "What's the Gen 740?", speaker: .voice("A")),
+                     Utterance(start: 10, end: 14, text: "On the other views", speaker: .voice("A")),
+                     Utterance(start: 20, end: 24, text: "So basically", speaker: .voice("A")),
+                     Utterance(start: 30, end: 34, text: "Don't recall.", speaker: .voice("A"))]
+        let window = CallParticipants(observations: (0...34).map { second in
+            let who = second < 5 ? ["Maria"] : second < 25 ? ["Tom"] : []
+            return observation(Double(second), ["Maria", "Tom"], speaking: who)
+        })
+        let result = speakers([voice("A")], lines: lines, participants: window)
+        #expect(result.questions.map(\.kind) == [.eachLine(.voice("A"), lines: [0, 1, 2, 3], guesses: [0: "Maria", 1: "Tom", 2: "Tom"], severalPeople: true)])
+    }
+
+    @Test("a voice the call window showed as one person, with the odd stray line, is still asked about whole")
+    func oneMainPersonIsNotSplit() {
+        let lines = (0..<20).map { Utterance(start: Double($0) * 10, end: Double($0) * 10 + 4, text: "Line", speaker: .voice("A")) }
+        let window = CallParticipants(observations: (0...200).map { second in
+            observation(Double(second), ["Lena", "Tom"], speaking: [second < 10 ? "Tom" : "Lena"])
+        })
+        let result = speakers([voice("A")], lines: lines, participants: window)
+        #expect(result.severalPeople(.voice("A")) == nil)
+        guard case .who? = result.questions.first?.kind else { Issue.record("expected who"); return }
+    }
+
+    @Test("too little speech to remember, or nothing clean to play, is asked about a line at a time; people never shown talking are not offered")
+    func fewLinesOneAtATime() {
+        let lines = [Utterance(start: 0, end: 1.2, text: "um", speaker: .voice("A")),
+                     Utterance(start: 10, end: 13, text: "It's last seven days.", speaker: .voice("A"))]
+        let result = speakers([voice("A")], lines: lines, participants: roster(["Ivo", "Tom"]))
+        #expect(result.questions.map(\.kind) == [.eachLine(.voice("A"), lines: [0, 1], guesses: [:], severalPeople: false)])
+        #expect(result.whoCandidates(result.row(for: .voice("A"))!).isEmpty)
+    }
+
+    @Test("the spans near a stretch are exactly the ones a full scan finds overlapping it")
+    func spansNear() {
+        let window = CallParticipants(observations: stride(from: 0.0, to: 300, by: 0.7).map { at in
+            observation(at, ["A", "B"], speaking: Int(at) % 3 == 0 ? ["A"] : ["B"])
+        })
+        let spans = window.spans
+        for start in stride(from: -2.0, to: 302, by: 3.3) {
+            let end = start + Double(Int(start * 10) % 7)
+            let near = spans.near(start, end).filter { min(end, $0.end) - max(start, $0.start) > 0 }.map(\.start)
+            let all = spans.filter { min(end, $0.end) - max(start, $0.start) > 0 }.map(\.start)
+            #expect(near == all)
+        }
+    }
+
+    @Test("the overlap sweep finds the same lines as comparing every pair")
+    func overlapSweep() {
+        let speakers: [Speaker] = [.me, .voice("A"), .voice("B")]
+        let lines = (0..<60).map { i in
+            Utterance(start: Double((i * 37) % 200), end: Double((i * 37) % 200) + Double(i % 9), text: "", speaker: speakers[i % 3])
+        }
+        let pairs = Set(lines.indices.filter { i in
+            lines.indices.contains { j in j != i && lines[j].speaker != lines[i].speaker && lines[j].start < lines[i].end && lines[j].end > lines[i].start }
+        })
+        #expect(SpeakerClip.overlapped(lines) == pairs)
+    }
+
     @Test("unclaimed bits in a call with one other person can all be theirs; the review's fixes come last")
     func bitsAndFixes() {
         var bea = voice("A", "Beatrice Cuca"); bea.identityEvidence = evidence(call: "Beatrice Cuca", print: "Beatrice Cuca")

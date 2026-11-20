@@ -33,7 +33,11 @@ struct MeetingSyncButton: View {
                 Button("Choose Folder…") { team.publish(entry) }
             }
         } label: {
-            Label(label, systemImage: symbol)
+            Label {
+                Text(label)
+            } icon: {
+                icon
+            }
         } primaryAction: {
             if let current = team.publication(entry) {
                 NSWorkspace.shared.activateFileViewerSelecting([current.directory])
@@ -79,12 +83,34 @@ struct MeetingSyncButton: View {
         let uploaded: Bool?
     }
 
-    /// The state at a glance:a cloud with a checkmark once the shared copy is up, an arrow
-    /// while it uploads or before it is synced, an exclamation mark when it needs attention.
+    /// The state at a glance. Synced is a filled cloud in the accent colour, the same as the
+    /// list's badge; not synced is the plain outline of the action, Sync. Both used to be
+    /// outlines a mark apart, and "cloud with an arrow up" read as uploaded when it meant
+    /// "not synced yet".
     private var symbol: String {
         guard team.publication(entry) != nil else { return "icloud.and.arrow.up" }
-        if team.snapshot?.failures[entry.directory] != nil { return "exclamationmark.icloud" }
-        return uploaded == false ? "arrow.clockwise.icloud" : "checkmark.icloud"
+        if team.snapshot?.failures[entry.directory] != nil { return "exclamationmark.icloud.fill" }
+        return uploaded == false ? "arrow.clockwise.icloud.fill" : "checkmark.icloud.fill"
+    }
+
+    /// A toolbar draws its items' images as templates, in the text colour, whatever
+    /// SwiftUI tint they carry: a synced cloud only shows blue as a coloured, non-template
+    /// image. Not synced stays a template, so it follows the toolbar like the other items.
+    private var icon: Image {
+        let colour: NSColor? = team.publication(entry) == nil ? nil
+            : team.snapshot?.failures[entry.directory] != nil ? .systemOrange : .controlAccentColor
+        /// Painted over the plain symbol rather than given a palette colour, which filled
+        /// the checkmark's cut-out along with the cloud.
+        guard let colour, let symbol = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .regular)) else { return Image(systemName: symbol) }
+        let tinted = NSImage(size: symbol.size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            colour.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        tinted.isTemplate = false
+        return Image(nsImage: tinted)
     }
 
     private var label: String {

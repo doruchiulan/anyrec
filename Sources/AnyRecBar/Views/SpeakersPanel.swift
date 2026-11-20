@@ -17,9 +17,30 @@ final class SpeakerDesk {
         self.controller = controller
     }
 
+    /// The call window's polls, kept from the first read or handed over by the page: they do
+    /// not change once the call is over, and decoding them was half of every read on a long call.
+    var participants: CallParticipants??
+    /// The transcript files the latest read started from, and which read that is. Every
+    /// answer reads again and also moves the library entry, whose change asks the page to
+    /// read again: the second ask finds the same files and is not made.
+    private var loadedRevision: Date??
+    private var latest: UUID?
+
     func load() async {
         let directory = directory
-        speakers = await Task.detached(priority: .userInitiated) { RecordingSpeakers.read(in: directory) }.value
+        let revision = TranscriptStore.revision(of: TranscriptStore.layerFiles(in: directory))
+        guard loadedRevision != .some(revision) else { return }
+        loadedRevision = .some(revision)
+        let read = UUID()
+        latest = read
+        let cached = participants
+        let (found, observed) = await Task.detached(priority: .userInitiated) {
+            let observed = cached ?? CallParticipants.read(in: directory)
+            return (RecordingSpeakers.read(in: directory, participants: observed), observed)
+        }.value
+        participants = .some(observed)
+        guard latest == read else { return }
+        speakers = found
     }
 
     var busy: Bool { controller.working.contains(directory) }
@@ -67,6 +88,50 @@ final class SpeakerDesk {
         perform { try SpeakerEditing.reassign(lines, to: target, in: directory) }
     }
 
+    /// Lines given to the person the call window showed during each, as one answer, one Undo.
+    func assignGuesses(_ guesses: [Int: String]) {
+        guard let speakers, !guesses.isEmpty else { return }
+        let byName = Dictionary(grouping: guesses.keys, by: { guesses[$0]! })
+        perform {
+            var written: [URL] = []
+            for (name, lines) in byName {
+                written += try SpeakerEditing.reassign(lines.sorted(), to: speakers.speaker(named: name), in: directory)
+            }
+            return written
+        }
+    }
+
+    /// The model that reads the call for the review, which also places the lines nobody claimed.
+    var reviewProvider: SummaryProvider { controller.transcriptionOptions.reviewProvider }
+
+    /// Asking the review's model who said the lines nobody claimed: true while it reads.
+    private(set) var asking = false
+
+    /// Sends the lines nobody claimed, each with the lines around it and what the call window
+    /// showed, to the review's model. Its answers come back as fixes to confirm: the ones it is
+    /// sure of as one group, the likely ones one by one. Nothing is assigned. Says what it found.
+    func askAboutUnclaimed() async -> String? {
+        guard !busy, !asking else { return nil }
+        asking = true
+        defer { asking = false }
+        let directory = directory, provider = reviewProvider
+        let result: Result<(asked: Int, placement: UnclaimedLineReview.Placement), Error> = await Task.detached(priority: .userInitiated) {
+            do { return .success(try await UnclaimedLineReview.suggest(in: directory, using: provider)) } catch { return .failure(error) }
+        }.value
+        controller.reloadPeople()
+        await controller.reloadLibrary()
+        await load()
+        switch result {
+        case .success(let outcome):
+            failure = nil
+            return Wording.unclaimedPlaced(asked: outcome.asked, sure: outcome.placement.sure.count,
+                                           likely: outcome.placement.likely.count, provider: provider.name)
+        case .failure(let error):
+            failure = error.localizedDescription
+            return nil
+        }
+    }
+
     /// "Is this Madalin?" — yes: the owner's word on the name the call window gave, which is
     /// what lets the library keep the voice.
     func confirm(_ speaker: Speaker, as name: String) {
@@ -91,11 +156,7 @@ final class SpeakerDesk {
     }
 
     func acceptAll(_ corrections: [SpeakerCorrection]) {
-        perform {
-            var written: [URL] = []
-            for correction in corrections { written += try TranscriptSpeakerReview.apply(correction, in: directory) }
-            return written
-        }
+        perform { try TranscriptSpeakerReview.apply(corrections, in: directory) }
     }
 
     /// Every answer can be taken back: the transcript's selection and layers, and the voice

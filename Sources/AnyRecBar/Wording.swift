@@ -400,6 +400,18 @@ enum Wording {
     }
 
     /// A transcript line's speaker as shown: Me by the owner's name once it is known.
+    /// What asking the review's model about the lines nobody claimed came to.
+    static func unclaimedPlaced(asked: Int, sure: Int, likely: Int, provider: String) -> String {
+        guard asked > 0 else { return "There's nothing left to ask about." }
+        guard sure + likely > 0 else { return "\(provider) couldn't tell who said any of them." }
+        let lines = { (count: Int) in count == 1 ? "1 line" : "\(count) lines" }
+        var parts: [String] = []
+        if sure > 0 { parts.append("is sure who said \(lines(sure))") }
+        if likely > 0 { parts.append("has a likely name for \(lines(likely))") }
+        let left = asked - sure - likely
+        return "\(provider) " + parts.joined(separator: " and ") + (left > 0 ? ". \(left) it couldn't tell." : ".")
+    }
+
     static func label(_ speaker: Speaker, me: String?) -> String {
         speaker == .me ? (me ?? speaker.label) : speaker.label
     }

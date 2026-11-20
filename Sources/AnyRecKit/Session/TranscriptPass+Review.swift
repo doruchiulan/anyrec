@@ -81,6 +81,27 @@ extension TranscriptPass {
             }
             try Task.checkCancellation()
 
+            /// The lines no voice claimed, read from the conversation around each: words cut off
+            /// a neighbour's sentence, a reply to a question put to someone by name.
+            let proposed = reviewed?.review.speakerChanges ?? []
+            var unclaimed = UnclaimedLineReview.Placement()
+            var unclaimedAsked: [Int]?
+            let lines = reviewed?.transcript.utterances ?? primary.transcript.utterances
+            let asked = lines.indices.filter { lines[$0].speaker == .others && !proposed.map(\.line).contains($0) }
+            if !asked.isEmpty {
+                do {
+                    unclaimed = try await UnclaimedLineReview.placement(
+                        for: asked, in: lines, voices: voices, participants: CallParticipants.read(in: directory),
+                        using: provider, progress: progress, complete: complete)
+                    unclaimedAsked = asked
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    problems.append("The lines nobody claimed could not be placed. \(error)")
+                }
+            }
+            try Task.checkCancellation()
+
             let original = primary.transcript.utterances
             let changes = reviewed.map { result in
                 zip(original.indices, result.transcript.utterances).compactMap { index, line in
@@ -92,10 +113,10 @@ extension TranscriptPass {
                 source: selection.transcript, lineCount: original.count, provider: reviewed == nil ? nil : provider,
                 changes: changes, compared: selection.compared ?? [],
                 suggestions: TranscriptReviewer.accepted(reviewed?.review.suggestions ?? [], voices: voices),
-                speakerChanges: reviewed?.review.speakerChanges ?? [],
+                speakerChanges: proposed + unclaimed.all,
                 failures: candidates.failures + (reviewed?.review.batchFailures.map(TranscriptReviewer.describe) ?? []) + problems,
                 batchFailures: reviewed?.review.batchFailures ?? [], batchCount: reviewed?.review.batchCount ?? 0,
-                notes: reviewNotes + problems, callSheet: sheet)
+                notes: reviewNotes + problems, callSheet: sheet, unclaimedAsked: unclaimedAsked)
             let worded = try TranscriptStore.publishWording(wording, voices: voices, in: directory)
             if !worded.isEmpty { files = worded }
             notes += wording.notes
