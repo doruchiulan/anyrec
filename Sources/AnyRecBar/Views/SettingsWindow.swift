@@ -152,6 +152,33 @@ struct RecordingSettings: View {
                 LabeledContent("Used", value: "\(Wording.size(RecordingLibrary.size(of: controller.library))) in \(Wording.count(controller.library.count))")
                 LabeledContent("Available", value: Wording.size(controller.freeSpace))
             }
+            /// Where synced recordings go: the one cloud copy each recording can have. Before
+            /// this it was only ever the last folder synced to, shown nowhere.
+            Section {
+                LabeledContent("Sync folder") {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if let folder = controller.team.snapshot?.state.lastFolder {
+                            Text(Wording.syncFolder(folder))
+                            Text(folder.path)
+                                .font(.callout).foregroundStyle(.secondary)
+                                .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                        } else {
+                            Text("Not chosen yet").foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            if let folder = controller.team.snapshot?.state.lastFolder {
+                                Button("Show in Finder") { NSWorkspace.shared.open(folder) }
+                            }
+                            Button("Change…") { controller.team.chooseDefaultFolder() }
+                                .disabled(controller.team.busy || controller.team.snapshot == nil)
+                        }
+                    }
+                }
+            } header: {
+                Text("Sharing")
+            } footer: {
+                Text(Wording.syncFolderFooter).settingsFooter()
+            }
             Section {
                 Toggle("Compress recordings in the background", isOn: $controller.compressesRecordings)
                 if controller.compressesRecordings,

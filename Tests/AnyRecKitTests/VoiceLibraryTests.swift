@@ -9,6 +9,31 @@ struct VoiceLibraryTests {
     private let johnAgain: Voiceprint = [0.9, 0.1, 0, 0]
     private let sarah: Voiceprint = [0, 1, 0, 0]
 
+    @Test("a directory's \"Last, First (Tag)\" answers for the person known as \"First Last\"")
+    func directoryOrder() {
+        let claudiu = VoiceLibrary.Person(name: "Claudiu", prints: [], aliases: ["Claudiu Barbura"])
+        #expect(claudiu.answers(to: "Barbura, Claudiu (Contractor)"))
+        #expect(claudiu.answers(to: "Barbura, Claudiu"))
+        #expect(!claudiu.answers(to: "Barbura, Ana (Contractor)"))
+        let stored = VoiceLibrary.Person(name: "Claudiu", prints: [], aliases: ["Barbura, Claudiu (Contractor)"])
+        #expect(stored.answers(to: "Claudiu Barbura"))
+    }
+
+    @Test("another person's call name, written the directory's way, is never filed under the owner")
+    func ownerKeepsOwnName() {
+        var library = VoiceLibrary(people: [
+            .init(name: "Doru", prints: [john], aliases: ["Doru Chiulan"], isOwner: true),
+            .init(name: "Claudiu", prints: [sarah], aliases: ["Claudiu Barbura"]),
+        ])
+        let noted = library.noteCallName("Barbura, Claudiu (Contractor)", for: "Doru")
+        let aliased = library.addAlias("Barbura, Claudiu (Contractor)", to: "Doru")
+        #expect(!noted)
+        #expect(!aliased)
+        let doru = library.people.first { $0.name == "Doru" }
+        #expect(doru?.aliases == ["Doru Chiulan"])
+        #expect(doru?.displayName == nil)
+    }
+
     @Test("names the nearest person, and only when near enough")
     func match() {
         var library = VoiceLibrary()
@@ -17,14 +42,17 @@ struct VoiceLibraryTests {
 
         #expect(library.match(johnAgain)?.name == "John")
         #expect(library.match([0, 0, 1, 0]) == nil)
-        #expect(library.match([0.6, 0.6, 0, 0])?.name == "John")
+        /// Equally close to two people names nobody; clearly closer to one names them.
+        #expect(library.match([0.6, 0.6, 0, 0]) == nil)
+        #expect(library.match([0.7, 0.5, 0, 0])?.name == "John")
     }
 
     @Test("files a second print under the same name rather than a second person")
     func enrollTwice() {
         var library = VoiceLibrary()
         library.enroll("John", john)
-        library.enroll(" John ", johnAgain)
+        /// A different condition of the same voice; a near-copy would not be added twice.
+        library.enroll(" John ", [0.7, 0.7, 0, 0])
         library.enroll("", sarah)
 
         #expect(library.names == ["John"])
@@ -189,10 +217,10 @@ struct VoiceLibraryPeopleTests {
             .init(name: "Alex", prints: [[1, 0]], aliases: ["Alex Ionescu"], displayName: "Alex Ionescu"),
             .init(name: "Maria", prints: [[0, 1]]),
         ])
-        library.enroll("alex ionescu", [0.9, 0.1])
+        library.enroll("alex ionescu", [0.8, 0.6])
         library.enroll("Sam", [0.5, 0.5])
         #expect(library.names == ["Alex", "Maria", "Sam"])
-        #expect(library.people[0].prints == [[1, 0], [0.9, 0.1]])
+        #expect(library.people[0].prints == [[1, 0], [0.8, 0.6]])
     }
 
     @Test("the owner flag is this library's; exports carry aliases but not who owns them")
@@ -226,7 +254,8 @@ struct VoiceLibraryPeopleTests {
             .init(name: "Maria", prints: [[0, 1]]),
         ])
         let theirs = VoiceLibrary(people: [
-            .init(name: "Andi", prints: [[0.9, 0.1]], aliases: ["Andrei L."], displayName: "Andrei L."),
+            /// Like Andrei's own print but not a near-copy of it (`duplicatePrint`).
+            .init(name: "Andi", prints: [[0.7, 0.7]], aliases: ["Andrei L."], displayName: "Andrei L."),
             .init(name: "Mara", prints: [[0.5, 0.5]], aliases: ["Maria", "Andi"]),
         ])
 
@@ -234,7 +263,7 @@ struct VoiceLibraryPeopleTests {
 
         #expect(mine.names == ["Andrei Lungu", "Mara", "Maria"], "names pointing at two people match nobody")
         #expect(added.people == 1 && added.prints == 2)
-        #expect(mine.people[0].prints == [[1, 0], [0.9, 0.1]])
+        #expect(mine.people[0].prints == [[1, 0], [0.7, 0.7]])
         #expect(mine.people[0].aliases.contains("Andrei L."))
         #expect(mine.people[0].displayName == "Andrei L.")
     }

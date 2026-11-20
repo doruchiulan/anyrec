@@ -63,7 +63,7 @@ public struct RecordingLayout: Sendable, Equatable {
         switch name {
         case "microphone.m4a", "system-audio.m4a", "screen.mov", "microphone-clean.m4a":
             return .tracks
-        case "recording.json", "call-participants.json", "microphone-live.json",
+        case "sync-id", "shared-copy", "recording.json", "call-participants.json", "microphone-live.json", "cloud-media-link.txt",
              selectionName, legacySelectionName, ".transcription-no-speech.json", "transcription-no-speech.json":
             return .data
         case "mix.json", "diarization.json", "waveform.json", "thumbnail.jpg", "mix.wav":

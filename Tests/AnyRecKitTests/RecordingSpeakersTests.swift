@@ -75,6 +75,95 @@ struct RecordingSpeakersTests {
         .init(letter: letter, print: print, sample: "Hello", start: 0, end: 5, name: name)
     }
 
+    // MARK: People in this call
+
+    private func evidence(call: String?, print: String? = nil) -> SpeakerIdentityEvidence {
+        var e = SpeakerIdentityEvidence(callNames: call.map { [$0] } ?? [], voiceprintName: print, conflict: false)
+        e.callName = call
+        return e
+    }
+
+    @Test("an unnamed voice asks who it is, offering the people in the call with nothing under their name")
+    func whoQuestion() {
+        let lines = [Utterance(start: 0, end: 30, text: "Can you share the screen?", speaker: .voice("A")),
+                     Utterance(start: 30, end: 40, text: "Hi", speaker: .me)]
+        let result = speakers([voice("A")], lines: lines, participants: roster(["Zaid Eliyas", "Doru"], me: "Doru"))
+        #expect(result.questions.map(\.kind) == [.who(.voice("A"), candidates: ["Zaid Eliyas"])])
+        #expect(result.state(of: result.row(for: .voice("A"))!) == .unnamed)
+    }
+
+    @Test("a name only the call window gave asks for a yes; one a saved voice backs does not")
+    func confirmQuestion() {
+        var madalin = voice("A", "Madalin Marc"); madalin.identityEvidence = evidence(call: "Madalin Marc")
+        var vladimir = voice("B", "Vladimir Tikhonov"); vladimir.identityEvidence = evidence(call: "Vladimir Tikhonov", print: "Vladimir Tikhonov")
+        let lines = [Utterance(start: 0, end: 30, text: "Hello", speaker: .voice("A")), Utterance(start: 30, end: 60, text: "Hi", speaker: .voice("B"))]
+        let result = speakers([madalin, vladimir], lines: lines)
+        #expect(result.questions.map(\.kind) == [.confirm(.voice("A"), name: "Madalin Marc")])
+        #expect(result.state(of: result.row(for: .voice("A"))!) == .newFromCallWindow)
+        #expect(result.state(of: result.row(for: .voice("B"))!) == .recognised)
+    }
+
+    @Test("a voice the call window saw as two people is sorted line by line, guessed from who it showed")
+    func sortQuestion() {
+        var mixed = voice("A"); mixed.identityEvidence = { var e = evidence(call: nil); e.fusedNames = ["Mihai", "Tudor"]; return e }()
+        let lines = [Utterance(start: 0, end: 4, text: "Can everyone see my screen?", speaker: .voice("A")),
+                     Utterance(start: 5, end: 8, text: "Yes, we can.", speaker: .voice("A"))]
+        let window = CallParticipants(observations: (0...8).map {
+            observation(Double($0), ["Mihai", "Tudor"], speaking: [$0 < 5 ? "Mihai" : "Tudor"])
+        })
+        let result = speakers([mixed], lines: lines, participants: window)
+        guard case .sort(_, let names, let sorted, let guesses)? = result.questions.first?.kind else { Issue.record("no sort question"); return }
+        #expect(names == ["Mihai", "Tudor"] && sorted == [0, 1])
+        #expect(guesses == [0: "Mihai", 1: "Tudor"])
+    }
+
+    @Test("unclaimed bits in a call with one other person can all be theirs; the review's fixes come last")
+    func bitsAndFixes() {
+        var bea = voice("A", "Beatrice Cuca"); bea.identityEvidence = evidence(call: "Beatrice Cuca", print: "Beatrice Cuca")
+        let lines = [Utterance(start: 0, end: 30, text: "Am terminat", speaker: .voice("A")),
+                     Utterance(start: 30, end: 31, text: "Asa.", speaker: .others),
+                     Utterance(start: 31, end: 40, text: "Bine", speaker: .me)]
+        let fix = SpeakerCorrection(line: 2, from: .me, to: .voice("A"), reason: "It answers you.", quote: "Bine", evidenceLine: 0)
+        let result = speakers([bea], lines: lines, participants: roster(["Beatrice Cuca", "Doru"], me: "Doru"), corrections: [fix])
+        #expect(result.questions.map(\.kind) == [.unnamedBits(lines: [1], seconds: 1, onlyOther: .voice("A")), .fixes([fix])])
+    }
+
+    @Test("two names the library knows as one person ask whether they are the same person")
+    func samePersonByName() {
+        var vladimir = voice("A", "Vladimir Tikhonov"); vladimir.identityEvidence = evidence(call: "Vladimir Tikhonov", print: "Vladimir Tikhonov")
+        let lines = [Utterance(start: 0, end: 60, text: "Okay, hold on.", speaker: .voice("A")),
+                     Utterance(start: 60, end: 64, text: "November 18 baseline", speaker: .named("Vova"))]
+        let library = VoiceLibrary(people: [.init(name: "Vladimir Tikhonov", prints: [[1, 0]], aliases: ["Vova"])])
+        let result = speakers([vladimir], lines: lines, library: library)
+        #expect(result.questions.contains { $0.kind == .samePerson(.voice("A"), .named("Vova")) })
+    }
+
+    @Test("people the call window listed who never spoke are listed as such, never the person recording")
+    func silentPeople() {
+        let result = speakers([voice("A", "Ana")], participants: roster(["Ana", "Radu Stan", "Doru"], me: "Doru"))
+        #expect(result.silentPeople == ["Radu Stan"])
+    }
+
+    @Test("a line goes to you, the speakers, the rest of the call, then the library A to Z, each person once")
+    func lineChoices() {
+        let library = VoiceLibrary(people: [
+            .init(name: "Doru", prints: [], aliases: ["Doru Chiulan"], isOwner: true),
+            .init(name: "Bogdan", prints: [], aliases: ["Bogdan Pop"]),
+            .init(name: "Zaid", prints: [], displayName: "Zaid Eliyas"),
+            .init(name: "Cosmina", prints: []),
+            .init(name: "Ana", prints: [], displayName: "Ana Ionescu"),
+        ])
+        let lines = [Utterance(start: 0, end: 5, text: "Hello", speaker: .voice("A")),
+                     Utterance(start: 6, end: 8, text: "Hm", speaker: .others)]
+        let result = speakers([voice("A", "Bogdan Pop")], lines: lines,
+                              participants: roster(["Bogdan Pop", "Ana Ionescu", "Doru Chiulan"], me: "Doru Chiulan"),
+                              library: library)
+        let choices = result.lineChoices
+        #expect(choices.speakers == [.me, .voice("A")])
+        #expect(choices.callNames == ["Ana Ionescu"])
+        #expect(choices.library.map(\.shownName) == ["Cosmina", "Zaid Eliyas"])
+    }
+
     @Test("the one roster name nobody has yet is offered first, and the owner's tile never")
     func onlyOneLeft() {
         let result = speakers([voice("A", "Bogdan Pop"), voice("B")],
@@ -363,7 +452,7 @@ struct RecordingSpeakersTests {
         let library = folder.appendingPathComponent("library")
         var a = voice("A", print: [1, 0])
         a.identityEvidence = { var e = SpeakerIdentityEvidence(callNames: ["Ana"], voiceprintName: "Bogdan", conflict: true); e.callName = "Ana"; return e }()
-        let lines = [Utterance(start: 0, end: 4, text: "Hi", speaker: .voice("A"))]
+        let lines = [Utterance(start: 0, end: 30, text: "Hi", speaker: .voice("A"))]
         try TranscriptStore.publish(Transcript(utterances: lines, language: "en", engine: "parakeet"),
                                     voices: RecordingVoices(voices: [a]), in: folder)
 

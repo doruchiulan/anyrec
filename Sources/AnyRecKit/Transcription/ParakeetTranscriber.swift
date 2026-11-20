@@ -1,4 +1,6 @@
 import AVFoundation
+import CoreML
+import Darwin
 import FluidAudio
 import Foundation
 
@@ -13,6 +15,32 @@ public struct ParakeetTranscriber: Transcriber {
         guard ParakeetSetup.isReady else { throw TranscriptionError.parakeetNotSetUp }
     }
 
+    private static var encoderComputeUnits: MLComputeUnits? {
+        #if arch(x86_64)
+        var translated: Int32 = 0
+        var size = MemoryLayout.size(ofValue: translated)
+        let status = sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0)
+        if status == 0 { return translated == 0 ? .cpuAndGPU : nil }
+        // Native Intel can omit the Rosetta sysctl.
+        return errno == ENOENT ? .cpuAndGPU : nil
+        #else
+        return nil
+        #endif
+    }
+
+    /// How many chunks FluidAudio transcribes at once. Each is a synchronous CoreML
+    /// prediction on a thread of Swift's shared pool. On Intel, with no Neural Engine, each
+    /// runs on the CPU, which CoreML already spreads over every core, so FluidAudio's four
+    /// at once only fought over the same cores and held more of the pool for minutes. Apple
+    /// silicon keeps FluidAudio's default: there one at a time made Parakeet slower.
+    static var chunkConcurrency: Int {
+        #if arch(x86_64)
+        return 1
+        #else
+        return ASRConfig.default.parallelChunkConcurrency
+        #endif
+    }
+
     /// `regions` are not handed to the model — it reads the file whole, and a TDT model
     /// does not invent over silence the way whisper does — but a line it places where
     /// nobody was speaking is dropped, since that is the only kind it gets wrong there.
@@ -21,8 +49,10 @@ public struct ParakeetTranscriber: Transcriber {
     ) async throws -> Speech {
         SpeakerSetup.quiet()
         ModelNetwork.offline()
-        let models = try await AsrModels.load(from: ParakeetSetup.folder, version: .v3)
-        let manager = AsrManager(config: .default, models: models)
+        let models = try await AsrModels.load(
+            from: ParakeetSetup.folder, version: .v3,
+            encoderComputeUnits: Self.encoderComputeUnits)
+        let manager = AsrManager(config: ASRConfig(parallelChunkConcurrency: Self.chunkConcurrency), models: models)
         var state = TdtDecoderState.make(decoderLayers: 2)
         let hint = language.flatMap { Language(rawValue: String($0.prefix(2)).lowercased()) }
         let result = try await manager.transcribe(url, decoderState: &state, language: hint)

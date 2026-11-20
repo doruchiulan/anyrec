@@ -43,16 +43,20 @@ No provisioning profile is needed for this Developer ID distribution.
 1. Update `version:` in `Sources/anyrec/AnyRec.swift` and commit the intended app
    changes, workflow, scripts, and required resources. A tag contains committed
    files only; untracked local files cannot be built on GitHub.
-2. Push that commit, then create and push its matching version tag:
+2. Write `release-notes/X.Y.Z.md`: what changed, for the people installing it, in
+   headings and bullets (see the earlier files there), ending with the Downloads
+   section. The workflow publishes it as the release's notes and refuses to start
+   without it, so commit it with the version bump.
+3. Push that commit, then create and push its matching version tag:
 
    ```bash
    git tag -a v0.4.0 -m 'AnyRec 0.4.0'
    git push origin v0.4.0
    ```
 
-3. Follow **Actions → Release**. Publication happens only after tests, signing,
+4. Follow **Actions → Release**. Publication happens only after tests, signing,
    notarization, archive checks, and artifact upload succeed.
-4. Update the Homebrew formula and cask version/checksums separately if distributing
+5. Update the Homebrew formula and cask version/checksums separately if distributing
    through the tap. The workflow does not edit those files.
 
 Use a new version for each release; the commands above illustrate `v0.4.0`.

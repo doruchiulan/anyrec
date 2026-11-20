@@ -181,6 +181,7 @@ final class RecordingController {
 
     /// Everything under the output folder, newest first, for the library window and the
     /// panel's Recent rows. Read off the disk whenever it may have changed.
+    let team = TeamLibrary()
     private(set) var library: [LibraryEntry] = []
     /// What the library window has open. Set by the panel's "Open in AnyRec" too.
     var selection: URL?
@@ -272,6 +273,7 @@ final class RecordingController {
     /// Both of these are slow — the first device enumeration cold-starts AVFoundation —
     /// so they are asked for once at launch rather than when the panel is opened.
     func prepare() async {
+        team.start()
         async let probe = Readiness.probe()
         let inputs = await Task.detached { AudioDevices.inputs() }.value
 
@@ -299,6 +301,37 @@ final class RecordingController {
         let library = VoiceLibrary.load()
         people = library.people
         knownVoices = library.names
+        libraryIssues = library.issues
+    }
+
+    /// What the library found worth one plain question: two records of one person, prints
+    /// unlike the rest of their person's.
+    private(set) var libraryIssues: [VoiceLibrary.Issue] = []
+
+    /// One person under two records: the one with more prints keeps its name (the longer
+    /// name when even), the other becomes a nickname.
+    func mergePeople(_ a: String, _ b: String) {
+        var library = VoiceLibrary.load()
+        let count = { (name: String) in library.people.first { $0.name == name }?.prints.count ?? 0 }
+        let (main, duplicate) = (count(a), a.count) >= (count(b), b.count) ? (a, b) : (b, a)
+        library.mergePerson(duplicate, into: main)
+        try? library.save()
+        reloadPeople()
+    }
+
+    /// A voiceprint the library set aside to keep the person to a few good ones, back in use.
+    func bringBack(retired index: Int, of name: String) {
+        var library = VoiceLibrary.load()
+        library.bringBack(retired: index, of: name)
+        try? library.save()
+        reloadPeople()
+    }
+
+    func markDifferent(_ a: String, _ b: String) {
+        var library = VoiceLibrary.load()
+        library.markDifferent(a, b)
+        try? library.save()
+        reloadPeople()
     }
 
     /// Who is recording: their voice heard on the far end goes back to "Me".
@@ -448,6 +481,7 @@ final class RecordingController {
             _ = RecordingMigration.migrateAll(in: folder)
             return moved
         }.value
+        await team.relocate(report.moved)
         configuration.outputRoot = folder.path
         storageNotice = report.failures.isEmpty
             ? "Moved \(Wording.count(report.moved.count)) to \(folder.path)."
@@ -459,6 +493,21 @@ final class RecordingController {
     /// To the Trash rather than deleted, so Finder's Put Back is the undo.
     func trash(_ entry: LibraryEntry) {
         guard !working.contains(entry.directory) else { return }
+        if team.publication(entry) != nil {
+            let alert = NSAlert()
+            alert.messageText = "Remove the shared meeting and move your original to Trash?"
+            alert.informativeText = "Linked entries will disappear. Independent copies will stay."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Remove and Move to Trash")
+            if alert.runModal() == .alertSecondButtonReturn {
+                team.remove(entry) { self.trashLocal(entry) }
+            }
+            return
+        }
+        trashLocal(entry)
+    }
+
+    private func trashLocal(_ entry: LibraryEntry) {
         compressor.stop(entry.directory)
         do {
             try FileManager.default.trashItem(at: entry.directory, resultingItemURL: nil)

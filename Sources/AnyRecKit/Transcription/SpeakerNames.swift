@@ -23,6 +23,11 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
         /// the voice is renamed or given away. Nil in files written before this was kept,
         /// and for a voice nobody named.
         public var filed: Filing?
+        /// What the library did with this voice's print when the owner last named it or gave
+        /// it to Me: kept it, kept it aside until another agrees, or refused it and why. Nil
+        /// for a voice nobody named, and in older files. What tells "recognised next time"
+        /// from "named for this call only".
+        public var kept: VoiceLibrary.Admission?
 
         /// The saved name a voice's print went under when it was named, whether the record
         /// was made by that naming, and the call window's name the naming filed as that
@@ -184,6 +189,7 @@ public enum VoiceNaming {
         }
         var library = VoiceLibrary.load(from: libraryDirectory)
         let origin = VoiceLibrary.PrintOrigin(recording: RecordingLayout(directory: folder).identity)
+        let lines = RecordingTranscript.read(in: folder)?.transcript.utterances ?? []
         var emptied: [String] = []
         for (letter, name) in names {
             guard let index = voices.voices.firstIndex(where: { $0.letter == letter }) else {
@@ -191,8 +197,12 @@ public enum VoiceNaming {
             }
             let voice = voices.voices[index]
             let made = takeBack(voice, from: &library)
+            repair(voice, namedAs: people[letter] ?? name, in: &library)
             voices.name(letter, name)
-            let filing = library.file(people[letter] ?? name, voice.print, origin: origin)
+            let considered = library.consider(
+                people[letter] ?? name, voice.print, origin: origin,
+                seconds: seconds(of: .voice(letter), in: lines), mixed: (voice.identityEvidence?.fusedNames?.count ?? 0) > 1)
+            let filing = considered.filing
             let filed = filing?.name
                 ?? people[letter] ?? library.person(answering: name)?.name ?? name.trimmingCharacters(in: .whitespacesAndNewlines)
             /// The display name the call window showed for this voice is now known to
@@ -205,6 +215,7 @@ public enum VoiceNaming {
             voices.voices[index].filed = filing.map {
                 RecordingVoices.Voice.Filing(person: $0.name, createdPerson: $0.created || made == $0.name, alias: alias)
             }
+            voices.voices[index].kept = considered.admission
             if let made, made != filing?.name { emptied.append(made) }
         }
         for name in emptied { library.removeIfEmpty(name) }
@@ -212,6 +223,23 @@ public enum VoiceNaming {
         let written = try TranscriptStore.updateSpeakers(in: folder) { layer, _ in layer.voices = renamed }
         try library.save(to: libraryDirectory)
         return (voices, written)
+    }
+
+    /// Seconds of speech in `lines` carried by `speaker`; nil when there are no lines to
+    /// count, so a recording read without its transcript is not refused for it.
+    static func seconds(of speaker: Speaker, in lines: [Utterance]) -> TimeInterval? {
+        guard !lines.isEmpty else { return nil }
+        return lines.filter { $0.speaker == speaker }.reduce(0) { $0 + max(0, $1.end - $1.start) }
+    }
+
+    /// A voice the library recognised as someone is now said to be somebody else: the print
+    /// of theirs that made the match goes on probation (`VoiceLibrary.demote`), so the same
+    /// wrong match is not made on the next call.
+    static func repair(_ voice: RecordingVoices.Voice, namedAs name: String, in library: inout VoiceLibrary) {
+        guard let matched = voice.identityEvidence?.voiceprintName,
+              let person = library.people.first(where: { $0.name == matched }),
+              !person.answers(to: name), person.name != name else { return }
+        library.demote(nearestTo: voice.print, in: person.name)
     }
 
     /// Takes back what the owner's naming of `voice` filed: its print out of the person it

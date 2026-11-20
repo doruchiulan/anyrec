@@ -19,6 +19,23 @@ struct ParticipantAttributionTests {
         RecordingVoices(voices: [.init(letter: "A", print: [1, 0], sample: "First turn", start: 0, end: 6, name: name)])
     }
 
+    @Test("With the owner's own tile, someone else shown during Me lines is not one of the owner's names")
+    func colleagueAtTheSameMicrophone() {
+        let mine = [Utterance(start: 0, end: 6, text: "From the room", speaker: .me),
+                    Utterance(start: 7, end: 13, text: "Still the room", speaker: .me)]
+        let colleague = "Barbura, Claudiu (Contractor)"
+        let withTile = CallParticipants(observations: (0...13).map {
+            .init(at: Double($0), source: "teams:1:2", participants: ["Doru Chiulan", colleague],
+                  speaking: [colleague], me: "Doru Chiulan")
+        })
+        #expect(ParticipantAttribution.callOwnerNames(withTile, lines: mine) == ["Doru Chiulan"])
+        /// Slack labels no tile as the owner's: who it showed during Me lines is all there is.
+        let noTile = CallParticipants(observations: (0...13).map {
+            .init(at: Double($0), source: "slack:1:2", participants: ["Doru Chiulan", "Ana"], speaking: ["Ana"])
+        })
+        #expect(ParticipantAttribution.callOwnerNames(noTile, lines: mine) == ["Ana"])
+    }
+
     @Test("Repeated call indicators name a voice without changing its print or turns")
     func namesUnknownVoice() throws {
         let result = try #require(ParticipantAttribution.apply(voices(), lines: lines, evidence: observations("Costin")))

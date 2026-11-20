@@ -1,0 +1,1 @@
+../../Sources/AnyRecBar/Slack/FinderFileMenu.swift

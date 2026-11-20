@@ -1,0 +1,1 @@
+../../Sources/AnyRecBar/Slack/SlackSidebar.swift

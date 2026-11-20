@@ -36,11 +36,13 @@ struct VoiceRetractionTests {
         let folder = try folder()
         let library = folder.appendingPathComponent("library")
         try VoiceLibrary(people: people).save(to: library)
+        /// Each voice speaks long enough for its print to be worth keeping
+        /// (`VoiceLibrary.minimumSeconds`).
         let lines = [
-            Utterance(start: 0, end: 4, text: "Hi", speaker: .me),
-            Utterance(start: 5, end: 9, text: "Costi here", speaker: .voice("A")),
-            Utterance(start: 10, end: 14, text: "Me again, through the speakers", speaker: .voice("B")),
-            Utterance(start: 15, end: 19, text: "And again", speaker: .voice("B")),
+            Utterance(start: 0, end: 10, text: "Hi", speaker: .me),
+            Utterance(start: 10, end: 40, text: "Costi here", speaker: .voice("A")),
+            Utterance(start: 40, end: 55, text: "Me again, through the speakers", speaker: .voice("B")),
+            Utterance(start: 55, end: 70, text: "And again", speaker: .voice("B")),
         ]
         try TranscriptStore.publish(Transcript(utterances: lines, language: "en", engine: "parakeet"),
                                     voices: RecordingVoices(voices: [voice("A", "Costi", print: costis), b ?? voice("B", print: owners)]),
@@ -63,11 +65,15 @@ struct VoiceRetractionTests {
         let (folder, library) = try recording([.init(name: "Ana", prints: [anasOwn])])
         defer { try? FileManager.default.removeItem(at: folder) }
         try SpeakerEditing.name(.voice("B"), "Ana", in: folder, library: library)
-        #expect(person("Ana", in: library)?.prints == [anasOwn, owners])
+        /// Nothing like Ana's own print, so it waits rather than joining hers.
+        #expect(person("Ana", in: library)?.prints == [anasOwn])
+        #expect(person("Ana", in: library)?.waiting == [owners])
+        #expect(RecordingVoices.read(in: folder)?.voices.first { $0.letter == "B" }?.kept == .waiting)
 
         try SpeakerEditing.give(.voice("B"), to: .others, in: folder, library: library)
         #expect(speakers(in: folder) == [.me, .voice("A"), .others, .others])
         #expect(person("Ana", in: library)?.prints == [anasOwn])
+        #expect(person("Ana", in: library)?.waiting == [])
         let b = RecordingVoices.read(in: folder)?.voices.first { $0.letter == "B" }
         #expect(b?.name == nil && b?.namedByOwner == nil && b?.filed == nil)
     }
@@ -89,7 +95,7 @@ struct VoiceRetractionTests {
     @Test("given to Me, the print leaves the wrong person and joins the owner's record")
     func giveToMeWithOwner() throws {
         let (folder, library) = try recording([
-            .init(name: "Ana", prints: [anasOwn]), .init(name: "Doru", prints: [[0.9, 0.1]], isOwner: true),
+            .init(name: "Ana", prints: [anasOwn]), .init(name: "Doru", prints: [[0.6, 0.8]], isOwner: true),
         ])
         defer { try? FileManager.default.removeItem(at: folder) }
         try SpeakerEditing.name(.voice("B"), "Ana", in: folder, library: library)
@@ -98,7 +104,7 @@ struct VoiceRetractionTests {
         #expect(speakers(in: folder) == [.me, .voice("A"), .me, .me])
         #expect(person("Ana", in: library)?.prints == [anasOwn])
         let doru = try #require(person("Doru", in: library))
-        #expect(doru.prints == [[0.9, 0.1], owners])
+        #expect(doru.prints == [[0.6, 0.8], owners])
         #expect(doru.origin(ofPrint: 0) == nil)
         #expect(doru.origin(ofPrint: 1)?.recording == folder.lastPathComponent)
         #expect(RecordingVoices.read(in: folder)?.voices.first { $0.letter == "B" }?.filed?.person == "Doru")
@@ -223,7 +229,7 @@ struct VoiceRetractionTests {
 
     @Test("a named voice's print records the recording it came from, and survives a save")
     func provenance() throws {
-        let (folder, library) = try recording([.init(name: "Ana", prints: [anasOwn])])
+        let (folder, library) = try recording([.init(name: "Ana", prints: [anasOwn])], b: voice("B", print: [0.6, 0.8]))
         defer { try? FileManager.default.removeItem(at: folder) }
         try SpeakerEditing.name(.voice("B"), "Ana", in: folder, library: library)
         let ana = try #require(person("Ana", in: library))

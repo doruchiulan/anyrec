@@ -113,8 +113,9 @@ struct PersonCompletionTests {
     private func recording(_ voices: [RecordingVoices.Voice]) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("anyrec-complete-\(UUID())")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        /// Long enough for a print worth keeping (`VoiceLibrary.minimumSeconds`).
         let lines = voices.enumerated().map {
-            Utterance(start: Double($0.offset) * 10, end: Double($0.offset) * 10 + 5, text: "Hello", speaker: .voice($0.element.letter))
+            Utterance(start: Double($0.offset) * 40, end: Double($0.offset) * 40 + 30, text: "Hello", speaker: .voice($0.element.letter))
         }
         try TranscriptStore.publish(Transcript(utterances: lines, language: "en", engine: "parakeet"),
                                     voices: RecordingVoices(voices: voices), in: folder)
@@ -123,7 +124,8 @@ struct PersonCompletionTests {
 
     @Test("picking a suggestion files the print under that person and shows their shown name; no new record")
     func pickingFilesUnderPerson() throws {
-        var b = voice("B", print: [0, 1])
+        /// Close enough to Andi's own print to join it rather than wait (`probationFloor`).
+        var b = voice("B", print: [0.6, 0.8])
         b.identityEvidence = { var e = SpeakerIdentityEvidence(callNames: ["A. Lungu"], voiceprintName: nil, conflict: false); e.callName = "A. Lungu"; return e }()
         let folder = try recording([voice("A", print: [1, 0]), b])
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -163,7 +165,9 @@ struct PersonCompletionTests {
 
     @Test("a name nobody answers to is a new person")
     func newPerson() throws {
-        let folder = try recording([voice("A", print: [1, 0])])
+        /// Unlike Andi's print: a voice that sounds like someone already known is not filed
+        /// under a new name (`VoiceLibrary.Admission.soundsLike`).
+        let folder = try recording([voice("A", print: [0, 1])])
         defer { try? FileManager.default.removeItem(at: folder) }
         let library = folder.appendingPathComponent("library")
         try VoiceLibrary(people: [person("Andi")]).save(to: library)

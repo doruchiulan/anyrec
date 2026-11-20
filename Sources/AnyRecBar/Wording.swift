@@ -201,16 +201,11 @@ enum Wording {
     /// and whether this is the person recording.
     static func person(_ person: VoiceLibrary.Person) -> String {
         var parts = [voiceprints(person.prints.count)]
+        if !person.waiting.isEmpty { parts.append("\(person.waiting.count) waiting for another call") }
+        if !person.retired.isEmpty { parts.append("\(person.retired.count) set aside") }
         if !person.aliases.isEmpty { parts.append("also “" + person.aliases.joined(separator: "”, “") + "”") }
         if person.isOwner { parts.insert("You", at: 0) }
         return parts.joined(separator: " · ")
-    }
-
-    /// How much of the call the call window could be read for.
-    static func readable(_ readable: TimeInterval, of duration: TimeInterval) -> String {
-        guard duration > 0 else { return "Readable for \(clock(readable))." }
-        let share = Int((min(1, readable / duration) * 100).rounded())
-        return "The call window could be read for \(clock(readable)) of \(clock(duration)) (\(share)%)."
     }
 
     /// One observed participant's detail: how long they were shown as the only one speaking.
@@ -218,51 +213,80 @@ enum Wording {
         seconds < 1 ? "Not shown speaking" : "Shown speaking for \(clock(seconds))"
     }
 
-    /// Facts about this recording's voices worth a line under the roster. A voice that may
-    /// be two people is said on its own row of the Speakers panel, not here.
-    static func voiceFacts(_ voices: RecordingVoices?) -> [String] {
-        guard let voices else { return [] }
-        var lines: [String] = []
-        if let merge = voices.ownerMerge {
-            let back = merge.toMe == 1 ? "1 line" : "\(merge.toMe) lines"
-            let away = merge.toOthers == 1 ? "1 line" : "\(merge.toOthers) lines"
-            lines.append("Your voice was also heard as a far-end voice. \(back) went back to Me; \(away) went to the call or to whoever the call window showed.")
+    // MARK: People in this call
+
+    /// Under a person's name in the list.
+    static func personState(_ state: RecordingSpeakers.PersonState, app: String?) -> String {
+        switch state {
+        case .you: "Your microphone"
+        case .recognised: "Recognised by voice"
+        case .rememberedNextTime: "Will be recognised next time"
+        case .rememberedAfterAnotherCall: "Will be recognised after one more call"
+        case .newFromCallWindow: "New · name from \(shortApp(app))"
+        case .unnamed: "Not named yet"
+        case .namedForThisCall: "Named for this call"
         }
-        if let named = voices.callLinesNamed, named > 0 {
-            lines.append(named == 1 ? "1 line no voice covered was named from the call window."
-                         : "\(named) lines no voice covered were named from the call window.")
+    }
+
+    /// "Microsoft Teams" reads as Teams in a sentence; anything else as it is, or "the call".
+    static func shortApp(_ app: String?) -> String {
+        guard let app, !app.isEmpty else { return "the call window" }
+        return app == "Microsoft Teams" ? "Teams" : app
+    }
+
+    /// Talk time as people feel it: "45 sec", "26 min".
+    static func talk(_ seconds: TimeInterval) -> String {
+        seconds < 60 ? "\(max(1, Int(seconds.rounded()))) sec" : "\(Int((seconds / 60).rounded())) min"
+    }
+
+    static func questions(_ count: Int) -> String {
+        count == 0 ? "Nothing to check" : count == 1 ? "1 question" : "\(count) questions"
+    }
+
+    /// The first name, for buttons ("Yes, that's Madalin"). "Barbura, Claudiu (Contractor)"
+    /// is Claudiu.
+    static func firstName(_ name: String) -> String {
+        var core = name
+        if let open = core.lastIndex(of: "("), core.hasSuffix(")") { core = String(core[..<open]).trimmingCharacters(in: .whitespaces) }
+        let parts = core.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count == 2, !parts[1].isEmpty { core = parts[1] }
+        return core.split(separator: " ").first.map(String.init) ?? name
+    }
+
+    /// "Ana", "Ana and Radu", "Ana, Radu and Ioana".
+    static func list(_ names: [String]) -> String {
+        names.count < 2 ? names.joined() : names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
+
+    static func nextCall(recognised: [String]) -> String? {
+        recognised.isEmpty ? nil : "Next call, AnyRec will recognise \(list(recognised)) by voice."
+    }
+
+    static func notYet(_ names: [String]) -> String? {
+        names.isEmpty ? nil : "Not yet: \(list(names)). AnyRec remembers someone once you've said who they are and it has heard them clearly."
+    }
+
+    // MARK: Library health    // MARK: Library health
+
+    /// Under a speaker the owner named, when the library did not simply keep its voice.
+    static func kept(_ admission: VoiceLibrary.Admission?) -> String? {
+        switch admission {
+        case .waiting?: "Their voice will be remembered after one more call: it sounds unlike their earlier ones."
+        case .tooShort?: "Named for this call only: too little speech to remember the voice."
+        case .mixed?: "Named for this call only: this may be more than one person."
+        case .soundsLike(let other)?: "Named for this call only: the voice sounds like \(other)."
+        case .filed?, .confirmed?, nil: nil
         }
-        return lines
+    }
+
+    static func samePerson(_ a: String, _ b: String) -> String { "Are \(a) and \(b) the same person?" }
+
+    static func unlikeVoices(_ person: String, isOwner: Bool) -> String {
+        isOwner ? "One of your voice recordings doesn't sound like the others."
+            : "One of \(person)'s voice recordings doesn't sound like the others."
     }
 
     // MARK: Speakers
-
-    /// The Speakers panel's heading, with how many speakers want a look.
-    static func speakersTitle(toCheck: Int) -> String {
-        toCheck == 0 ? "Speakers" : "Speakers · \(toCheck) to check"
-    }
-
-    /// How a speaker came to be called what it is, in a few words.
-    static func basis(_ basis: SpeakerBasis) -> String {
-        switch basis {
-        case .microphone: "Your microphone"
-        case .namedByYou: "Named by you"
-        case .review: "Chosen by review"
-        case .agreed: "Call window and voice agree"
-        case .voiceMatch: "Voice match"
-        case .callWindow: "Call window"
-        case .named: "Named"
-        case .uncertain: "Uncertain: the evidence disagrees"
-        case .unnamed: "Not named yet"
-        }
-    }
-
-    /// A speaker row's line under its name: that it is probably you and why, else how it
-    /// came to be called what it is.
-    static func basis(of row: RecordingSpeakers.Row) -> String {
-        if row.speaker == .others { return "From the call; no voice claims these lines" }
-        return row.probablyYou ? probablyYou(row.yourVoice) : basis(row.basis)
-    }
 
     /// A checklist step's state, for VoiceOver.
     static func stepState(_ state: ProcessingSteps.State) -> String {
@@ -281,11 +305,31 @@ enum Wording {
 
     // MARK: Sharing
 
-    /// The share menu's entry for a synced folder: "Save to OneDrive", "Save to OneDrive –
-    /// Blueprint", "Save to iCloud Drive".
-    static func saveTo(_ folder: CloudFolder) -> String {
-        "Save to \(folder.name)"
+    /// A sync folder with the cloud that keeps it: "AnyRec (iCloud Drive)", "Team (OneDrive –
+    /// Blueprint)", "Meetings (on this Mac)".
+    static func syncFolder(_ folder: URL) -> String {
+        "\(folder.lastPathComponent) (\(CloudFolder.provider(of: folder) ?? "on this Mac"))"
     }
+
+    /// The sync menu's first line: where a recording is shared, or that it is not.
+    static func syncedTo(_ folder: URL?) -> String { folder.map { "Synced to \(syncFolder($0))" } ?? "Not synced" }
+
+    static let syncFolderFooter = "Recordings you sync go to this folder unless you choose another. Share it with your team as view-only so nobody can change your meetings; AnyRec puts back anything that is changed. Your recordings themselves stay in the recordings folder."
+
+    /// The sync menu's second line, for a synced recording: what state the shared copy is in.
+    static func syncStatus(failure: String?, restored: Date?, uploaded: Bool?, now: Date = Date()) -> String {
+        if let failure { return "Needs attention: \(failure)" }
+        if let restored, now.timeIntervalSince(restored) < 86_400 {
+            return "Restored at \(restored.formatted(date: .omitted, time: .shortened)): a shared file had been changed"
+        }
+        switch uploaded {
+        case false?: return "Uploading…"
+        default: return "Up to date"
+        }
+    }
+
+    /// Shown in the folder picker when choosing where to sync.
+    static let viewOnlyTip = "Share this folder with your team as view-only, so nobody can change your meetings. AnyRec puts back anything that is changed."
 
     // MARK: Compression
 
@@ -358,101 +402,6 @@ enum Wording {
     /// A transcript line's speaker as shown: Me by the owner's name once it is known.
     static func label(_ speaker: Speaker, me: String?) -> String {
         speaker == .me ? (me ?? speaker.label) : speaker.label
-    }
-
-    /// The question over a row's choices, where the row's own label does not ask it.
-    static func choicePrompt(for row: RecordingSpeakers.Row) -> String? {
-        switch row.speaker {
-        case .me: row.name == nil ? "Who are you? Your name replaces “Me” in this recording and the next ones." : "Change who you are"
-        case .others: "Who said these lines?"
-        default: nil
-        }
-    }
-
-    /// "Probably you: the call window showed you speaking".
-    static func probablyYou(_ evidence: [YourVoiceEvidence]) -> String {
-        "Probably you: " + evidence.map(yourVoice).joined(separator: "; ")
-    }
-
-    static func yourVoice(_ evidence: YourVoiceEvidence) -> String {
-        switch evidence {
-        case .savedAsYou: "saved as you"
-        case .yourCallName: "saved under your name in the call"
-        case .shownSpeaking: "the call window showed you speaking"
-        }
-    }
-
-    /// The tick beside Me that also makes the library remember who the owner is.
-    static func rememberOwner(_ owner: OwnerToRemember) -> String { "I’m \(owner.shownName)" }
-
-    /// What ticking it does, as its tooltip.
-    static func rememberOwnerHelp(_ owner: OwnerToRemember) -> String {
-        let alias = owner.display.map { " and that the call window calls you \($0)" } ?? ""
-        return "Saves that \(owner.shownName) is you\(alias), so your voice is recognised as Me on later calls."
-    }
-
-    /// "04:12 · 38 lines": how long a speaker talked.
-    static func talkTime(_ seconds: TimeInterval, lines: Int) -> String {
-        "\(clock(seconds)) · \(lines == 1 ? "1 line" : "\(lines) lines")"
-    }
-
-    /// A candidate's button. A voice that only sounds like someone is asked, not stated.
-    static func candidate(_ candidate: SpeakerCandidate) -> String {
-        candidate.reason == .soundsLike ? "\(candidate.name)?" : candidate.name
-    }
-
-    /// A person offered while a name is typed: the name the transcript will show, and the
-    /// name that matched when it is another, as "Andrei Lungu — also Andi".
-    static func completion(_ suggestion: PersonSuggestion) -> String {
-        suggestion.alsoKnownAs.map { "\(suggestion.shownName) — also \($0)" } ?? suggestion.shownName
-    }
-
-    /// Why a name is offered, under its button.
-    static func candidateReason(_ reason: SpeakerCandidate.Reason) -> String {
-        switch reason {
-        case .yourVoice: "Your voice. Every line goes to Me"
-        case .callWindow: "Shown speaking in the call window"
-        case .voiceMatch: "A saved voice matches"
-        case .review: "Chosen by review"
-        case .introduced(let quote): "Said “\(quote)”"
-        case .onlyOneLeft: "The only one in the call without a voice"
-        case .inCall: "In the call"
-        case .windowTitle: "In the window’s title"
-        case .soundsLike: "Sounds like a saved voice. Is it?"
-        case .savedAsYou: "Saved as you"
-        case .yourCallName: "Your name in the call window"
-        }
-    }
-
-    static func fused(_ names: [String]) -> String {
-        "May be more than one person: the call window showed \(names.joined(separator: " and ")) while this voice spoke."
-    }
-
-    /// The footer line for Call lines no voice claims. Nil when there are none.
-    static func unclaimed(lines: Int, seconds: TimeInterval) -> String? {
-        guard lines > 0 else { return nil }
-        let count = lines == 1 ? "1 line" : "\(lines) lines"
-        return "\(count) (\(clock(seconds))) \(lines == 1 ? "is" : "are") still marked Call; no voice claims \(lines == 1 ? "it" : "them")."
-    }
-
-    static func moveTo(_ label: String) -> String { "Move to \(label)" }
-
-    static let lineScope = "This line"
-    /// Short on purpose: it shares a segmented control with "This line" inside a popover,
-    /// and the speaker is already named in the popover's title.
-    static let voiceScope = "All their lines"
-
-    /// The heading over the speakers a line, or a whole voice, can be given to.
-    static func giveTo(voice label: String?) -> String {
-        label.map { "Or give every line of \($0) to" } ?? "Or give it to"
-    }
-
-    /// The tooltip on one of those buttons. Giving a voice away takes back the voiceprint the
-    /// owner's naming filed for it, and giving it to Me files it as the owner's.
-    static func giveHelp(voice label: String?, to target: Speaker, targetLabel: String) -> String {
-        guard let label else { return "This line goes to \(targetLabel)." }
-        let moved = "Every line of \(label) goes to \(targetLabel)."
-        return target == .me ? moved + " Its voiceprint joins yours in People, once you’ve marked which person is you." : moved
     }
 
     /// One remembered voiceprint in People: the recording it was named in and when that

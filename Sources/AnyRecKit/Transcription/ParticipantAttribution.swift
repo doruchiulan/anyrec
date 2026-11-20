@@ -269,10 +269,16 @@ enum ParticipantAttribution {
     }
 
     /// The owner's display names from the call window alone, as it spelled them: their own
-    /// tile, and whoever it showed speaking during Me lines.
+    /// tile, and — only when the window labels no tile as theirs (Slack) — whoever it showed
+    /// speaking during Me lines. With a tile, a different name shown during Me lines is
+    /// someone else at the same microphone: on a Teams call taken from one room, the colleague
+    /// beside the owner was shown speaking from their own laptop, became one of the owner's
+    /// names, was learned as the owner's display name, and every later call called the owner
+    /// by it.
     static func callOwnerNames(_ evidence: CallParticipants?, lines: [Utterance]) -> Set<String> {
         var names = evidence?.selfNames ?? []
-        if let evidence, let mine = score(lines.filter { $0.speaker == .me }, among: lines, spans: evidence.spans).best {
+        if names.isEmpty, let evidence,
+           let mine = score(lines.filter { $0.speaker == .me }, among: lines, spans: evidence.spans).best {
             names.insert(mine)
         }
         return names

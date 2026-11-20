@@ -2,36 +2,95 @@ import AVKit
 import AnyRecKit
 import SwiftUI
 
-/// One recording, and the player for it. The player is made when a recording is opened,
-/// never in `init`: a view's `init` runs on every redraw of its parent, and a player made
-/// there was a new `AVPlayer`, a new time observer and a fresh decode of the whole call's
-/// audio each time the list filtered or the library reloaded.
+/// One recording opened in the library window: its player, and what was read from its
+/// folder. Owned by the window rather than the page, because the page and the inspector
+/// beside it both read it — and the inspector is attached to the window's split view, not
+/// to the page, so that it is a column of its own with its own section of the toolbar.
+///
+/// Made when a recording is opened, never in a view's `init`: a view's `init` runs on every
+/// redraw of its parent, and a player made there was a new `AVPlayer`, a new time observer
+/// and a fresh decode of the whole call's audio each time the list filtered or the library
+/// reloaded.
+@MainActor
+@Observable
+final class OpenRecording {
+    let playback: Playback
+    private let controller: RecordingController
+    private(set) var transcript: Transcript?
+    private(set) var voices: RecordingVoices?
+    private(set) var observed: CallParticipants?
+    private(set) var desk: SpeakerDesk?
+    private(set) var summary: RecordingSummaryPresentation?
+    private(set) var legacySummary: String?
+    /// The transcript with names in, worked out when it loads rather than on each redraw.
+    private(set) var lines: [Utterance] = []
+
+    init(_ entry: LibraryEntry, controller: RecordingController) {
+        playback = Playback(entry)
+        self.controller = controller
+    }
+
+    var directory: URL { playback.entry.directory }
+
+    func load(_ entry: LibraryEntry) {
+        let current = RecordingTranscript.read(in: entry.directory)
+        transcript = current?.transcript
+        voices = current?.voices
+        observed = CallParticipants.read(in: entry.directory)
+        named()
+        if desk?.directory != entry.directory { desk = SpeakerDesk(directory: entry.directory, controller: controller) }
+        if let desk { Task { await desk.load() } }
+        summary = nil
+        legacySummary = nil
+        if let url = entry.summary {
+            if url.pathExtension == "json" {
+                setSummary(Summary.read(url))
+            } else {
+                legacySummary = try? String(contentsOf: url, encoding: .utf8)
+            }
+        }
+    }
+
+    func setSummary(_ original: Summary?) {
+        summary = original.map { RecordingSummaryPresentation($0, transcript: transcript, names: voices?.names ?? [:]) }
+    }
+
+    /// Voices carry their names; Me stays Me so it keeps its colour and its choices, and only
+    /// its label shows the owner's name (`meName`).
+    private func named() {
+        lines = transcript?.named((voices?.names ?? [:]).filter { $0.key != RecordingVoices.meKey }).utterances ?? []
+        playback.follow(transcript)
+    }
+}
+
+/// One recording's page, once its `OpenRecording` is the one selected.
 struct RecordingDetail: View {
     @Bindable var controller: RecordingController
     let entry: LibraryEntry
+    let recording: OpenRecording?
     @Binding var showsInspector: Bool
-    @Binding var strip: ToolbarStrip
-    @State private var playback: Playback?
 
     var body: some View {
-        Group {
-            if let playback, playback.entry.directory == entry.directory {
-                RecordingPage(
-                    controller: controller, entry: entry, playback: playback,
-                    showsInspector: $showsInspector, strip: $strip
-                )
-                .focusedSceneValue(\.playback, playback)
-            } else {
-                Color.clear
-            }
+        if let recording, recording.directory == entry.directory {
+            RecordingPage(controller: controller, entry: entry, recording: recording, showsInspector: $showsInspector)
+                .focusedSceneValue(\.playback, recording.playback)
+        } else {
+            Color.clear
         }
-        .task(id: entry.media ?? entry.directory) {
-            playback?.stop()
-            let opened = Playback(entry)
-            playback = opened
-            await opened.loadWaveform()
+    }
+}
+
+/// Opens and closes the inspector. Over the recording while the inspector is closed, and
+/// at the end of the inspector's own toolbar while it is open, so it stays at the window's
+/// trailing edge either way.
+private struct InspectorToggle: View {
+    @Binding var shown: Bool
+
+    var body: some View {
+        Button { shown.toggle() } label: {
+            Label(shown ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing")
         }
-        .onDisappear { playback?.stop() }
+        .help(shown ? "Hide the transcript, tracks and files" : "Show the transcript, tracks and files")
     }
 }
 
@@ -48,66 +107,49 @@ struct RecordingDetail: View {
 private struct RecordingPage: View {
     @Bindable var controller: RecordingController
     let entry: LibraryEntry
-    let playback: Playback
+    let recording: OpenRecording
     @Binding var showsInspector: Bool
-    /// Owned by the library window, not here: measured widths that started from zero
-    /// for every recording opened sent the buttons on a visible walk from the trailing
-    /// edge each time the selection changed.
-    @Binding var strip: ToolbarStrip
 
-    @State private var transcript: Transcript?
-    @State private var voices: RecordingVoices?
-    @State private var observed: CallParticipants?
-    @State private var desk: SpeakerDesk?
-    @State private var summary: Summary?
-    @State private var legacySummary: String?
-    @State private var tab = Tab.transcript
+    @State private var editCopy = false
     @State private var popout: NSWindow?
-    /// The transcript with names in, worked out when it loads rather than on each redraw.
-    @State private var lines: [Utterance] = []
-    @State private var tabsProbe = ToolbarProbe.Box()
-    @State private var buttonsProbe = ToolbarProbe.Box()
-    @State private var look: Task<Void, Never>?
-    @State private var looks = 0
 
-    /// The inspector's frame comes from SwiftUI, which lays the content out and so knows
-    /// it; applied on the next turn of the run loop, never inside the layout pass that
-    /// produced it (see `ToolbarStrip`). Then the strip is looked at.
-    private func inspectorMoved(_ frame: CGRect) {
-        guard strip.active else { return }
-        Task { @MainActor in
-            strip.inspectorMoved(to: frame)
-            lookSoon(fresh: true)
-        }
-    }
-
-    /// The toolbar's items are read where they really are, from their views, 300 ms
-    /// after anything changed — the toolbar moves them itself, after SwiftUI has laid
-    /// them out, so SwiftUI's geometry for them is stale — and again while the strip
-    /// still asks, a few times at most.
-    private func lookSoon(fresh: Bool = false) {
-        if fresh { looks = 0 }
-        look?.cancel()
-        guard strip.active, looks < 6 else { return }
-        look = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            looks += 1
-            guard let tabs = tabsProbe.frameInWindow, let buttons = buttonsProbe.frameInWindow
-            else { return }
-            if strip.observe(tabs: tabs, buttons: buttons) { lookSoon() }
-        }
-    }
-
-    enum Tab: String, CaseIterable { case transcript = "Transcript", tracks = "Tracks", files = "Files" }
+    private var playback: Playback { recording.playback }
+    private var transcript: Transcript? { recording.transcript }
+    private var voices: RecordingVoices? { recording.voices }
+    private var observed: CallParticipants? { recording.observed }
+    private var desk: SpeakerDesk? { recording.desk }
+    private var summary: RecordingSummaryPresentation? { recording.summary }
+    private var legacySummary: String? { recording.legacySummary }
+    private var lines: [Utterance] { recording.lines }
 
     var body: some View {
+        ResizeViewport {
+            document
+        }
+        /// White, like a document; the cards sit on it in a soft grey. Both are system
+        /// colours, so Dark Mode turns them into near-black and a lifted grey.
+        .background(Color(nsColor: .textBackgroundColor).ignoresSafeArea())
+        /// Floats over the page's top-right corner, in the row the window's controls use,
+        /// rather than holding a toolbar row of its own.
+        .toolbar { actions }
+        .sheet(isPresented: $editCopy) {
+            if let transcript = RecordingTranscript.read(in: entry.directory)?.named {
+                CopyTranscriptEditor(directory: entry.directory, transcript: transcript) {
+                    recording.load(entry)
+                    Task { await controller.reloadLibrary() }
+                }
+            }
+        }
+        .onChange(of: entry) { recording.load(entry) }
+    }
+
+    private var document: some View {
         ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     header
                     ProcessingStatusView(controller: controller, directory: entry.directory)
-                    if entry.video != nil || !playback.available.isEmpty { playerCard }
+                    if entry.media != nil || !playback.available.isEmpty { playerCard }
                     TranscriptReviewDetails(directory: entry.directory).id(entry.revision)
                     if transcript != nil { summaryCard.disabled(controller.processing.working.contains(entry.directory)) }
                     speakersSection.id(Self.speakersAnchor)
@@ -122,22 +164,6 @@ private struct RecordingPage: View {
                 withAnimation { reader.scrollTo(Self.speakersAnchor, anchor: .top) }
             }
         }
-        /// White, like a document; the cards sit on it in a soft grey. Both are system
-        /// colours, so Dark Mode turns them into near-black and a lifted grey.
-        .background(Color(nsColor: .textBackgroundColor).ignoresSafeArea())
-        /// Floats over the page's top-right corner, in the row the window's controls use,
-        /// rather than holding a toolbar row of its own.
-        .toolbar { actions }
-        .inspector(isPresented: $showsInspector) {
-            inspector
-                .inspectorColumnWidth(min: 300, ideal: 400, max: 600)
-        }
-        .onChange(of: showsInspector, initial: true) {
-            strip.active = showsInspector
-            lookSoon(fresh: true)
-        }
-        .task { load() }
-        .onChange(of: entry) { load() }
     }
 
     // MARK: Header
@@ -146,26 +172,14 @@ private struct RecordingPage: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(Wording.title(of: entry)).font(.system(size: 18, weight: .semibold))
-                Text(Wording.meta(of: entry)).font(.system(size: 11)).foregroundStyle(.secondary)
+                RecordingMetadataLine(entry: entry, publication: controller.team.publication(entry))
+                    .id(entry.media ?? entry.directory)
             }
             Spacer()
         }
     }
 
-    /// The page's actions, as toolbar items so the system floats them in Liquid Glass and
-    /// they stay put while the page scrolls: the two that act on its files grouped, the
-    /// inspector in a group of its own.
-    ///
-    /// The window's toolbar is one strip across the recording and the inspector, with no
-    /// way to say "the end of this column". So everything is pushed to the trailing end
-    /// and walked back by two invisible items whose widths are measured: `gap` holds
-    /// these at the recording's edge, `pad` centres the inspector's tabs over it.
     @ToolbarContentBuilder private var actions: some ToolbarContent {
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.flexible, placement: .primaryAction)
-        }
-        /// Where Notes keeps New Note: first in the toolbar over the page. It used to end the
-        /// list's title row, which it outgrew once the sidebar could hide.
         ToolbarItem(placement: .primaryAction) {
             NewRecordingButton(controller: controller) {
                 Label("New Recording", systemImage: "record.circle")
@@ -179,27 +193,20 @@ private struct RecordingPage: View {
                 Label("Show in Finder", systemImage: "folder")
             }
             .help("Show in Finder")
-            if entry.media != nil {
-                ShareButton(controller: controller, entry: entry)
+            if entry.transcript != nil && SharedCopy.exists(in: entry.directory) {
+                Button("Edit transcript", systemImage: "pencil") { editCopy = true }
             }
+            MeetingSyncButton(team: controller.team, entry: entry)
+            SlackDraftButton(title: Wording.title(of: entry), summary: summary?.markdown ?? legacySummary,
+                            audioOnly: entry.audioOnly, linkFile: RecordingCloud.linkFile(for: entry))
+                .background(FileShareAnchor(controller: controller, entry: entry, request: controller.shareRequest))
         }
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button { showsInspector.toggle() } label: {
-                Label("Inspector", systemImage: "info")
-            }
-            .help(showsInspector ? "Hide the transcript, tracks and files" : "Show the transcript, tracks and files")
-            .overlay(ToolbarProbe(buttonsProbe).allowsHitTesting(false))
-        }
-        if showsInspector {
+        /// Only while the inspector is closed; open, the inspector's own toolbar ends with it.
+        if !showsInspector {
             if #available(macOS 26, *) {
-                ToolbarItem(placement: .primaryAction) { strip.gapItem }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .primaryAction) { strip.gapItem }
+                ToolbarSpacer(.fixed, placement: .primaryAction)
             }
+            ToolbarItem(placement: .primaryAction) { InspectorToggle(shown: $showsInspector) }
         }
     }
 
@@ -208,35 +215,11 @@ private struct RecordingPage: View {
     private var playerCard: some View {
         VStack(spacing: 12) {
             if entry.video != nil {
-                ZStack(alignment: .topTrailing) {
-                    VideoSurface(player: playback.player)
-                        .aspectRatio(aspect, contentMode: .fit)
-                        .frame(maxHeight: 380)
-                        .opacity(playback.enabled.contains(.video) ? 1 : 0)
-                        .background(Color(white: 0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .frame(maxWidth: .infinity)
-                    if controller.showsCaptions, !lines.isEmpty {
-                        Caption(lines: lines, meName: voices?.meName, playback: playback)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                            .padding(.horizontal, 24).padding(.bottom, 14)
-                            .allowsHitTesting(false)
-                    }
-                    PlayheadClock(playback: playback)
-                        .font(.system(size: 11).monospacedDigit()).foregroundStyle(.white)
-                        .padding(.horizontal, 8).frame(height: 20)
-                        .background(.black.opacity(0.55), in: Capsule())
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(10)
-                    Button(action: openInWindow) {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11))
-                            .foregroundStyle(.white).frame(width: 28, height: 28)
-                            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
-                    }
-                    .buttonStyle(.plain).padding(8)
-                    .help("Open in its own window, with Picture in Picture")
-                    .accessibilityLabel("Open in its own window")
-                }
+                Color.clear
+                    .aspectRatio(aspect, contentMode: .fit)
+                    .frame(maxHeight: 380)
+                    .frame(maxWidth: .infinity)
+                    .overlay { LiveResizeVideo { video } }
             } else if entry.audioOnly {
                 AudioSurface(entry: entry)
             }
@@ -245,6 +228,38 @@ private struct RecordingPage: View {
         }
         .padding(14)
         .card()
+    }
+
+    private var video: some View {
+        ZStack(alignment: .topTrailing) {
+            VideoSurface(player: playback.player)
+                .aspectRatio(aspect, contentMode: .fit)
+                .frame(maxHeight: 380)
+                .opacity(playback.enabled.contains(.video) ? 1 : 0)
+                .background(Color(white: 0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(maxWidth: .infinity)
+            if controller.showsCaptions, !lines.isEmpty {
+                Caption(lines: lines, meName: voices?.meName, playback: playback)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.horizontal, 24).padding(.bottom, 14)
+                    .allowsHitTesting(false)
+            }
+            PlayheadClock(playback: playback)
+                .font(.system(size: 11).monospacedDigit()).foregroundStyle(.white)
+                .padding(.horizontal, 8).frame(height: 20)
+                .background(.black.opacity(0.55), in: Capsule())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(10)
+            Button(action: openInWindow) {
+                Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 11))
+                    .foregroundStyle(.white).frame(width: 28, height: 28)
+                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain).padding(8)
+            .help("Open in its own window, with Picture in Picture")
+            .accessibilityLabel("Open in its own window")
+        }
     }
 
     private var aspect: CGFloat {
@@ -328,7 +343,7 @@ private struct RecordingPage: View {
     private var summaryCard: some View {
         let busy = controller.summarizing.contains(entry.directory)
         let provider = controller.activeSummaryProvider
-        let source = provider.map { "\(summary?.provider ?? $0.name) · from the transcript" }
+        let source = provider.map { "\(summary?.original.provider ?? $0.name) · from the transcript" }
         return VStack(alignment: .leading, spacing: 12) {
             /// The source line sits beside the title when there is room and under it when
             /// there is not. Squeezed beside it, both wrapped a few letters per line.
@@ -345,8 +360,8 @@ private struct RecordingPage: View {
                     Text("Summarising…").font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             } else if let summary {
-                structured(summary.named(voices?.names ?? [:]))
-                if let transcript, let stale = Wording.summaryStale(summary.staleness(of: transcript, names: voices?.names ?? [:])) {
+                structured(summary.named)
+                if let stale = summary.staleNotice {
                     HStack(alignment: .firstTextBaseline) {
                         Notice(stale, level: .advisory)
                         Button("Refresh Summary") { controller.summarize(entry) }.disabled(busy || provider == nil)
@@ -391,7 +406,8 @@ private struct RecordingPage: View {
     private func summaryActions(busy: Bool) -> some View {
         HStack(spacing: 8) {
             if summary != nil || legacySummary != nil {
-                Button { copy(summary?.named(voices?.names ?? [:]).markdown ?? legacySummary ?? "") } label: { Image(systemName: "doc.on.doc") }
+                let text = summary?.markdown ?? legacySummary ?? ""
+                Button { copy(text) } label: { Image(systemName: "doc.on.doc") }
                     .help("Copy summary").accessibilityLabel("Copy summary")
                 providerMenu
                 Button { controller.summarize(entry) } label: { Image(systemName: "arrow.clockwise") }
@@ -462,11 +478,11 @@ private struct RecordingPage: View {
     }
 
     private func tick(_ index: Int, _ done: Bool) {
-        guard var summary, let url = entry.summary, url.pathExtension == "json" else { return }
-        summary.actions[index].done = done
-        try? summary.write(to: url)
+        guard var original = summary?.original, let url = entry.summary, url.pathExtension == "json" else { return }
+        original.actions[index].done = done
+        try? original.write(to: url)
         _ = try? TranscriptStore.render(in: entry.directory)
-        self.summary = summary
+        recording.setSummary(original)
     }
 
     private func copy(_ text: String) {
@@ -482,18 +498,58 @@ private struct RecordingPage: View {
     /// transcript to have speakers.
     @ViewBuilder private var speakersSection: some View {
         if let desk, let speakers = desk.speakers, transcript != nil {
-            SpeakersPanel(desk: desk, speakers: speakers, playback: playback, observed: observed, voices: voices,
-                          duration: entry.duration)
+            PeoplePanel(desk: desk, speakers: speakers, playback: playback, app: entry.info?.appName)
         } else if let observed, !observed.roster.isEmpty {
             GroupBox {
-                ObservedParticipants(participants: observed, voices: voices, duration: entry.duration).padding(4)
+                ObservedParticipants(participants: observed).padding(4)
             }
         }
     }
 
-    // MARK: Inspector
+    static func colour(_ speaker: Speaker) -> Color { SpeakerColour.of(speaker) }
+}
 
-    private var inspector: some View {
+/// What was said, the tracks and the files of the open recording, beside its page. A column
+/// of the window's own — attached to the split view, not to the page — so its tabs and the
+/// button that closes it sit in its own section of the toolbar, over it, rather than in one
+/// strip with the page's actions.
+struct RecordingInspector: View {
+    @Bindable var controller: RecordingController
+    let entry: LibraryEntry
+    let recording: OpenRecording
+    @Binding var showsInspector: Bool
+    @State private var tab = Tab.transcript
+    enum Tab: String, CaseIterable { case transcript = "Transcript", tracks = "Tracks", files = "Files" }
+
+    private var playback: Playback { recording.playback }
+    private var transcript: Transcript? { recording.transcript }
+    private var lines: [Utterance] { recording.lines }
+
+    var body: some View {
+        ResizeViewport { content }
+            .inspectorColumnWidth(min: 300, ideal: 400, max: 600)
+            /// Only while shown: a collapsed inspector still contributes its toolbar items,
+            /// which then crowded into the page's section with nothing under them.
+            .toolbar {
+                if showsInspector {
+                    if #available(macOS 26, *) {
+                        ToolbarSpacer(.flexible)
+                    }
+                    ToolbarItem {
+                        Picker("Inspector tab", selection: $tab) {
+                            ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    }
+                    if #available(macOS 26, *) {
+                        ToolbarSpacer(.flexible)
+                    }
+                    ToolbarItem { InspectorToggle(shown: $showsInspector) }
+                }
+            }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             if tab == .transcript, transcript != nil {
                 HStack { Spacer(); TranscriptAction(controller: controller, entry: entry) }.padding(12)
@@ -513,35 +569,11 @@ private struct RecordingPage: View {
                 }
             }
         }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-            inspectorMoved(frame)
-        }
-        /// In the toolbar's row over the inspector rather than a row of its own under it,
-        /// centred over it by the trailing `pad`. Only while the inspector is shown: a
-        /// collapsed inspector still contributes its toolbar items, and its tabs would
-        /// stay in the strip with nothing under them.
-        .toolbar {
-            if showsInspector {
-            ToolbarItem(placement: .automatic) {
-                Picker("", selection: $tab) {
-                    ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().fixedSize()
-                .overlay(ToolbarProbe(tabsProbe).allowsHitTesting(false))
-            }
-            if #available(macOS 26, *) {
-                ToolbarItem(placement: .automatic) { strip.padItem }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .automatic) { strip.padItem }
-            }
-            }
-        }
     }
 
     @ViewBuilder private var transcriptLines: some View {
         if transcript != nil {
-            TranscriptList(lines: lines, meName: voices?.meName, playback: playback, desk: desk)
+            TranscriptList(lines: lines, meName: recording.voices?.meName, playback: playback, desk: recording.desk)
         } else {
             TranscriptPlaceholder(controller: controller, entry: entry)
         }
@@ -586,6 +618,7 @@ private struct RecordingPage: View {
         let prefix = layout.directory.path + "/"
         func label(_ url: URL) -> String { url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent }
         return VStack(spacing: 0) {
+            RecordingLinkButton(entry: entry, publication: controller.team.publication(entry))
             ForEach(urls.sorted { label($0) < label($1) }, id: \.self) { url in
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
                     HStack {
@@ -600,188 +633,6 @@ private struct RecordingPage: View {
         }
     }
 
-    // MARK: Loading
-
-    private func load() {
-        let current = RecordingTranscript.read(in: entry.directory)
-        transcript = current?.transcript
-        voices = current?.voices
-        observed = CallParticipants.read(in: entry.directory)
-        named()
-        if desk?.directory != entry.directory { desk = SpeakerDesk(directory: entry.directory, controller: controller) }
-        if let desk { Task { await desk.load() } }
-        summary = nil
-        legacySummary = nil
-        if let url = entry.summary {
-            if url.pathExtension == "json" {
-                summary = Summary.read(url)
-            } else {
-                legacySummary = try? String(contentsOf: url, encoding: .utf8)
-            }
-        }
-    }
-
-    /// Voices carry their names; Me stays Me so it keeps its colour and its choices, and only
-    /// its label shows the owner's name (`meName`).
-    private func named() {
-        lines = transcript?.named((voices?.names ?? [:]).filter { $0.key != RecordingVoices.meKey }).utterances ?? []
-        playback.follow(transcript)
-    }
-
-    static func colour(_ speaker: Speaker) -> Color { SpeakerColour.of(speaker) }
-}
-
-/// The two spacer widths that put the toolbar's items where they belong, and the
-/// measurements they are worked out from.
-///
-/// The widths depend only on how wide the inspector and the tabs are, plus a constant
-/// each for the toolbar's own insets and spacing: `pad` centres the tabs, so it is half
-/// the inspector less half the tabs less that constant, and `gap` works out the same way.
-/// Neither width changes while the window is resized, so nothing moves. The constants
-/// are the only thing taken from positions, and the positions have to be real ones: the
-/// toolbar moves its items itself after SwiftUI has laid them out, so SwiftUI's geometry
-/// for an item is wherever it was last laid out — the tabs reported one x through three
-/// changes of `pad` — and the items are read from their views instead, by `ToolbarProbe`,
-/// once the strip has had time to settle. An offset is acted on only when two looks
-/// 300 ms apart agree on it, so a frame caught mid-move changes nothing.
-///
-/// A width changed inside the layout pass that measured it is an AppKit exception that
-/// took the app down, which is why the inspector's frame, which does come from SwiftUI,
-/// is applied a turn of the run loop later.
-struct ToolbarStrip {
-    /// What is worth keeping between launches: the constants are the toolbar's, the same
-    /// every time, and the last widths make the first layout right before anything has
-    /// been measured — without them the buttons walked into place over a second.
-    struct Memory: Codable, Equatable {
-        var padConstant: CGFloat?
-        var gapConstant: CGFloat?
-        var tabsWidth: CGFloat
-        var pad: CGFloat
-        var gap: CGFloat
-    }
-
-    private(set) var inspector = CGRect.zero
-    private(set) var gap: CGFloat = 0
-    private(set) var pad: CGFloat = 0
-    private var padConstant: CGFloat?
-    private var gapConstant: CGFloat?
-    /// The offsets the previous look found, for the next one to agree with.
-    private var seen: (pad: CGFloat, gap: CGFloat)?
-    private var tabsWidth: CGFloat = 0
-
-    init(remembering memory: Memory? = nil) {
-        guard let memory else { return }
-        padConstant = memory.padConstant
-        gapConstant = memory.gapConstant
-        tabsWidth = memory.tabsWidth
-        pad = memory.pad
-        gap = memory.gap
-    }
-
-    var memory: Memory {
-        Memory(padConstant: padConstant, gapConstant: gapConstant, tabsWidth: tabsWidth, pad: pad, gap: gap)
-    }
-
-    /// Off while the inspector is hidden: the strip then has no gap or tabs in it, so
-    /// nothing in it says anything about the widths.
-    var active = true {
-        didSet { if active != oldValue { seen = nil } }
-    }
-
-    /// Between the ⓘ's glass and the inspector's edge.
-    static let margin: CGFloat = 20
-
-    /// The invisible items themselves. Nothing but width: no glass, no bezel. Never zero
-    /// wide: an empty item drops out of the strip along with its spacing.
-    var gapItem: some View { Color.clear.frame(width: max(1, gap), height: 1) }
-    var padItem: some View { Color.clear.frame(width: max(1, pad), height: 1) }
-
-    /// The inspector's width is what the widths follow; its position only matters to the
-    /// constants, which a later look settles.
-    mutating func inspectorMoved(to frame: CGRect) {
-        inspector = frame
-        seen = nil
-        guard frame.width > 0, tabsWidth > 0 else { return }
-        if let constant = padConstant { settle(&pad, to: half - constant) }
-        if let constant = gapConstant { settle(&gap, to: half - constant) }
-    }
-
-    private var half: CGFloat { (inspector.width - tabsWidth) / 2 }
-
-    /// Where the tabs and the ⓘ really are. Returns whether another look is wanted: the
-    /// widths changed and the toolbar has yet to move, or an offset was seen once and
-    /// has to be seen again before it is believed.
-    mutating func observe(tabs: CGRect, buttons: CGRect) -> Bool {
-        guard active, inspector.width > 0, tabs.width > 0, buttons.width > 0 else { return false }
-        tabsWidth = tabs.width
-        let padOff = tabs.midX - inspector.midX
-        let gapOff = buttons.maxX - (inspector.minX - Self.margin)
-        guard padOff.isFinite, gapOff.isFinite else { return false }
-        let settled = abs(padOff) <= 0.5 && abs(gapOff) <= 0.5
-        if settled {
-            if padConstant == nil { padConstant = half - pad }
-            if gapConstant == nil { gapConstant = half - gap }
-            seen = nil
-            return false
-        }
-        /// A first calibration is taken from the first look; a correction to one that
-        /// exists waits for two looks to agree, so a frame caught mid-move changes nothing.
-        let calibrated = padConstant != nil && gapConstant != nil
-        if calibrated {
-            guard let seen, abs(seen.pad - padOff) < 1, abs(seen.gap - gapOff) < 1 else {
-                self.seen = (padOff, gapOff)
-                return true
-            }
-        }
-        self.seen = nil
-        let padBefore = pad
-        if abs(padOff) > 0.5 { settle(&pad, to: pad + padOff) }
-        padConstant = half - pad
-        /// The ⓘ moves with the pad too, so what the pad just took is already spoken for.
-        let gapRemaining = gapOff - (pad - padBefore)
-        if abs(gapRemaining) > 0.5 { settle(&gap, to: gap + gapRemaining) }
-        gapConstant = half - gap
-        return true
-    }
-
-    /// Neither width can usefully exceed the inspector's: past that the item has left the
-    /// strip for the overflow menu, where its position no longer answers to the width.
-    private func settle(_ width: inout CGFloat, to wanted: CGFloat) {
-        let clamped = min(inspector.width, max(0, wanted))
-        if abs(clamped - width) > 0.5 { width = clamped }
-    }
-}
-
-/// A view of no size over a toolbar item, through which the item's real position in the
-/// window is read — from AppKit, which is what moves it.
-struct ToolbarProbe: NSViewRepresentable {
-    @MainActor final class Box {
-        weak var view: NSView?
-
-        /// In the window's coordinates; nil when the item is not on screen, as when the
-        /// toolbar has put it in the overflow menu.
-        var frameInWindow: CGRect? {
-            guard let view, let window = view.window, let parent = view.superview else { return nil }
-            let frame = parent.convert(parent.bounds, to: nil)
-            return window.contentView.map { $0.convert(frame, from: nil) } ?? frame
-        }
-    }
-
-    let box: Box
-    init(_ box: Box) { self.box = box }
-
-    /// Over the item but never in its way: clicks fall through to the button beneath.
-    final class Passthrough: NSView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    }
-
-    func makeNSView(context: Context) -> Passthrough {
-        let view = Passthrough(frame: .zero)
-        box.view = view
-        return view
-    }
-
-    func updateNSView(_ view: Passthrough, context: Context) { box.view = view }
 }
 
 /// The picture, without the system's transport: the page draws its own.
@@ -974,8 +825,8 @@ private struct TranscriptRow: View, Equatable {
                 .frame(width: 56, alignment: .leading)
                 .accessibilityLabel("Play from \(Wording.clock(line.start))")
             VStack(alignment: .leading, spacing: 2) {
-                /// The label opens the speaker chooser for this line, the same choices as the
-                /// Speakers panel's.
+                /// The label opens the person picker for this line, the same one a Call line's
+                /// button opens.
                 Button { choosing = true } label: {
                     HStack(spacing: 6) {
                         Circle().fill(RecordingPage.colour(line.speaker)).frame(width: 8, height: 8)
@@ -989,7 +840,7 @@ private struct TranscriptRow: View, Equatable {
                 .accessibilityLabel("\(Wording.label(line.speaker, me: meName)). Change who said this")
                 .popover(isPresented: $choosing, arrowEdge: .leading) {
                     if let desk {
-                        LineSpeakerChooser(desk: desk, line: index, playback: playback) { choosing = false }
+                        LinePersonPicker(desk: desk, line: index, playback: playback) { choosing = false }
                     }
                 }
                 Text(line.text).font(.system(size: 13)).lineSpacing(3).textSelection(.enabled)

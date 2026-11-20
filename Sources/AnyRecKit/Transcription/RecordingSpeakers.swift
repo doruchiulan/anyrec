@@ -183,6 +183,9 @@ public struct RecordingSpeakers: Sendable {
         /// Who to remember as the owner if this speaker is given to Me, when the call window
         /// says so and the library has no owner yet.
         public let rememberOwner: OwnerToRemember?
+        /// What the library did with this voice's print when the owner named it: kept it,
+        /// kept it aside, or refused it and why. Nil when nobody named it.
+        public var kept: VoiceLibrary.Admission? = nil
 
         public var id: Speaker { speaker }
         public var label: String { name ?? speaker.label }
@@ -287,7 +290,7 @@ public struct RecordingSpeakers: Sendable {
                 corrections: corrections.filter { $0.from == speaker },
                 fusedNames: voice?.identityEvidence?.fusedNames ?? [],
                 nameable: speaker != .me && speaker != .others,
-                yourVoice: yours?.evidence ?? [], rememberOwner: yours?.remember)
+                yourVoice: yours?.evidence ?? [], rememberOwner: yours?.remember, kept: voice?.kept)
         }
         let attention = rows.filter(\.needsAttention).sorted { $0.talkTime > $1.talkTime }
         let settled = rows.filter { !$0.needsAttention }.sorted { ($0.speaker == .me ? 0 : 1, -$0.talkTime) < ($1.speaker == .me ? 0 : 1, -$1.talkTime) }
@@ -630,15 +633,29 @@ public enum SpeakerEditing {
         if case .voice(let letter) = speaker { voice = current.voices?.voices.first { $0.letter == letter } }
         /// Taken back first, so the owner remembered next can keep a name the naming added.
         let made = voice.flatMap { VoiceNaming.takeBack($0, from: &saved) }
+        /// Given to anyone but the person the library matched it to: that match was wrong.
+        if let voice {
+            let to: String? = switch target {
+            case .me: saved.owner?.name
+            case .others: nil
+            case .named(let name): name
+            case .voice(let letter): current.voices?.voices.first { $0.letter == letter }?.name
+            }
+            VoiceNaming.repair(voice, namedAs: to ?? "", in: &saved)
+        }
         if let remember, saved.people.contains(where: { $0.name == remember.person }) {
             saved.setOwner(remember.person)
             if let display = remember.display { saved.addAlias(display, to: remember.person) }
         }
         var filing: RecordingVoices.Voice.Filing?
-        if target == .me, let voice, let owner = saved.owner,
-           let filed = saved.file(owner.name, voice.print,
-                                  origin: .init(recording: RecordingLayout(directory: directory).identity)) {
-            filing = .init(person: filed.name, createdPerson: false)
+        var kept: VoiceLibrary.Admission?
+        if target == .me, let voice, let owner = saved.owner {
+            let considered = saved.consider(
+                owner.name, voice.print, origin: .init(recording: RecordingLayout(directory: directory).identity),
+                seconds: VoiceNaming.seconds(of: speaker, in: current.transcript.utterances),
+                mixed: (voice.identityEvidence?.fusedNames?.count ?? 0) > 1)
+            kept = considered.admission
+            filing = considered.filing.map { .init(person: $0.name, createdPerson: false) }
         }
         if let made { saved.removeIfEmpty(made) }
         let written = try TranscriptStore.updateSpeakers(in: directory) { layer, current in
@@ -651,6 +668,7 @@ public enum SpeakerEditing {
             if let voice, let index = layer.voices?.voices.firstIndex(where: { $0.letter == voice.letter }) {
                 layer.voices?.unname(voice.letter)
                 layer.voices?.voices[index].filed = filing
+                layer.voices?.voices[index].kept = kept
             }
             if let remember, saved.owner?.name == remember.person {
                 layer.voices = RecordingVoices.withMe(layer.voices, named: remember.shownName)

@@ -161,7 +161,7 @@ public enum TranscriptStore {
     /// changes voices, a fresh speakers layer carrying `voices`. Applied only while the
     /// source it was made from is still selected.
     @discardableResult
-    public static func publishWording(_ wording: WordingLayer, voices: RecordingVoices?, in directory: URL) throws -> [URL] {
+    public static func publishWording(_ wording: WordingLayer, voices: RecordingVoices?, speakers: [Speaker]? = nil, in directory: URL) throws -> [URL] {
         let directory = OutputPlan(directory: directory).directory
         guard var selection = selection(in: directory), selection.transcript == wording.source,
               let current = RecordingTranscript.read(in: directory) else { return [] }
@@ -174,6 +174,7 @@ public enum TranscriptStore {
         written.append(wordingURL)
         var layer = current.speakers ?? SpeakerLayer(source: wording.source, lineCount: wording.lineCount, voices: nil)
         layer.voices = voices
+        if let speakers { layer.speakers = speakers }
         let speakersURL = layout.writeURL("speakers-\(UUID().uuidString).json")
         try encode(layer, to: speakersURL)
         written.append(speakersURL)

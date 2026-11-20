@@ -119,6 +119,37 @@ extension RecordingSpeakers {
         }
     }
 
+    /// Who one line can be given to: you and the speakers with lines, then everyone else the
+    /// call window showed, then the rest of the voice library, A to Z. Each person once.
+    public struct LineChoices: Sendable, Equatable {
+        public let speakers: [Speaker]
+        /// Names the call window showed that no speaker carries.
+        public let callNames: [String]
+        /// Everyone else in the library, by the name a transcript shows.
+        public let library: [PersonSuggestion]
+    }
+
+    public var lineChoices: LineChoices {
+        let speakers = [Speaker.me] + rows.map(\.speaker).filter { $0 != .me && $0 != .others }
+        var taken = speakers.map { label($0) }
+        let answersTaken = { (name: String) in
+            taken.contains { VoiceLibrary.normalized($0) == VoiceLibrary.normalized(name) }
+                || context.library.people.contains { person in
+                    person.answers(to: name) && taken.contains { person.answers(to: $0) }
+                }
+        }
+        var callNames: [String] = []
+        for (name, _) in participants?.roster ?? [] where !context.isOwner(name) && !answersTaken(name) {
+            callNames.append(name)
+            taken.append(name)
+        }
+        let library = context.library.people
+            .filter { !$0.isOwner && !context.isOwner($0.name) && !answersTaken($0.shownName) && !answersTaken($0.name) }
+            .map { PersonSuggestion(savedName: $0.name, shownName: $0.shownName, matched: $0.shownName, exact: false) }
+            .sorted { $0.shownName.localizedStandardCompare($1.shownName) == .orderedAscending }
+        return LineChoices(speakers: speakers, callNames: callNames, library: library)
+    }
+
     /// The one person `text` exactly names (ignoring case, diacritics and spacing), whoever
     /// they are; nil when nobody does, or more than one person does. A name typed and
     /// submitted is filed under this person rather than starting a new record.

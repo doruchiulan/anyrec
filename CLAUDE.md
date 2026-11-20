@@ -170,13 +170,17 @@ second one for "UI-common" code.
 | `AnyRecBar/Playback.swift`, `HotKey.swift` | One recording's player (the merged file, or the masters with a track silenced — the picture from `screen.mov` or, once that is gone, the merged file's video stream), which also plays a speaker clip's span and stops (`play(_:)`, `playingClip`), and the ⌘⇧R shortcut. |
 | `AnyRecBar/CompactColumns.swift` | Which library columns give way as the window narrows: the sidebar below 1290 pt, then the inspector below 1100 pt (list fixed at 300 pt), and a column shown by hand in a window too narrow for it grows the window, each back past its higher threshold only if hidden automatically, acting only when a threshold is crossed so manual toggles stand. |
 | `AnyRecBar/Views/LibraryWindow.swift`, `RecordingDetail.swift` | The library window: filters, day-grouped list, and one recording's video (or, audio only, the app's icon and title above the waveform), summary and Speakers panel, with its transcript, tracks and files in the inspector; a transcript line's speaker label opens the same chooser as the panel. Reads files the Kit left; writes only who spoke (voice names and line speakers, via `SpeakerEditing`) and ticks on action items. Summaries are written by the Kit's `SummaryPass`, started by the pass or by `RecordingController`, which outlives the window. |
-| `AnyRecBar/Views/SpeakersPanel.swift` | The recording page's Speakers panel (`SpeakerDesk` loads `RecordingSpeakers` off the main thread and makes the changes), the candidate chooser, `GiveToChoices` (Me, Call and the other speakers, for a row and for the popover), clip buttons, and `LineSpeakerChooser`, what a transcript label's popover shows. |
-| `AnyRecBar/Views/ObservedParticipants.swift` | The recording's roster from the call window, with how long it was readable and the voice facts: the Speakers panel's last section, or a box of its own before there is a transcript. |
+| `AnyRecBar/Views/PeoplePanel.swift` | The recording page's "People in this call" (Fable's design): one plain question at a time from `RecordingSpeakers.questions` (Was this you? / Who is this? / Is this Madalin? / Are these the same person? / a mixed voice sorted line by line / bits nobody claimed / the review's line fixes with Fix All), with Skip, ‹ › and Undo; then the people, each opening to their samples and one "Not X?" button; every sample (in a question or an opened person) has its own small "Not Ciprian?" that moves just that line, for the one stray sample in an otherwise right person; "Not sure who"; who will be recognised next call. Never says voice, speaker or Call. |
+| `AnyRecBar/Views/SpeakersPanel.swift` | `SpeakerDesk` (loads `RecordingSpeakers` off the main thread and makes every change: `assign` renames a person or joins them to someone already speaking, `assignLines`, `confirm`, `sort`, fixes, and Undo from a snapshot of the transcript's layers and the library), `PersonPicker` (people in this call, Me apart, Someone else… with the library searchable and a new person), `LinePersonPicker` (what a transcript label opens), clip buttons. |
+| `Transcription/PeopleQuestions.swift` | `RecordingSpeakers.questions`, `state(of:)` (recognised, remembered next time, new from the call window, named for this call…), `silentPeople`, `onlyOther`: what the People panel asks and shows, pure and tested. |
+| `Transcription/VoiceLibrary+Safeguards.swift` | `consider` (the admission check before a print is filed), probation (`Person.waiting`), `demote`, `issues`, `mergePerson`, `markDifferent`. |
+| `Transcription/VoiceLibrary+Curation.swift` | A few strong, varied prints per person: `admit` (near-copies refused or swapped for one made from more speech), the cap of six with the most redundant set aside (`retired`), `quality(ofPrint:)`, `bringBack`. |
+| `AnyRecBar/Views/ObservedParticipants.swift` | The participant roster and observed speaking times, shown in the Speakers panel or on their own before transcription. |
 | `AnyRecBar/Views/AggregatorSettings.swift` | `ComparisonSettings`: "Review with a second engine" and which engines it runs. |
 | `AnyRecBar/Views/WelcomeSheet.swift` | Two-step first launch: recording access, then on-device transcription downloads. Opens the library on completion; Help can reopen it. |
 | `AnyRecBar/Views/` | `MenuPanel` and the three it switches between (`SetupPanel`, `RecordingPanel`, `OutcomePanel`), plus `SettingsWindow`, `LevelMeter`, `Notice` and `PermissionPanel`. System components throughout, except the recording page's cards and transport, which live privately in `RecordingDetail.swift`. |
 | `AnyRecBar/Views/AgentSettings.swift` | Settings › AI Apps: Connect/Disconnect per app, pointed at the app's own binary, and Copy Configuration for any other client. |
-| `AnyRecBar/Views/ShareButton.swift` | The recording page's Share button: prepares `RecordingShare`'s set, then the system share menu on it, with "Save to OneDrive" / "Save to iCloud Drive" added for each synced folder. File › Share… and the list's Share… reach it through `RecordingController.shareRequest`. |
+| `AnyRecBar/Views/ShareButton.swift` | AppKit anchor for File → Share Files… and the list’s file export. The toolbar Share button opens the Slack picker. |
 | `AnyRecBar/Compressor.swift` | Runs `Compression` over the library in the background while nothing else is happening and the Mac is on power; stops ffmpeg the moment that changes. |
 | `AnyRecBar/Updates.swift` | Sparkle: Check for Updates…, the automatic-check switch, update windows held back during a recording, call or background work (offered in the panel instead), and a relaunch postponed until nothing is recorded or saved. |
 | `AnyRecBar/ProcessingSteps.swift` | The checklist the post-recording panel shows: saved, prepared, transcribed (and summarised), each waiting, running, done or failed. |
@@ -239,6 +243,15 @@ Invariants worth preserving:
   only the saved panel; starting another recording never cancels pending processing.
   Job progress and failures belong to recording directories, and stale callbacks cannot
   update completed or retried jobs. Quit waits for capture and background work.
+- Background processing runs at utility priority, and nothing the app does at a higher one
+  waits on it. `RecordingJobs`' worker is `Task(priority: .utility)`: made from the main
+  actor without one it was user-initiated, and awaiting the detached `.utility` work lifted
+  that to user-initiated as well (Swift raises an awaited task to its waiter's priority).
+  Parakeet's chunks, each a synchronous CoreML prediction on a thread of the shared pool,
+  then filled the pool at the windows' own priority: on an M3 Pro the main actor got no
+  turn for three seconds; on Intel Macs, where the chunks run on the CPU for minutes, the
+  app was frozen for the whole transcription. On Intel, Parakeet also transcribes one chunk
+  at a time (`ParakeetTranscriber.chunkConcurrency`); Apple silicon keeps FluidAudio's four.
 - There is one recording flow, and it is `RecordingSession`. `record`, the TUI and
   the menu bar all drive it; none may grow its own start/stop/merge/transcribe.
   When two of them had one they silently diverged three ways — `record` never
@@ -563,9 +576,13 @@ Invariants worth preserving:
   window's minimum-size pass on every frame of a resize (about 15% of main-thread time,
   found by sampling); `WrappingRow` and `HeaderRow` in `RecordingDetail.swift` decide one
   row or two arithmetically from one set of children. `CompactColumns` is a class so the
-  width it remembers each frame does not redraw the window.
+  width it remembers each frame does not redraw the window. During a window drag, `ResizeViewport`
+  temporarily displays in-memory images of the document and inspector, keeping the video
+  and captions live. Both panes fit their exact sizes on release. Editing and assistive
+  access keep the live controls throughout the drag.
 - The library window does no work in a view's `init` or in a body that redraws often.
-  `RecordingDetail` makes its `Playback` in `.task(id:)`: made in `init`, it was a new
+  `LibraryView` makes the selected recording's `OpenRecording` (its `Playback` and what was
+  read from its folder, shared by the page and the inspector) in `.task(id:)`: made in `init`, a player was a new
   `AVPlayer`, a new time observer and a fresh decode of the call's audio on every redraw
   of the list, none of them ever stopped, and a search keystroke started another. The
   playhead moves ten times a second, so only the views that show it read it — the clock,
@@ -577,7 +594,10 @@ Invariants worth preserving:
   for Today, Yesterday, Previous 7 Days, Previous 30 Days, then months, then years;
   rows of a bold title, the time or date beside a line of what was said (the summary's
   first sentence, else the transcript's first words), and the app and length where Notes
-  puts the folder; a status badge in the leading margin and a still on the right.
+  puts the folder; a status badge in the leading margin and a still on the right, with a
+  cloud badge on the still's corner when the synced copy is uploaded
+  (`RecordingCloud.isAvailable`, checked off the main thread every 30 s per visible row). Its task hangs off a zero-size view that is always
+  there: on an empty `Group` SwiftUI never ran it, and no row ever showed the cloud.
 - A recording's waveform is decoded once and kept as `Cache/waveform.json`;
   its list thumbnail likewise as `Cache/thumbnail.jpg`.
   Decoding is the cost — about 4 s of CPU for a 100-minute call, however the samples are
@@ -591,44 +611,16 @@ Invariants worth preserving:
   transcript stays in view while the video plays. Settings is a toolbar of panes, reopened on
   the last one. Every command is in the menu bar — toolbar items, context-menu items
   and the helper's actions are copies of menu commands, never the only way in.
-- The app bundle is linked as built against the SDK it really was. SwiftPM records the
-  deployment target (15.2) as the SDK in `LC_BUILD_VERSION`, and macOS 26 gives its
-  current design — Liquid Glass toolbars, floating toolbar items, the floating sidebar —
-  only to apps built against SDK 26 or later; everything else gets a compatibility mode
-  with a flat band across the top. `bundle-app.sh` passes `-platform_version` to the
-  linker with `xcrun --show-sdk-version`, which leaves the deployment target alone.
-  A hand-made glass overlay never matched Notes until this was fixed: in compatibility
-  mode `glassEffect` is not the real thing. The recording's Finder, Share and ⓘ buttons
-  are toolbar items at the start of the recording's toolbar row, so they stay while the
-  page scrolls. They are not pushed to the trailing end: the window's toolbar is one
-  strip across the recording and the inspector, so the trailing end is over the
-  inspector, and an overlay in that row is drawn under the toolbar. So everything is
-  pushed to the trailing end and walked back by two invisible toolbar items whose widths
-  are measured (`ToolbarStrip`): one holds the buttons at the recording's edge, one
-  centres the inspector's Transcript/Tracks/Files tabs over the inspector, which has no
-  row of its own above the transcript. The measurements are applied on the next turn of
-  the run loop — a width changed inside the layout pass that measured it is an AppKit
-  exception, and crashed the app — and each is worked out from its frame plus the widths
-  that frame was laid out under, never nudged by an offset, because the three callbacks
-  of one pass all run `place()` and three nudges from one stale frame ran a width to its
-  clamp. The widths live in `LibraryView`, not the recording's page, and the page is not
-  re-identified per recording: widths that started from zero for each one opened sent
-  the buttons on a visible walk from the trailing edge at every change of selection.
-  The widths are computed from the inspector's and the tabs' *widths*, which hold still
-  during a window resize, with a constant per width taken from positions — and the
-  positions have to be real ones. The toolbar moves its items itself after SwiftUI has
-  laid them out, so SwiftUI's geometry for a toolbar item is wherever it was last laid
-  out: the tabs reported one x through three changes of the pad. `ToolbarProbe` reads
-  each item's view from AppKit instead, 300 ms after anything changed, and an offset is
-  acted on only when two looks agree, so a frame caught mid-move changes nothing. The
-  inspector's frame does come from SwiftUI (it lays the content out), applied a turn of
-  the run loop later — changed inside the pass that measured it, it was an AppKit
-  exception that crashed the app. Nothing is measured while the inspector is hidden: the
-  strip then has no gap or tabs in it. The probes pass clicks through (`hitTest` nil):
-  as plain views over the ⓘ and the tabs they swallowed every click on them. The
-  constants and last widths are remembered in `Preferences`, so the first layout of a
-  launch is right rather than walking into place over a second, and a first calibration
-  is taken from the first look — only a correction to an existing one waits for two.
+- The bundle records the build SDK in `LC_BUILD_VERSION` and retains the macOS 15.2
+  deployment target. AppKit places the recording actions, inspector toggle and tabs
+  in the native window toolbar. The inspector is attached to the `NavigationSplitView`,
+  not to the recording page: only there is it a full-height column with its own section
+  of the toolbar (its tabs centred, the toggle at the trailing edge). Inside the detail
+  it shared one toolbar strip with the page, the page's buttons ran over it, and keeping
+  them apart took measured spacer items (`ToolbarStrip`, removed). Its toolbar items are
+  declared only while it is shown — a collapsed inspector still contributes them — and
+  the toggle moves to the page's toolbar while it is closed. `.searchable` goes on the
+  split view *inside* `.inspector`: outside it, the field was placed twice.
 - The menu bar item can be switched off (Settings › General), because whether an
   item is in the menu bar is the person's call, and the system hides items when the
   menu bar is full. The switch sets the status item's `isVisible` live, and ⌘-dragging
@@ -761,20 +753,31 @@ Invariants worth preserving:
   encodes what it has queued first (14 s on a 720p test). Quit and updates stop it, never
   wait for it; leftovers are deleted before the next try. `anyrec compress` runs it on one
   recording.
-- Sharing never touches the recording. What is shared is the video (or audio) with the
-  transcript inside as captions and the title, date and summary overview as metadata,
-  plus `Summary.md` and `Transcript.md`: `RecordingShare.prepare` stream-copies the merged
-  file into `Cache/Share/` with a `mov_text` track made from `TranscriptStore.srt` (names
-  in, "Maya: …"), checks the copy frame for frame and audio length for length, and keeps it
-  until the merged file, the transcript or the summary renderings change (a signature of
-  their sizes and times and the captions' text), so a name corrected after sharing is in
-  the next share. 0.6 s on a 38-minute call; `.m4a` takes captions too. Without ffmpeg or
-  a transcript the merged file is shared as it is. OneDrive installs no share extension
-  (only a File Provider and a Finder extension), so it never appears in the system share
-  menu: the menu gets "Save to OneDrive" / "Save to iCloud Drive" for each synced folder
-  `CloudFolder` finds, copying the set into `AnyRec/<recording>/` for that service's app to
-  upload, then showing it in Finder. No sign-in, no Graph API: the Azure CLI's Graph token
-  carries no file scopes, and an app of our own would need tenant consent.
+- A recording has one cloud copy, and it is the synced one. The original stays in the
+  library on the owner's Mac and is what the app works from; `MeetingSync` publishes it
+  one-way into a team folder (never reading anything back into it), and Share Files… only
+  hands files to the system share sheet — the "Save to OneDrive/iCloud" export is gone, and
+  old export folders are never deleted. The cloud badge (list and header) means exactly
+  "the synced copy is uploaded" (`RecordingCloud.isAvailable`); a saved Slack link or an old
+  export no longer shows one. The sync button's icon is the state (`checkmark.icloud` synced
+  and uploaded, `arrow.clockwise.icloud` uploading, `exclamationmark.icloud` needs attention,
+  `icloud.and.arrow.up` not synced). Folders are named with the cloud that keeps them
+  (`CloudFolder.provider(of:)`: iCloud Drive, OneDrive with its account, Google Drive,
+  Dropbox, Box, else "on this Mac"), as "AnyRec (iCloud Drive)". The default sync folder is
+  `MeetingSyncState.lastFolder`, set by every sync and move and shown and changed in
+  Settings › Recording › Sharing (`MeetingSync.setDefaultFolder`). The sync menu says where things stand first ("Synced to …"
+  with up to date / uploading / restored / needs attention, or "Not synced"), then Show in
+  Finder, Move to… and Stop Syncing…. The shared copy is protected: the team folder should be
+  shared view-only (the folder picker says so), and each publication keeps a fingerprint of
+  what AnyRec wrote (`MeetingPublication.fingerprints`: the recording's size, the small files'
+  SHA-256); a refresh that finds the shared copy changed, partly deleted or gone publishes
+  again from the original — small files rewritten only where their contents differ, the
+  recording copied only when missing or the wrong size — and records `restored`.
+- File → Share Files… prepares playable media with captions and metadata through
+  `RecordingShare.prepare`. Toolbar Share sends the finished summary through Slack.
+  `MeetingSync` records explicit per-meeting publication and connected team folders.
+  `SharedMeeting` contains the public transcript and summary. Linked entries read it
+  directly. Make a Copy imports it into a new local recording with its own transcript.
 - The merged file is named from `recording.json` — the title without unread counters
   or a trailing app segment, the app, and the start (`recording.json`'s `startedAt`, else the folder's name), as
   "Design review – Slack – 2026-11-03 10.08.mp4" — and the name is kept in
@@ -913,6 +916,33 @@ Invariants worth preserving:
   is why they are not used — a meeting here can be twenty people. The 0.5 match
   threshold is provisional, set from FluidAudio's own table, and only ever moves
   up until it has been measured on real calls: the wrong name is the worse mistake.
+  A match also needs a margin (`VoiceLibrary.margin`, 0.05) over the next person: a real
+  call matched one voice to Vladimir at 0.68 and to the owner at 0.68, and named it by
+  which came first.
+- The owner's word is necessary but not enough to file a print (`VoiceLibrary.consider`,
+  in `VoiceSafeguards`). It is refused — the lines still take the name — when the voice
+  spoke for under 20 s, when the call window saw several people in it (`fusedNames`), or
+  when it sounds like someone else in the library more than like the person named; a
+  print unlike all of its person's others (below 0.3) waits (`Person.waiting`), is never
+  matched or exported, and joins only when a second waiting print agrees. Each voice
+  records what happened (`Voice.kept`), and the Speakers panel says "named for this call
+  only" and why. Naming or giving away a voice the library had recognised as someone sends
+  the print of theirs that made the match to probation (`VoiceNaming.repair`). The library
+  checks itself (`issues`): two records 0.8 alike are asked about once in People ("Same
+  Person" merges with `mergePerson`, the other name kept as a nickname; "Different People"
+  is remembered in `notSameAs`), and a print unlike the rest of its person's is offered for
+  removal. Found on the owner's real library: two of their own prints 0.10 alike, one
+  matching their microphone at 0.77 and the other at 0.15; Vova and Vladimir, Cipri and
+  Ciprian, each one person under two records.
+- A person keeps at most six prints (`VoiceLibrary+Curation`): every print joins through
+  `Person.admit`, which refuses a near-copy (0.92 alike) of one they have unless it was made
+  from more speech (it then takes that one's place), and past the cap sets aside the most
+  redundant print weighed against its quality (speech it was made from, up to two minutes,
+  and agreement with the person's other prints), never the best. Set-aside prints are kept
+  (`Person.retired`, ten at most), never matched or exported, and People brings one back.
+  A print records the seconds of speech behind it (`PrintOrigin.seconds`; older prints count
+  as 30). One print per confirmed call used to pile up without limit, and every extra print
+  was one more chance for a wrong match.
 - A print is filed only by the owner: naming a whole voice, or giving one to Me. And
   what a naming filed can be taken back, because a wrong pick otherwise goes on matching
   that voice to that person on every later call — the owner once picked a "sounds like"
@@ -937,20 +967,32 @@ Invariants worth preserving:
   filled too) and MCP render it; the app's transcript keeps the Me speaker, for its colour
   and choices, and only labels it with the name. Older transcripts keep "Me" until named.
   Call lines no voice claims are a row of their own (`Row.choosable`, never `nameable`, so
-  the terminal does not ask about it) with the call's candidates, the only roster name left
-  first; choosing gives every Call line to that person. In a call of two whose window was
+  the terminal does not ask about it). They are mostly fragments the voice separation could
+  not place and can be anyone on the call, so the panel lists them one by one (five, then
+  Show All), each with its own play button and "Who Said This?", which opens
+  `LinePersonPicker` for that line only: in this call (you, the speakers and everyone else
+  the call window showed, the current one ticked), then Someone else… with the voice library
+  searchable A to Z and a new person (`RecordingSpeakers.lineChoices`). A transcript label
+  opens the same picker. It replaced two sections that read alike — names that renamed and
+  speakers that took the line — where a speaker in the call appeared only in the second. Giving them all to one person is offered only when the
+  transcript has exactly one other speaker and the call window listed nobody else. In a call of two whose window was
   readable for half the recording, leftover Call lines go to the one other person when the
   transcript is written (`ParticipantAttribution.nameCallLinesForOnlyOther`), except lines
   the window showed the owner on, and not while an unnamed voice could still be them.
-- Speakers are checked and changed in one place: the recording page's Speakers panel,
-  and the same chooser behind every speaker label in the transcript. It lists every
+- Speakers are checked and changed in one place: the recording page's "People in this call"
+  (`PeoplePanel`), Fable's design, which replaced the Speakers panel's five flows (a Call
+  row, review cards, auto-opened voice rows with rename and "give every line" sections, the
+  same behind Change…, and "Change who you are") because the owner could not tell them apart.
+  It asks one plain question at a time (`RecordingSpeakers.questions`) and answers by picking
+  a person; whether that renames or joins two rows is `SpeakerDesk.assign`'s business. A
+  transcript label opens `LinePersonPicker`, which moves that one line only. What follows
+  describes the older panel and still holds for the Kit's rows. The panel lists every
   speaker with lines, Me included, those needing a look first (unnamed, conflicting,
   possibly two people, with pending line corrections, or probably you), each with how it was named,
   its talk time, up to three clips, candidate names and the review's corrections of its
   lines; then the Call lines no voice claims and the call window's roster. Every row
   but Me, once expanded, also offers "Or give every line of … to" Me, Call and every
-  other speaker — `GiveToChoices`, the same component as the label popover's "Or give it
-  to" — through `SpeakerEditing.give`; Me is left out of it where the names above
+  other speaker — `GiveToChoices` — through `SpeakerEditing.give`; Me is left out of it where the names above
   already offer Me, so a probably-you row keeps its one Me button and remember tick. It
   replaced the naming card, the corrections card and the roster card. Nothing in it
   sends anything anywhere or calls a model.
@@ -1033,7 +1075,13 @@ Invariants worth preserving:
   five to Call; now four go to "Me". Never "Me" while the window showed someone else or
   the call could not hear the microphone. A real 1:1 had 16 lines as "Me" and 11 under
   the owner's own nickname. A display name the window showed for the owner is never
-  filed as the alias of a non-owner whose print a voice matched.
+  filed as the alias of a non-owner whose print a voice matched. Whoever the window showed
+  speaking during Me lines counts as the owner only when it labels no tile as the owner's
+  (Slack); with a tile (Teams' "Myself video"), a different name is someone else at the same
+  microphone. A colleague in the owner's room, shown speaking from their own laptop, was
+  learned as the owner's display name and named the owner on every later call, Slack
+  included. Names match across a directory's "Last, First (Contractor)" and "First Last"
+  (`VoiceLibrary.nameKeys`), so one person's call name is never filed under another.
 - A transcript is layers, each a file recording what it was built from: sources
   (`transcript-<engine>-<UUID>.json`, one per engine run, never rewritten), speakers
   (`speakers-<UUID>.json`: per-line speakers when they differ from the source, voices,

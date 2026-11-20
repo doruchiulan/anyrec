@@ -131,10 +131,9 @@ name or letter, how it was decided (call window and voice agree, voice match, ca
 window, chosen by review, named by you, uncertain), talk time, up to three clips,
 candidate names to click, "Someone else…" to type one, and under it that speaker's
 lines the review thinks are someone else's, each with a clip and Move to / Keep.
-Settled rows are compact with "Change…". Under the rows: the Call lines no voice
-claims, then who the call window showed, how long each was shown as the only one
-speaking, how much of the call the window could be read for, and voice facts (owner
-voice given back, Call lines named). Clicking a speaker label on a transcript line
+Settled rows are compact with "Change…". Below them are the unclaimed Call lines
+and the participants seen in the call window, with their observed speaking times.
+Clicking a speaker label on a transcript line
 opens the same choices for that line only or for every line of the voice.
 
 A row is probably you (`YourVoiceEvidence`), worked out when the speakers are read so

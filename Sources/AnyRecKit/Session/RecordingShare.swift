@@ -192,12 +192,36 @@ public struct CloudFolder: Sendable, Equatable, Identifiable {
         return folders
     }
 
+    /// Which cloud keeps `url`, as people call it: "iCloud Drive", "OneDrive – Blueprint",
+    /// "Google Drive", "Dropbox", "Box", or the provider's own folder name for anything else
+    /// macOS lists under CloudStorage. Nil for a folder that is only on this Mac.
+    public static func provider(of url: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        let mobile = home.appendingPathComponent("Library/Mobile Documents").resolvingSymlinksInPath().path
+        if path == mobile || path.hasPrefix(mobile + "/") { return "iCloud Drive" }
+        let storage = home.appendingPathComponent("Library/CloudStorage").resolvingSymlinksInPath().path
+        guard path.hasPrefix(storage + "/") else { return nil }
+        let entry = String(path.dropFirst(storage.count + 1).split(separator: "/").first ?? "")
+        if entry.hasPrefix("OneDrive") {
+            let account = entry.dropFirst("OneDrive".count).drop { $0 == "-" || $0 == " " }
+            return account.isEmpty || account == "Personal" ? "OneDrive" : "OneDrive – \(account)"
+        }
+        for (prefix, name) in [("GoogleDrive", "Google Drive"), ("Dropbox", "Dropbox"), ("Box", "Box")] where entry.hasPrefix(prefix) {
+            return name
+        }
+        return entry.isEmpty ? nil : entry
+    }
+
+    public func destination(for recordingName: String) -> URL {
+        url.appendingPathComponent("AnyRec").appendingPathComponent(recordingName)
+    }
+
     /// Copies the set into `AnyRec/<recording>/` in this folder, replacing an earlier copy
     /// of the same files, and returns that folder.
     @discardableResult
     public func save(_ set: RecordingShare.Set) throws -> URL {
         let fm = FileManager.default
-        let target = url.appendingPathComponent("AnyRec").appendingPathComponent(set.name)
+        let target = destination(for: set.name)
         try fm.createDirectory(at: target, withIntermediateDirectories: true)
         for file in set.files {
             let destination = target.appendingPathComponent(file.lastPathComponent)

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AnyRec logo options</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .comparison { padding-block: 40px; }
+    .comparison h1 { font-size: clamp(34px, 7vw, 58px); line-height: 1.1; margin-block: 22px 32px; }
+    .comparison section { margin-bottom: 30px; }
+    .comparison h2 { margin-bottom: 8px; }
+    .samples { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; margin-top: 12px; }
+    .sample { border: 1px solid #d9deea; border-radius: 10px; overflow: hidden; }
+    .light { color-scheme: light; background: #fff; color: #151b29; }
+    .dark { color-scheme: dark; background: #151b29; color: #f4f6ff; border-color: #151b29; }
+    .sample-header, .favicon { display: flex; align-items: center; padding: 12px 16px; gap: 8px; }
+    .sample-header { justify-content: space-between; border-bottom: 1px solid currentColor; }
+    .favicon { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main class="wrap comparison">
+    <a href="index.html">AnyRec website</a>
+    <h1>Logo options</h1>
+    <section><h2>Dual track</h2><p>Two bars for the call audio and microphone tracks. Selected for the website.</p><div class="samples"><div class="sample light"><div class="sample-header"><img src="assets/dual-track-wordmark.svg" width="141" height="30" alt="AnyRec"><span>Download</span></div><div class="favicon"><img src="assets/dual-track.svg" width="16" height="16" alt="">16 px favicon · light</div></div><div class="sample dark"><div class="sample-header"><img src="assets/dual-track-wordmark.svg" width="141" height="30" alt="AnyRec"><span>Download</span></div><div class="favicon"><img src="assets/dual-track.svg" width="16" height="16" alt="">16 px favicon · dark</div></div></div></section>
+    <section><h2>Record ring</h2><p>A record dot inside a ring.</p><div class="samples"><div class="sample light"><div class="sample-header"><img src="assets/record-ring-wordmark.svg" width="141" height="30" alt="AnyRec"><span>Download</span></div><div class="favicon"><img src="assets/record-ring.svg" width="16" height="16" alt="">16 px favicon · light</div></div><div class="sample dark"><div class="sample-header"><img src="assets/record-ring-wordmark.svg" width="141" height="30" alt="AnyRec"><span>Download</span></div><div class="favicon"><img src="assets/record-ring.svg" width="16" height="16" alt="">16 px favicon · dark</div></div></div></section>
+    <section><h2>Call note</h2><p>A speech bubble with two lines of transcript.</p><div class="samples"><div class="sample light"><div class="sample-header"><img src="assets/call-note-wordmark.svg" width="141" height="30" alt="AnyRec"><span>Download</span></div><div class="favicon"><img src="assets/call-note.svg" width="16" height="16" alt="">16 px favicon · light</div></div><div class="sample dark"><div class="sample-header"><img src="assets/call-note-wordmark.svg" width="141" height="30" alt="AnyRec"><span>Download</span></div><div class="favicon"><img src="assets/call-note.svg" width="16" height="16" alt="">16 px favicon · dark</div></div></div></section>
+  </main>
+</body>
+</html>

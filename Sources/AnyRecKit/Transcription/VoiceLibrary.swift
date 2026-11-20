@@ -20,10 +20,14 @@ public struct VoiceLibrary: Sendable, Equatable {
         /// The recording folder's name (`rec-YYYY-MM-DD-HHMMSS`); nil for an import.
         public let recording: String?
         public let filed: Date
+        /// Seconds of speech the print was made from; nil for prints filed before this was
+        /// kept, and for imports. What `VoiceLibrary.Curation` weighs a print by.
+        public var seconds: TimeInterval?
 
-        public init(recording: String?, filed: Date = Date()) {
+        public init(recording: String?, filed: Date = Date(), seconds: TimeInterval? = nil) {
             self.recording = recording
             self.filed = filed
+            self.seconds = seconds
         }
 
         /// When the recording started, read from its folder's name.
@@ -48,6 +52,17 @@ public struct VoiceLibrary: Sendable, Equatable {
         /// written from then on call them this rather than the saved name, which stays the
         /// key the library is filed and matched under.
         public var displayName: String?
+        /// Prints on probation: filed by the owner but unlike this person's other prints, so
+        /// not used for matching until a second one agrees (`VoiceLibrary.consider`). Never
+        /// exported. Absent in older files.
+        public internal(set) var waiting: [Voiceprint] = []
+        public internal(set) var waitingOrigins: [PrintOrigin?] = []
+        /// People the owner said are not this person, so the health check stops asking.
+        public internal(set) var notSameAs: [String] = []
+        /// Prints set aside to keep the person to `VoiceLibrary.maximumPrints`: not matched,
+        /// not exported, kept so the owner can bring one back. Newest last.
+        public internal(set) var retired: [Voiceprint] = []
+        public internal(set) var retiredOrigins: [PrintOrigin?] = []
 
         public init(name: String, prints: [Voiceprint], aliases: [String] = [], isOwner: Bool = false,
                     displayName: String? = nil, origins: [PrintOrigin?] = []) {
@@ -65,7 +80,7 @@ public struct VoiceLibrary: Sendable, Equatable {
         }
 
         /// Nothing left that could name anyone: no print to match and no other name.
-        var isEmpty: Bool { prints.isEmpty && aliases.isEmpty && displayName == nil && !isOwner }
+        var isEmpty: Bool { prints.isEmpty && waiting.isEmpty && aliases.isEmpty && displayName == nil && !isOwner }
 
         mutating func add(_ print: Voiceprint, origin: PrintOrigin?) {
             alignOrigins()
@@ -97,7 +112,9 @@ public struct VoiceLibrary: Sendable, Equatable {
         /// What a transcript calls this person: the call window's name once one is known.
         public var shownName: String { displayName ?? name }
 
-        private enum CodingKeys: String, CodingKey { case name, prints, origins, aliases, isOwner, displayName }
+        private enum CodingKeys: String, CodingKey {
+            case name, prints, origins, aliases, isOwner, displayName, waiting, waitingOrigins, notSameAs, retired, retiredOrigins
+        }
 
         public init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -107,6 +124,11 @@ public struct VoiceLibrary: Sendable, Equatable {
             aliases = try values.decodeIfPresent([String].self, forKey: .aliases) ?? []
             isOwner = try values.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
             displayName = try values.decodeIfPresent(String.self, forKey: .displayName)
+            waiting = try values.decodeIfPresent([Voiceprint].self, forKey: .waiting) ?? []
+            waitingOrigins = try values.decodeIfPresent([PrintOrigin?].self, forKey: .waitingOrigins) ?? []
+            notSameAs = try values.decodeIfPresent([String].self, forKey: .notSameAs) ?? []
+            retired = try values.decodeIfPresent([Voiceprint].self, forKey: .retired) ?? []
+            retiredOrigins = try values.decodeIfPresent([PrintOrigin?].self, forKey: .retiredOrigins) ?? []
         }
 
         /// `origins` is written only once a print has one, so a library that never filed a
@@ -119,14 +141,23 @@ public struct VoiceLibrary: Sendable, Equatable {
             try values.encode(aliases, forKey: .aliases)
             try values.encode(isOwner, forKey: .isOwner)
             try values.encodeIfPresent(displayName, forKey: .displayName)
+            if !waiting.isEmpty {
+                try values.encode(waiting, forKey: .waiting)
+                try values.encode(waitingOrigins, forKey: .waitingOrigins)
+            }
+            if !notSameAs.isEmpty { try values.encode(notSameAs, forKey: .notSameAs) }
+            if !retired.isEmpty {
+                try values.encode(retired, forKey: .retired)
+                try values.encode(retiredOrigins, forKey: .retiredOrigins)
+            }
         }
 
         /// Whether `display` is this person: their saved name or one of their aliases,
         /// compared without case or repeated spaces.
         public func answers(to display: String) -> Bool {
-            let key = VoiceLibrary.normalized(display)
-            return VoiceLibrary.normalized(name) == key || aliases.contains { VoiceLibrary.normalized($0) == key }
-                || displayName.map { VoiceLibrary.normalized($0) == key } == true
+            let keys = VoiceLibrary.nameKeys(display)
+            return ([name] + aliases + [displayName].compactMap { $0 })
+                .contains { !VoiceLibrary.nameKeys($0).isDisjoint(with: keys) }
         }
     }
 
@@ -146,7 +177,7 @@ public struct VoiceLibrary: Sendable, Equatable {
         return URL(filePath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/anyrec/voices")
     }()
 
-    public private(set) var people: [Person]
+    public internal(set) var people: [Person]
 
     public init(people: [Person] = []) {
         self.people = people
@@ -219,21 +250,50 @@ public struct VoiceLibrary: Sendable, Equatable {
         name.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
     }
 
+    /// The ways one name is written: as given, and as "First Last" when it is a directory's
+    /// "Last, First", with a trailing "(Contractor)"-style tag dropped. Teams shows
+    /// "Barbura, Claudiu (Contractor)" for the person a library knows as "Claudiu Barbura";
+    /// read as two people, that name was filed as the owner's.
+    static func nameKeys(_ name: String) -> Set<String> {
+        let plain = normalized(name)
+        var keys: Set<String> = [plain]
+        var core = plain
+        if core.hasSuffix(")"), let open = core.lastIndex(of: "("), open > core.startIndex {
+            core = String(core[..<open]).trimmingCharacters(in: .whitespaces)
+            keys.insert(core)
+        }
+        let parts = core.split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty {
+            keys.insert(parts[1] + " " + parts[0])
+        }
+        return keys
+    }
+
     /// The closest person, when close enough. Nil leaves the voice a letter.
     public func match(_ print: Voiceprint) -> (name: String, similarity: Float)? {
         matchPerson(print).map { ($0.person.name, $0.similarity) }
     }
 
+    /// The person a print is, when it is clearly them: at least `threshold` from their
+    /// nearest print, and `margin` closer than anyone else. Two people about as close (0.68
+    /// to Vladimir, 0.68 to the owner, on a real call) name nobody: the wrong name is the
+    /// worse mistake, and a letter can still be named by hand. Prints on probation are not
+    /// compared.
     public func matchPerson(_ print: Voiceprint) -> (person: Person, similarity: Float)? {
-        let best = people.compactMap { person -> (Person, Float)? in
+        let ranked = people.compactMap { person -> (Person, Float)? in
             guard let nearest = person.prints.map({ Self.similarity($0, print) }).max()
             else { return nil }
             return (person, nearest)
         }
-        .max { $0.1 < $1.1 }
-        guard let best, best.1 >= Self.threshold else { return nil }
+        .sorted { $0.1 > $1.1 }
+        guard let best = ranked.first, best.1 >= Self.threshold else { return nil }
+        if ranked.count > 1, best.1 - ranked[1].1 < Self.margin { return nil }
         return best
     }
+
+    /// How much closer the best person has to be than the next before a print is theirs.
+    public static let margin: Float = 0.05
 
     /// A print filed under a name somebody already answers to joins that person's prints:
     /// their saved name first, else the one person whose alias or display name it is.
@@ -252,7 +312,7 @@ public struct VoiceLibrary: Sendable, Equatable {
         guard !name.isEmpty, !print.isEmpty else { return nil }
         if let index = people.firstIndex(where: { $0.name == name })
             ?? person(answering: name).flatMap({ found in people.firstIndex { $0.name == found.name } }) {
-            if !people[index].prints.contains(print) { people[index].add(print, origin: origin) }
+            people[index].admit(print, origin: origin)
             return (people[index].name, false)
         }
         people.append(Person(name: name, prints: [print], origins: [origin]))
@@ -269,6 +329,11 @@ public struct VoiceLibrary: Sendable, Equatable {
         var changed = false
         if !print.isEmpty, let at = people[index].prints.firstIndex(of: print) {
             people[index].removePrint(at: at)
+            changed = true
+        }
+        if !print.isEmpty, let at = people[index].waiting.firstIndex(of: print) {
+            people[index].waiting.remove(at: at)
+            if people[index].waitingOrigins.indices.contains(at) { people[index].waitingOrigins.remove(at: at) }
             changed = true
         }
         if let alias, let at = people[index].aliases.firstIndex(of: alias) {
@@ -355,8 +420,7 @@ public struct VoiceLibrary: Sendable, Equatable {
                 let saved = people[index].name
                 if saved != name { addAlias(name, to: saved) }
                 for print in person.prints where !people[index].prints.contains(print) && !print.isEmpty {
-                    people[index].add(print, origin: imported)
-                    newPrints += 1
+                    if people[index].admit(print, origin: imported) != .duplicate { newPrints += 1 }
                 }
                 for alias in person.aliases { addAlias(alias, to: saved) }
                 if people[index].displayName == nil, let shown = person.displayName { noteCallName(shown, for: saved) }

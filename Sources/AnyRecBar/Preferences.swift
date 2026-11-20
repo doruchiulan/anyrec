@@ -36,7 +36,6 @@ enum Preferences {
         static let shortcut = "shortcut"
         static let captions = "captions"
         static let menuBarExtra = "showsMenuBarExtra"
-        static let toolbarStrip = "toolbarStrip"
         static let welcomed = "welcomed"
         static let summarize = "summarizeAfterTranscribing"
         static let summaryProvider = "summaryProvider"
@@ -85,15 +84,6 @@ enum Preferences {
     static var welcomed: Bool {
         get { defaults.bool(forKey: Key.welcomed) }
         set { defaults.set(newValue, forKey: Key.welcomed) }
-    }
-
-    /// The library toolbar's measured spacing, so the first layout of a launch is right.
-    static var toolbarStrip: ToolbarStrip.Memory? {
-        get {
-            guard let data = defaults.data(forKey: Key.toolbarStrip) else { return nil }
-            return try? JSONDecoder().decode(ToolbarStrip.Memory.self, from: data)
-        }
-        set { defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: Key.toolbarStrip) }
     }
 
     /// Whether the helper sits in the menu bar. People decide whether an app's extra is

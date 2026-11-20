@@ -101,7 +101,14 @@ final class RecordingJobs {
         guard items[request.directory]?.isWorking != true else { return }
         items[request.directory] = Item(id: UUID(), request: request)
         pending.append(request.directory)
-        if worker == nil { worker = Task { await drain() } }
+        /// At utility priority, like the work it awaits. Made from the main actor without
+        /// one, it ran at user-initiated, and awaiting the detached `.utility` work raised
+        /// that work to user-initiated too — Swift lifts an awaited task to its waiter's
+        /// priority. Parakeet's chunks then ran on every thread of the shared pool at the
+        /// priority of the app's own work, and the main actor went unscheduled: measured on
+        /// an M3 Pro, three seconds without a turn while the chunks ran. On an Intel Mac,
+        /// where they run on the CPU for minutes, the app froze for the whole transcription.
+        if worker == nil { worker = Task(priority: .utility) { await drain() } }
     }
 
     func retry(_ directory: URL) {

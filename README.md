@@ -486,6 +486,16 @@ to the provider's company (Anthropic for Claude Code). Claude has no audio input
 Everything else is local, and nothing is sent anywhere unless you ask for it by
 name.
 
+## Share and sync meetings
+
+**Share** sends a finished summary to a Slack channel or person. Choose a recipient, then click **Send**. AnyRec includes the saved recording link when available. **File → Share Files…** opens the macOS picker for the playable recording and its notes.
+
+**Sync** applies to the selected meeting. Choose a team folder that is already synced to Finder, such as a shared OneDrive or iCloud Drive folder. AnyRec remembers the destination for next time. While AnyRec is running, it updates the playable recording, transcript, and summary there. The folder’s existing permissions determine who can read them. The separate microphone and call tracks and the voiceprints stay local.
+
+On another Mac, open **Shared with me → Connect team folder…** and pick that same folder in Finder. **Add to Library** keeps a read-only entry that follows the owner's changes. **Make a Copy** creates an independent recording with editable transcript text and speaker names and its own summary.
+
+Use the arrow beside **Sync** to move a meeting or remove it from the shared folder. Linked entries disappear after the cloud provider syncs the change. Independent copies survive.
+
 ## Consent
 
 Everyone on the call has to know it is being recorded. Under GDPR that is a
