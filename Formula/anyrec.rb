@@ -2,8 +2,8 @@
 class Anyrec < Formula
   desc "Record calls with video, system audio, microphone and transcripts"
   homepage "https://github.com/doruchiulan/anyrec"
-  url "https://github.com/doruchiulan/anyrec/releases/download/v0.9.0/anyrec-0.9.0-universal.tar.gz"
-  sha256 "6ecb207fe0c7e26fca2aa1b2fb071cb7db6dac69a090333aacb0ce262b3d14a5"
+  url "https://github.com/doruchiulan/anyrec/releases/download/v0.10.0/anyrec-0.10.0-universal.tar.gz"
+  sha256 "baa99bf041c91b51e50a8107e640443633e71e22564a7ad1c8633ac178e5a824"
   license "MIT"
 
   # SCStreamConfiguration.captureMicrophone is a Sequoia API with no fallback.
