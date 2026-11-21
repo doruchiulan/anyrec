@@ -1,38 +1,20 @@
-# Capture the call scenes
+# Website demo
 
-Use a private Slack test workspace or a Teams test tenant with a second test
-account on another device. Give both accounts fictional display names. Close
-private windows and notifications before capturing. Use an untitled solid-color
-desktop or the site's existing background treatment for the surrounding page.
-Keep the screenshots as single native captures.
+Build and open the separate Mac app from the repository root.
 
-1. Launch an isolated AnyRec bundle under a scratch home, as described below.
-   In System Settings → Privacy & Security, grant that bundle Screen Recording,
-   Microphone, and Accessibility. Relaunch the same signed bundle after granting
-   Screen Recording. In AnyRec General settings, enable call reminders and the
-   menu bar item. Leave automatic recording disabled.
-2. Open a Slack huddle or Teams call in its own window. Have the second test
-   account join and speak a scripted line. When AnyRec offers to record, capture
-   a single region containing the whole banner and call window with
-   `screencapture -i -x banner.png`.
-3. Choose Record. With both sides speaking scripted lines, open AnyRec's menu
-   bar panel and capture one region containing the menu bar timer and the entire
-   panel with `screencapture -i -x recording.png`. Enable Do Not Disturb before
-   this step so personal alerts stay out of the capture.
-4. Stop the recording and quit the test bundle. Review the full files for private
-   content before putting them in `assets/`. Record the source build, test
-   content and capture method in `FACTS.md`. Remove the test bundle's grants
-   and delete its scratch recordings, preferences and saved state when done.
+```sh
+scripts/bundle-website-demo.sh
+open "dist/AnyRec Website Demo.app"
+```
 
-## Isolated bundle
+The demo works offline after the Swift build dependencies are available. Building it generates one spoken line with the macOS synthesizer. Opening it creates a fresh temporary recording and a voice library with fictional names. The demo uses its own bundle identifier and starts without requesting microphone, screen recording or Accessibility access.
 
-Copy the source tree into a fresh folder under `/private/tmp` and run
-`ANYREC_SIGN_IDENTITY=- bash scripts/bundle-app.sh` there. Copy the new app to a
-separate staging location, change its `CFBundleIdentifier` to a unique test ID
-and ad-hoc sign the copy with `codesign --force --deep -s - <test-app>`.
-Use `defaults write <test-id> welcomed -bool YES` and set
-`recordCallsAutomatically`, `compressesRecordings` and
-`SUEnableAutomaticChecks` to false in the test domain. Set `recordingsFolder`
-to an absolute path under the scratch home. Launch the test app binary with
-`CFFIXED_USER_HOME` pointing at the scratch home. Verify its library shows only
-test content before starting the call.
+| Scene | How to replay it |
+| --- | --- |
+| Before the call | Press ⌘1 to show the reminder above the fictional Sketch review call. Choose **Record** or **Audio Only**. |
+| During the call | Press ⌘2 to restart the timer. The recording controls use two scripted meter levels. The menu bar shows the same elapsed time. |
+| After the call | Choose **Stop Recording** or press ⌘3. Click **Not sure who**, play the sample, then choose **Someone else…** and **Robin Vale**. The transcript updates immediately. Quit and reopen to reset the sample. |
+
+Use a single window capture for the reminder. For the recording panel, place the window below the demo’s menu bar timer and capture one region containing both. Record just the demo app and its popover for the correction movie, then export it without an audio track. Check that every visible name and line belongs to the fixture before updating the assets.
+
+The editable website scenes are in [WebsiteDemo](../Sources/AnyRecBar/WebsiteDemo/). The [page layout](index.html) and [screenshot styles](screenshots.css) place their captures under Before, During and After. See [FACTS.md](FACTS.md) for dimensions and provenance.

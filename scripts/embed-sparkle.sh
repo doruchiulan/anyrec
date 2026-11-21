@@ -8,7 +8,7 @@
 embed_sparkle() {
 	local frameworks="$1" root source
 	root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-	source="$(find "$root/.build/artifacts/sparkle" -maxdepth 4 -path '*macos-arm64_x86_64/Sparkle.framework' | head -1)"
+	source="$(find "${2:-$root/.build/artifacts}/sparkle" -maxdepth 4 -path '*macos-arm64_x86_64/Sparkle.framework' | head -1)"
 	if [[ -z "$source" ]]; then
 		echo "Sparkle.framework not found under .build/artifacts — run swift build first" >&2
 		return 1

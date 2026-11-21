@@ -14,46 +14,13 @@ struct RecordingPanel: View {
 
         if let session = controller.session {
             let muted = session.configuration.microphone != nil && session.callHearsMicrophone == false
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Circle().fill(.red).frame(width: 8, height: 8)
-                        .accessibilityLabel("Recording")
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(Wording.clock(session.elapsed))
-                            .font(.title2).monospacedDigit()
-                        Text(Wording.recordingLine(
-                            title: session.target.describing, app: app(of: session),
-                            audioOnly: !session.configuration.video, remaining: session.remaining))
-                            .font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.middle)
-                    }
-                    Spacer(minLength: 8)
-                    LevelBars(tracks: tracks(of: session), levels: session.levels, microphoneMuted: muted)
-                }
-                Button(role: .destructive) {
-                    Task { await controller.stop() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "stop.fill")
-                        Text(controller.phase == .stopping ? "Finishing…" : "Stop Recording")
-                        if controller.phase != .stopping {
-                            Text("⌘.").foregroundStyle(.white.opacity(0.75))
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
-                .controlSize(.large)
-                .keyboardShortcut(".")
-                .disabled(controller.phase == .stopping)
-                if muted {
-                    Note(Wording.mutedInCall(app: app(of: session)))
-                }
-                if let dropped = droppedFrames(session) {
-                    Note(Wording.droppedFrames(dropped)).foregroundStyle(.orange)
-                }
-            }
+            RecordingControls(
+                elapsed: session.elapsed,
+                detail: Wording.recordingLine(title: session.target.describing, app: app(of: session),
+                                             audioOnly: !session.configuration.video, remaining: session.remaining),
+                meters: LevelBars(tracks: tracks(of: session), levels: session.levels, microphoneMuted: muted),
+                stopping: controller.phase == .stopping, muteNote: muted ? Wording.mutedInCall(app: app(of: session)) : nil,
+                dropped: droppedFrames(session), stop: { Task { await controller.stop() } })
         }
     }
 
@@ -72,6 +39,57 @@ struct RecordingPanel: View {
             $0 == .systemAudio
                 ? session.configuration.systemAudio
                 : session.configuration.microphone != nil
+        }
+    }
+}
+
+struct RecordingControls: View {
+    let elapsed: TimeInterval
+    let detail: String
+    let meters: LevelBars
+    var stopping = false
+    var muteNote: String?
+    var dropped: Int?
+    let stop: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Circle().fill(.red).frame(width: 8, height: 8)
+                    .accessibilityLabel("Recording")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(Wording.clock(elapsed))
+                        .font(.title2).monospacedDigit()
+                    Text(detail)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                meters
+            }
+            Button(role: .destructive) {
+                stop()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "stop.fill")
+                    Text(stopping ? "Finishing…" : "Stop Recording")
+                    if !stopping {
+                        Text("⌘.").foregroundStyle(.white.opacity(0.75))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .controlSize(.large)
+            .keyboardShortcut(".")
+            .disabled(stopping)
+            if let muteNote {
+                Note(muteNote)
+            }
+            if let dropped {
+                Note(Wording.droppedFrames(dropped)).foregroundStyle(.orange)
+            }
         }
     }
 }

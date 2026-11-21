@@ -69,6 +69,18 @@ library were left untouched during this capture.
 Isolated executable SHA-256:
 `e049e22606d46b5aa0f0e2db8b7cef6db876c6a052a33335621c9f220e5c426b`.
 
+## Website demo scenes
+
+The demo is built from AnyRec 0.11.1 source with the website demo flag. It uses the shipping reminder, recording controls, level bars, transcript rows, speaker picker and reassignment logic. The call backdrop and participant initials are fictional. The timer measures time in the demo and a fixture supplies the two meter levels.
+
+| Asset | Source |
+| --- | --- |
+| `assets/banner.png` | Native window capture, 1076 × 600. The demo supplies the app name and a two-person call backdrop. |
+| `assets/recording.png` | One 680 × 502 screen region containing the demo’s macOS status item and recording controls. |
+| `assets/speaker-correction.webm` | A 9.5-second silent screen recording restricted to the demo app and its popover. It shows a synthesized clip playing and a user assigning its line to Robin Vale. The edit was read back from the transcript UI. |
+
+The [capture instructions](CAPTURE.md) describe how to replay the scenes.
+
 ## Brand assets
 
 The Dual track, Record ring, and Call note marks and their wordmarks are hand-drawn

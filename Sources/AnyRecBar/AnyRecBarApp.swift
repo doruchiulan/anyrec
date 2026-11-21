@@ -6,7 +6,9 @@ import SwiftUI
 /// before anything of the app is touched — no Dock icon, no menu bar item, no updater — so
 /// the app alone is enough for Settings › AI Apps to connect a client to. Anything else
 /// launches the app.
+#if !ANYREC_WEBSITE_DEMO
 @main
+#endif
 enum AnyRecLaunch {
     static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
