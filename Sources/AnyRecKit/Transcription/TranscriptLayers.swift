@@ -93,6 +93,14 @@ public struct RecordingTranscript: Sendable {
         }
     }
 
+    public var unnamedSpeaking: Int {
+        let names = voices?.names ?? [:]
+        return Set(transcript.utterances.compactMap { line -> String? in
+            guard case .voice(let letter) = line.speaker, names[letter] == nil else { return nil }
+            return letter
+        }).count
+    }
+
     /// Names the review read from self-introductions, for voices still unnamed.
     public var nameSuggestions: [SpeakerSuggestion] {
         let suggestions = wording?.suggestions ?? legacyReview?.suggestions ?? []

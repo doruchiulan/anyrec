@@ -35,7 +35,7 @@ enum LibraryFilter: String, Hashable {
         case .calls: entry.info?.isCall ?? false
         case .transcribed: entry.transcript != nil
         case .inProgress: working.contains(entry.directory)
-        case .unnamed: entry.unnamedVoices > 0
+        case .unnamed: entry.hasUnnamedSpeech
         }
     }
 }

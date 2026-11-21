@@ -19,6 +19,7 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
         /// The owner gave this name, in the Speakers panel, the terminal or `anyrec speakers`.
         /// Nil in files written before this was recorded, which read as they always did.
         public var namedByOwner: Bool?
+        public var linesSortedByOwner: Bool?
         /// What the owner's naming filed in the voice library, so it can be taken back when
         /// the voice is renamed or given away. Nil in files written before this was kept,
         /// and for a voice nobody named.
@@ -62,6 +63,7 @@ public struct RecordingVoices: Sendable, Equatable, Codable {
             voice.microphoneShare = microphoneShare
             voice.microphoneSeconds = microphoneSeconds
             voice.namedByOwner = namedByOwner
+            voice.linesSortedByOwner = linesSortedByOwner
             voice.filed = filed
             return voice
         }

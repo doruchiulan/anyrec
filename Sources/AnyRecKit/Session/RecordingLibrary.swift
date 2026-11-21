@@ -20,6 +20,8 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public let summary: URL?
     /// Voices in the transcript that nobody has put a name to yet.
     public let unnamedVoices: Int
+    public let hasUnclaimedLines: Bool
+    public var hasUnnamedSpeech: Bool { unnamedVoices > 0 || hasUnclaimedLines }
     /// What it was pointed at; nil for a recording made before this was kept.
     public let info: RecordingInfo?
     /// A line of what was said, for a list row: the summary's opening sentence when there
@@ -77,7 +79,8 @@ public enum RecordingLibrary {
             duration: duration(of: [media, plan.systemAudio, plan.microphone]),
             bytes: bytes, media: media, audioOnly: info?.audioOnly ?? false, tracks: tracks,
             transcript: transcript,
-            summary: summary, unnamedVoices: current?.voices?.unnamed.count ?? 0,
+            summary: summary, unnamedVoices: current?.unnamedSpeaking ?? 0,
+            hasUnclaimedLines: current?.transcript.utterances.contains { $0.speaker == .others } == true,
             info: info, preview: preview(summary: summary, transcript: current?.named),
             revision: TranscriptStore.revision(of: TranscriptStore.layerFiles(in: directory)),
             noSpeechDetected: TranscriptStore.noSpeechDetected(in: directory))
