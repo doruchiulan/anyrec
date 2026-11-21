@@ -35,13 +35,13 @@ public enum TranscriptSpeakerReview {
     /// layer, and nothing else does — the wording and the summary stay, and the summary
     /// says it is stale because who said what changed.
     @discardableResult
-    public static func apply(_ correction: SpeakerCorrection, in directory: URL) throws -> [URL] {
+    public static func apply(_ correction: SpeakerCorrection, as target: Speaker? = nil, in directory: URL) throws -> [URL] {
         try TranscriptStore.updateSpeakers(in: directory) { layer, current in
             guard current.pendingSpeakerChanges.contains(correction) else {
                 throw TranscriptionError.engineFailed(engine: "review", log: "The transcript changed. Reopen this recording to review its current suggestions.")
             }
             var speakers = layer.speakers ?? current.transcript.utterances.map(\.speaker)
-            speakers[correction.line] = correction.to
+            speakers[correction.line] = target ?? correction.to
             layer.speakers = speakers
             layer.decided.append(correction.line)
         }

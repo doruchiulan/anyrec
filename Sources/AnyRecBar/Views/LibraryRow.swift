@@ -18,9 +18,9 @@ struct LibraryRow: View {
                 Color.clear
                 if working {
                     Image(systemName: "hourglass").help(progress ?? "Working…")
-                } else if entry.unnamedVoices > 0 {
+                } else if entry.hasUnnamedSpeech {
                     Image(systemName: "person.crop.circle.badge.questionmark")
-                        .help(Wording.unnamed(entry.unnamedVoices))
+                        .help(entry.hasUnclaimedLines ? "Includes lines marked Not sure who" : Wording.unnamed(entry.unnamedVoices))
                 }
             }
             .foregroundStyle(.secondary)

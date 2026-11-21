@@ -317,7 +317,7 @@ public struct RecordingSpeakers: Sendable {
                 clips: SpeakerClip.clips(of: speaker, in: lines, excluding: pending, overlapped: overlapped),
                 candidates: candidates,
                 corrections: corrections.filter { $0.from == speaker },
-                fusedNames: voice?.identityEvidence?.fusedNames ?? [],
+                fusedNames: voice?.linesSortedByOwner == true ? [] : voice?.identityEvidence?.fusedNames ?? [],
                 nameable: speaker != .me && speaker != .others,
                 yourVoice: yours?.evidence ?? [], rememberOwner: yours?.remember, kept: voice?.kept)
         }
