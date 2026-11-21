@@ -28,8 +28,8 @@ struct WebsiteDemoApp: App {
                 case .failure(let error): Text(error.localizedDescription).padding()
                 }
             }
-            .onChange(of: scene, initial: true) { _, scene in
-                status.show(started: scene == .recording ? started : nil)
+            .onChange(of: scene == .recording ? started : nil, initial: true) { _, start in
+                status.show(started: start)
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                 if case .success(let fixture) = fixture { try? FileManager.default.removeItem(at: fixture.root) }
