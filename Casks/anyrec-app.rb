@@ -1,9 +1,9 @@
 # Reference copy of github.com/doruchiulan/homebrew-tap/Casks/anyrec-app.rb.
 cask "anyrec-app" do
-  version "0.11.1"
-  sha256 "e10e7b5c8030ef090cd07188a9c503a84a2e2963d0b3c2bde9039ac73f7c92de"
+  version "0.11.2"
+  sha256 "218032b48814c9cbb61e5ac54873ffcc91bd760e642bbee04451af2331d72da9"
 
-  url "https://github.com/doruchiulan/anyrec/releases/download/v#{version}/AnyRec-#{version}.zip"
+  url "https://github.com/doruchiulan/anyrec/releases/download/v#{version}/AnyRec-#{version}.dmg"
   name "AnyRec"
   desc "Record calls with video, system audio, microphone and transcripts"
   homepage "https://github.com/doruchiulan/anyrec"
