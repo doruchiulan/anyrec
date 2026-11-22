@@ -4,13 +4,13 @@
 
 ## Before the call
 
-The [call fixture](../Sources/AnyRecBar/WebsiteDemo/DemoCall.swift) sits below the [recording reminder](../Sources/AnyRecBar/Views/CallReminderView.swift).
+The [recording reminder](../Sources/AnyRecBar/CallReminder.swift) floats in its own borderless panel above the [staged call window](../Sources/AnyRecBar/WebsiteDemo/DemoCall.swift).
 
 ![Recording reminder above the fictional Sketch review call](../website/assets/banner.png)
 
 ## During the call
 
-The [demo scene](../Sources/AnyRecBar/WebsiteDemo/WebsiteDemoApp.swift) displays the timer beside the [recording controls](../Sources/AnyRecBar/Views/RecordingPanel.swift).
+The timer shares the Mac menu bar with Wi-Fi and the system clock. The [menu-bar panel](../Sources/AnyRecBar/StatusPanelPresentation.swift) opens directly beneath it with the [recording controls](../Sources/AnyRecBar/Views/RecordingPanel.swift).
 
 ![Elapsed time and two active meter levels](../website/assets/recording.png)
 

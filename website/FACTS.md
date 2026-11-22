@@ -75,8 +75,8 @@ The demo is built from AnyRec 0.11.1 source with the website demo flag. It uses 
 
 | Asset | Source |
 | --- | --- |
-| `assets/banner.png` | Native window capture, 1076 × 600. The demo supplies the app name and a two-person call backdrop. |
-| `assets/recording.png` | One 680 × 502 screen region containing the demo’s macOS status item and recording controls. |
+| `assets/banner.png` | 1080 × 540. ScreenCaptureKit captured the native floating reminder and the separate staged call window together on a neutral background. |
+| `assets/recording.png` | 800 × 414. One ScreenCaptureKit frame includes the macOS menu bar and the shared borderless recording panel. Solid capture backgrounds keep the desktop and other apps out of the shot. |
 | `assets/speaker-correction.webm` | A 9.5-second silent screen recording restricted to the demo app and its popover. It shows a synthesized clip playing and a user assigning its line to Robin Vale. The edit was read back from the transcript UI. |
 
 The [capture instructions](CAPTURE.md) describe how to replay the scenes.

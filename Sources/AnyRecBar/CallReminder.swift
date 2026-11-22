@@ -127,19 +127,8 @@ final class CallReminder {
     }
 
     private func makePanel(_ app: CallApp) -> NSPanel {
-        let panel = ReminderPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "AnyRec recording reminder"
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-        panel.isOpaque = false
-        panel.isReleasedWhenClosed = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.contentView = NSHostingView(rootView: CallReminderView(
-            appName: app.name, record: { [weak self] video in self?.record(video: video) },
-            dismiss: { [weak self] in self?.withdraw() }))
-        return panel
+        ReminderPanel(appName: app.name, record: { [weak self] in self?.record(video: $0) },
+                      dismiss: { [weak self] in self?.withdraw() })
     }
 
     private func record(video: Bool) {
@@ -160,7 +149,20 @@ final class CallReminder {
     }
 }
 
-private final class ReminderPanel: NSPanel {
+final class ReminderPanel: NSPanel {
+    convenience init(appName: String, record: @escaping (Bool) -> Void, dismiss: @escaping () -> Void) {
+        self.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        title = "AnyRec recording reminder"
+        level = .floating
+        hidesOnDeactivate = false
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        isOpaque = false
+        isReleasedWhenClosed = false
+        backgroundColor = .clear
+        hasShadow = true
+        contentView = NSHostingView(rootView: CallReminderView(appName: appName, record: record, dismiss: dismiss))
+    }
+
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }

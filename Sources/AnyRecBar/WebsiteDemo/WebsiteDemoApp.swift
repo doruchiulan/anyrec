@@ -3,97 +3,114 @@ import SwiftUI
 
 @main
 struct WebsiteDemoApp: App {
-    enum Scene { case reminder, callOnly, recording, review }
+    @NSApplicationDelegateAdaptor(DemoScenes.self) private var scenes
 
-    @State private var scene = Scene.reminder
-    @State private var started = Date()
-    @State private var video = true
-    private let status = DemoStatusItem()
-    let fixture: Result<DemoTranscript, Error>
-
-    init() {
-        fixture = Result {
-            guard Bundle.main.bundleIdentifier == "com.doruchiulan.anyrec.website-demo" else {
-                throw CocoaError(.fileReadUnknown)
-            }
-            return try DemoTranscript()
-        }
-    }
-
-    var body: some SwiftUI.Scene {
-        Window("AnyRec Website Demo", id: "demo") {
-            Group {
-                switch fixture {
-                case .success(let fixture): content(fixture)
-                case .failure(let error): Text(error.localizedDescription).padding()
+    var body: some Scene {
+        Settings { EmptyView() }
+            .commands {
+                CommandMenu("Scenes") {
+                    Button("Call Reminder") { scenes.showReminder() }.keyboardShortcut("1")
+                    Button("Recording Panel") { scenes.record(true) }.keyboardShortcut("2")
+                    Button("Transcript") { scenes.stop() }.keyboardShortcut("3")
                 }
             }
-            .onChange(of: scene == .recording ? started : nil, initial: true) { _, start in
-                status.show(started: start)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
-                if case .success(let fixture) = fixture { try? FileManager.default.removeItem(at: fixture.root) }
-            }
-        }
-        .windowResizability(.contentSize)
-        .restorationBehavior(.disabled)
-        .commands {
-            CommandMenu("Scenes") {
-                Button("Call Reminder") { scene = .reminder }.keyboardShortcut("1")
-                Button("Recording Panel") { record(true) }.keyboardShortcut("2")
-                Button("Transcript") { scene = .review }.keyboardShortcut("3")
-            }
-        }
-    }
-
-    @ViewBuilder private func content(_ fixture: DemoTranscript) -> some View {
-        switch scene {
-        case .reminder, .callOnly:
-            VStack(spacing: 6) {
-                if scene == .reminder {
-                    CallReminderView(appName: "Slack", record: record, dismiss: { scene = .callOnly })
-                }
-                DemoCall()
-            }
-            .padding(20).frame(width: 538)
-        case .recording:
-            DemoRecording(started: started, video: video) { scene = .review }.padding(20)
-        case .review:
-            DemoReview(fixture: fixture).frame(width: 520, height: 300)
-        }
-    }
-
-    private func record(_ video: Bool) {
-        self.video = video
-        started = Date()
-        scene = .recording
     }
 }
 
 @MainActor
-private final class DemoStatusItem: NSObject {
-    private lazy var item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private var timer: Timer?
+final class DemoScenes: NSObject, NSApplicationDelegate, NSWindowDelegate {
+    private var fixture: DemoTranscript?
+    private let call = DemoCallWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+    private lazy var reminder = ReminderPanel(appName: "Slack", record: { [weak self] in self?.record($0) },
+                                              dismiss: { [weak self] in self?.hideReminder() })
+    private lazy var status = DemoStatusItem(stop: { [weak self] in self?.stop() },
+                                            open: { [weak self] in self?.showReview() },
+                                            idle: { [weak self] in self?.showReminder() })
+    private var review: NSWindow?
 
-    func show(started: Date?) {
-        timer?.invalidate()
-        guard let button = item.button else { return }
-        button.target = self
-        button.action = #selector(open)
-        button.imagePosition = .imageLeading
-        button.font = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
-        button.image = NSImage(systemSymbolName: started == nil ? "waveform" : "waveform.badge.microphone",
-                               accessibilityDescription: "AnyRec Website Demo")
-        button.title = started == nil ? "" : Wording.clock(0)
-        guard let started else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak button] _ in
-            MainActor.assumeIsolated { button?.title = Wording.clock(Date().timeIntervalSince(started)) }
+    func applicationDidFinishLaunching(_: Notification) {
+        do {
+            guard Bundle.main.bundleIdentifier == "com.doruchiulan.anyrec.website-demo" else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            fixture = try DemoTranscript()
+        } catch {
+            NSAlert(error: error).runModal()
+            NSApp.terminate(nil)
+            return
+        }
+        let host = NSHostingView(rootView: DemoCall().frame(width: 500))
+        call.title = "Sketch review"
+        call.isOpaque = false
+        call.backgroundColor = .clear
+        call.isMovableByWindowBackground = true
+        call.contentView = host
+        call.setContentSize(host.fittingSize)
+        call.center()
+        call.delegate = self
+        showReminder()
+    }
+
+    func showReminder() {
+        status.reset()
+        review?.orderOut(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        call.makeKeyAndOrderFront(nil)
+        if reminder.parent == nil { call.addChildWindow(reminder, ordered: .above) }
+        positionReminder()
+        reminder.orderFrontRegardless()
+    }
+
+    func windowDidMove(_: Notification) {
+        if reminder.isVisible { positionReminder() }
+    }
+
+    private func positionReminder() {
+        if let frame = CallReminderPlacement.frame(above: call.frame, size: CallReminderView.size,
+                                                   screens: NSScreen.screens.map(\.visibleFrame)) {
+            reminder.setFrame(frame, display: true)
         }
     }
 
-    @objc private func open() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { $0.title == "AnyRec Website Demo" })?.makeKeyAndOrderFront(nil)
+    private func hideReminder() {
+        reminder.parent?.removeChildWindow(reminder)
+        reminder.orderOut(nil)
     }
+
+    func record(_ video: Bool) {
+        hideReminder()
+        review?.orderOut(nil)
+        call.orderFrontRegardless()
+        status.record(video)
+    }
+
+    func stop() {
+        status.reset()
+        showReview()
+    }
+
+    private func showReview() {
+        guard let fixture else { return }
+        hideReminder()
+        call.orderOut(nil)
+        if review == nil {
+            let host = NSHostingController(rootView: DemoReview(fixture: fixture).frame(width: 520, height: 300))
+            let window = NSWindow(contentViewController: host)
+            window.title = "AnyRec Website Demo"
+            window.isReleasedWhenClosed = false
+            window.center()
+            review = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        review?.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationWillTerminate(_: Notification) {
+        if let fixture { try? FileManager.default.removeItem(at: fixture.root) }
+    }
+}
+private final class DemoCallWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 #endif

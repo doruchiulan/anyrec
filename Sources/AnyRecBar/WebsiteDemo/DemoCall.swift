@@ -32,6 +32,7 @@ struct DemoRecording: View {
     let started: Date
     let video: Bool
     let stop: () -> Void
+    let open: () -> Void
 
     var body: some View {
         TimelineView(.periodic(from: started, by: 0.12)) { tick in
@@ -41,11 +42,10 @@ struct DemoRecording: View {
                     title: "Sketch review", app: "Slack", audioOnly: !video, remaining: nil),
                     meters: meters(elapsed), stop: stop)
                 Divider()
-                MenuRow("Open AnyRec", action: stop)
+                MenuRow("Open AnyRec", action: open)
             }
             .padding(12)
             .frame(width: 300)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
