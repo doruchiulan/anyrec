@@ -4,8 +4,8 @@
   --mfg: oklch(0.5 0 0);
   --muted: oklch(0.97 0 0);
   --line: oklch(0.922 0 0);
-  --primary: oklch(0.624 0.206 255.486);
-  --pdeep: oklch(0.5 0.19 255.486);
+  --primary: #075cb6;
+  --pdeep: #06488f;
   --danger: oklch(0.577 0.245 27.325);
   --side: oklch(0.97 0.004 286);
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
@@ -32,15 +32,17 @@ p, h1, h2, h3, h4, ul, dl, dd { margin: 0; }
 .nav a:hover { color: var(--pdeep); }
 .nav .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-size: 16px; font-weight: 600; margin-right: auto; }
 .nav .brand img { color-scheme: light; }
+.nav .brand, .nav-links a, .footer-content a, .release-notes { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
 .nav-links { display: flex; gap: 28px; align-items: center; }
 .cta { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 0 22px; border-radius: 23px; font-size: 15px; font-weight: 500; text-decoration: none; }
-.nav .nav-cta { min-height: 34px; padding-inline: 14px; font-size: 14px; background: var(--ink); color: #fff; }
+.nav .nav-cta { min-height: 44px; padding-inline: 14px; font-size: 14px; background: var(--ink); color: #fff; }
 .nav .nav-cta:hover { background: var(--fg); color: #fff; }
 .primary { background: var(--primary); color: #fff; }
 .primary:hover { background: var(--pdeep); color: #fff; }
-.hero { padding: 104px 0 80px; }
-.hero-content { display: flex; flex-direction: column; gap: 28px; max-width: 880px; }
-h1 { font-family: var(--display); font-size: 76px; line-height: 78px; letter-spacing: -0.04em; font-weight: 700; color: var(--ink); text-wrap: balance; }
+.hero { padding-block: 80px; }
+.hero-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: center; gap: 48px; }
+.hero-content { display: flex; flex-direction: column; gap: 24px; }
+h1 { font-family: var(--display); font-size: clamp(44px, 5.2vw, 60px); line-height: 1.05; letter-spacing: -0.04em; font-weight: 700; color: var(--ink); text-wrap: balance; }
 h1 span { color: var(--mfg); }
 .intro { font-size: 17px; line-height: 27px; color: var(--mfg); }
 .hero .intro { font-size: 20px; line-height: 30px; max-width: 54ch; }
@@ -88,7 +90,8 @@ h1 span { color: var(--mfg); }
 .footer-content a { color: var(--fg); text-decoration: none; font-size: 14px; }
 .footer-content a:hover { color: var(--pdeep); }
 @media (max-width: 820px) {
-  .hero { padding-block: 72px 64px; }
+  .hero { padding-block: 48px; }
+  .hero-layout { grid-template-columns: 1fr; gap: 32px; }
   h1 { font-size: 60px; line-height: 64px; }
   .big { font-size: 38px; line-height: 44px; }
   .outcome { padding: 22px; }
@@ -102,8 +105,8 @@ h1 span { color: var(--mfg); }
   .wrap { padding-inline: 20px; }
   .nav { gap: 8px 16px; padding-block: 12px; }
   .nav-links { order: 3; flex-basis: 100%; justify-content: space-between; gap: 12px; }
-  .nav-links a { display: inline-flex; align-items: center; min-height: 40px; }
-  .hero { padding-block: 56px 48px; }
+  .nav-links a { display: inline-flex; align-items: center; min-height: 44px; }
+  .hero { padding-block: 36px 48px; }
   .hero-content { gap: 24px; }
   h1 { font-size: clamp(36px, 9vw, 50px); line-height: 1.08; letter-spacing: -0.04em; }
   .hero .intro { font-size: 18px; line-height: 28px; }

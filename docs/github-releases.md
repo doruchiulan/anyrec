@@ -60,6 +60,8 @@ No provisioning profile is needed for this Developer ID distribution.
 5. Update the Homebrew formula and cask version/checksums separately if distributing
    through the tap. For the first DMG release, change the cask URL suffix from `.zip` to `.dmg` alongside its version and checksum. The workflow does not edit those files.
 
+6. After the release is public, update the three DMG links in `website/index.html` to the published asset URL. Check the download and deploy the website.
+
 Use a new version for each release; the commands above illustrate `v0.4.0`.
 Only numeric stable tags are supported. Existing releases are never overwritten.
 

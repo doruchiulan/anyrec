@@ -25,5 +25,5 @@
   .screenshot img { border-radius: 10px; }
 }
 
-.call-panel { max-width: 400px; margin-block: 8px; }
+.hero-preview { width: 100%; max-width: 440px; }
 .screenshot video { display: block; width: 100%; height: auto; border-radius: 12px; }

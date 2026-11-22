@@ -22,8 +22,6 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="screenshots.css">
-  <script src="site-config.js" defer></script>
-  <script src="app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -31,15 +29,21 @@
     <nav class="wrap nav" aria-label="Main navigation">
       <a class="brand" href="#top"><img src="assets/dual-track-wordmark.svg" width="141" height="30" alt="AnyRec"></a>
       <div class="nav-links"><a href="#before">Before</a><a href="#during">During</a><a href="#after">After</a><a href="#privacy">Privacy</a></div>
-      <a class="cta nav-cta" href="#install">Download</a>
+      <a class="cta nav-cta" href="https://github.com/doruchiulan/anyrec/releases/download/v0.11.2/AnyRec-0.11.2.dmg">Download</a>
     </nav>
   </header>
   <main id="main">
     <section id="top" class="hero" aria-labelledby="hero-title">
-      <div class="wrap hero-content">
-        <h1 id="hero-title">You were on the call.<br><span>Now you have it.</span></h1>
-        <p class="intro">AnyRec records your calls on Mac and hands you back what you actually wanted: a playable recording, a transcript you can revisit, and optional AI summaries.</p>
-        <div class="hero-actions"><a class="cta primary" href="#install">Download for Mac</a><span>For macOS 15.2 and later</span></div>
+      <div class="wrap hero-layout">
+        <div class="hero-content">
+          <h1 id="hero-title">You were on the call.<br><span>Now you have it.</span></h1>
+          <p class="intro">Record calls on your Mac. Play them back, read the transcript, or get an AI summary.</p>
+          <div class="hero-actions"><a class="cta primary" href="https://github.com/doruchiulan/anyrec/releases/download/v0.11.2/AnyRec-0.11.2.dmg">Download for Mac</a><span>For macOS 15.2 and later</span></div>
+        </div>
+        <figure class="screenshot hero-preview">
+          <a href="assets/recording.png" target="_blank" rel="noopener"><img src="assets/recording.png" alt="AnyRec’s Mac menu bar timer and recording panel with separate call and microphone meters" width="800" height="414"></a>
+          <figcaption>Recording a demo Slack call from the Mac menu bar.</figcaption>
+        </figure>
       </div>
     </section>
     <section class="outcomes" aria-label="What you get">
@@ -77,12 +81,7 @@
     <section id="during" class="chapter" aria-labelledby="during-title">
       <div class="wrap chapter-heading"><span class="stage">02 — DURING THE CALL</span><h2 class="big" id="during-title">Keep an eye on what’s being recorded.</h2></div>
       <div class="wrap recording-facts">
-        <article class="beat-copy"><h3>Recording status at a glance</h3><p>The menu bar shows elapsed recording time. Open the recording panel to see call-audio and microphone levels, and stop the recording when you’re finished.</p>
-          <figure class="screenshot call-panel">
-            <a href="assets/recording.png" target="_blank" rel="noopener"><img src="assets/recording.png" alt="AnyRec’s timer beside Wi-Fi in the Mac menu bar, with recording controls open below it" width="800" height="414" loading="lazy"></a>
-            <figcaption>The demo feeds sample levels into both meters.</figcaption>
-          </figure>
-        </article>
+        <article class="beat-copy"><h3>Recording status at a glance</h3><p>The menu bar shows elapsed recording time. Open the recording panel to see call-audio and microphone levels, and stop the recording when you’re finished.</p></article>
         <article class="beat-copy"><h3>Mute tracking, with clear limits</h3><p>For supported Slack and Teams mute controls, Accessibility helps AnyRec track when the call is listening. Detected muted intervals are silenced in the combined video and mixed audio used for transcription.</p><p class="important-detail">The original microphone file is retained unchanged and can contain speech while muted. If mute tracking is unavailable—or you transcribe a single raw track—don’t rely on this exclusion.</p></article>
         <article class="beat-copy"><h3>Audio balanced for playback</h3><p>When both audio tracks are present, AnyRec measures their levels before combining them. If it detects call audio leaking into the microphone, it lowers the microphone while the call audio plays.</p><p>That can also lower your voice if you talk over someone. Headphones give the clearest separation; this is not a guarantee of echo-free audio.</p></article>
         <article class="beat-copy"><h3>Close the recorded window to finish</h3><p>When the captured window closes, recording stops and saves. If you hang up but the window stays open, stop manually. Closing a call window does not end a display recording.</p><p>After stopping, you can dismiss the saved panel and start another recording while earlier work continues in the background.</p></article>
@@ -118,7 +117,7 @@
       </div>
     </section>
     <section id="install" class="install" aria-labelledby="install-title">
-      <div class="wrap install-content"><img class="install-icon" src="assets/app-icon.png" width="88" height="88" alt="AnyRec app icon"><h2 class="big" id="install-title">Your next call, kept.</h2><p id="download-note" class="intro">For macOS 15.2 and later.</p><a id="download-button" class="cta primary" href="https://github.com/doruchiulan/anyrec/releases">View releases</a><p class="install-note">Local engines are optional downloads. Cloud AI uses your own provider.</p></div>
+      <div class="wrap install-content"><img class="install-icon" src="assets/app-icon.png" width="88" height="88" alt="AnyRec app icon"><h2 class="big" id="install-title">Your next call, kept.</h2><p class="intro">For macOS 15.2 and later.</p><a class="cta primary" href="https://github.com/doruchiulan/anyrec/releases/download/v0.11.2/AnyRec-0.11.2.dmg">Download for Mac</a><a class="release-notes" href="https://github.com/doruchiulan/anyrec/releases/latest">Release notes</a><p class="install-note">Local engines are optional downloads. Cloud AI uses your own provider.</p></div>
     </section>
   </main>
   <footer class="site-footer"><div class="wrap footer-content"><span>AnyRec for Mac</span><div><a href="https://github.com/doruchiulan/anyrec">GitHub</a><a href="https://github.com/doruchiulan/anyrec/blob/main/docs/pipeline.md">How it works, in detail</a><a href="https://github.com/doruchiulan/anyrec/issues">Support</a></div></div></footer>
