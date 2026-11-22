@@ -13,7 +13,6 @@
 .recording-facts .important-detail { padding: 14px 16px; border-radius: 8px; background: var(--side); color: var(--fg); font-size: 14px; line-height: 23px; }
 .after-copy { padding-block: 42px; border-top: 1px solid var(--line); }
 .library-screenshot { margin-bottom: 56px; }
-.export-copy { align-items: flex-start; }
 @media (max-width: 820px) {
   .recording-facts, .after-copy { gap: 32px; }
   .beat-visual.screenshot { align-items: flex-start; }
