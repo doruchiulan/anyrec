@@ -50,27 +50,11 @@ rm "$CLI_ZIP"
 TARBALL="$DIST/anyrec-$VERSION-universal.tar.gz"
 tar -czf "$TARBALL" -C "$CLI" bin Frameworks
 
-# `ditto` rather than `zip`, which flattens the symlinks and extended attributes a
-# signed bundle is checked against — the app arrives with a broken signature otherwise.
 "$ROOT/scripts/bundle-app.sh" release
-ZIP="$DIST/AnyRec-$VERSION.zip"
-ditto -c -k --keepParent "$DIST/AnyRec.app" "$ZIP"
+DMG="$DIST/AnyRec-$VERSION.dmg"
+"$ROOT/scripts/package-app.sh" "$DIST/AnyRec.app" "$DMG"
 
-# Zipped twice: the first archive is what goes up to Apple, and the ticket comes back
-# stapled to the bundle rather than to it. The second is what people download.
-if notarize "$ZIP" "$DIST/AnyRec.app"; then
-	rm "$ZIP"
-	ditto -c -k --keepParent "$DIST/AnyRec.app" "$ZIP"
-	NOTARISED="yes"
-else
-	if [[ "${ANYREC_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
-		echo "app notarization failed; release stopped" >&2
-		exit 1
-	fi
-	NOTARISED="no — a cask install of this will be refused by Gatekeeper"
-fi
-
-(cd "$DIST" && shasum -a 256 "AnyRec-$VERSION.zip" "anyrec-$VERSION-universal.tar.gz" > SHA256SUMS)
+(cd "$DIST" && shasum -a 256 "AnyRec-$VERSION.dmg" "anyrec-$VERSION-universal.tar.gz" > SHA256SUMS)
 
 echo
 lipo -archs "$CLI/bin/anyrec"
@@ -78,9 +62,8 @@ lipo -archs "$DIST/AnyRec.app/Contents/MacOS/AnyRec"
 echo
 echo "tarball: $TARBALL"
 echo "sha256:  $(shasum -a 256 "$TARBALL" | cut -d' ' -f1)"
-echo "zip:     $ZIP"
-echo "sha256:  $(shasum -a 256 "$ZIP" | cut -d' ' -f1)"
-echo "notarised: $NOTARISED"
+echo "dmg:     $DMG"
+echo "sha256:  $(shasum -a 256 "$DMG" | cut -d' ' -f1)"
 echo
 echo "Attach both to a GitHub release tagged v$VERSION, then copy each sha256 into"
 echo "Formula/anyrec.rb and Casks/anyrec-app.rb in your tap."

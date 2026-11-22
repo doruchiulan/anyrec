@@ -9,7 +9,7 @@ embed_whisper() {
 	local binary="$1" frameworks="$2" root
 	root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 	local source
-	source="$(find "$root/.build/artifacts" -maxdepth 6 -path '*macos-arm64_x86_64/whisper.framework' | head -1)"
+	source="$(find "${3:-$root/.build/artifacts}" -maxdepth 6 -path '*macos-arm64_x86_64/whisper.framework' | head -1)"
 	if [[ -z "$source" ]]; then
 		echo "whisper.framework not found under .build/artifacts — run swift build first" >&2
 		return 1

@@ -37,7 +37,7 @@ code and shared-location installation. [Review guideline 2.4.5](https://develope
 | Local models | Whisper is embedded; transcription and speaker models are downloaded | Keep executable code embedded. Verify model assets, compilation, caches, network access and first-use downloads in the sandbox. |
 | Onboarding | `WelcomeAccess.allGranted` requires notifications and Accessibility | Notifications must be optional for core use; replace the Accessibility gate for a store edition. |
 | Signing | Only Apple Development and Developer ID Application identities were found locally | Obtain appropriate Mac App Store signing, provisioning and installer credentials through the existing developer account. |
-| Packaging/versioning | Current output is a notarized zip; build number equals marketing version | Add store archive/export validation and an independently increasing build number. Preserve direct distribution separately. |
+| Packaging/versioning | Direct distribution builds a notarized DMG; build number equals marketing version | Add store archive/export validation and an independently increasing build number. Preserve direct distribution separately. |
 | Privacy | Optional audio uploads, transcript review and saved voiceprints | Assess actual store-edition data flows and provider retention; prepare accurate privacy labels and policy. |
 
 Apple lists cross-app assistive Accessibility usage among sandbox-incompatible

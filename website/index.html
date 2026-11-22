@@ -16,6 +16,7 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:image" content="assets/social.png">
   <meta name="twitter:image:alt" content="AnyRec, call recording and transcription for Mac">
+  <link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="icon" href="assets/dual-track.svg" sizes="any" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -62,7 +63,10 @@
       <div class="wrap">
         <article class="beat">
           <div class="beat-copy"><h3>It offers to record a detected call</h3><p>With call reminders enabled, AnyRec looks for call apps using the microphone. For supported Slack and Teams windows, a reminder can start recording that window directly. Other notifications open the window picker.</p><p>You start the recording. Detecting activity doesn’t start it for you.</p></div>
-          <figure class="beat-visual screenshot"><a href="assets/general-settings.jpg" target="_blank" rel="noopener" aria-label="Open full-size screenshot of AnyRec General settings"><img src="assets/general-settings.jpg" alt="Actual AnyRec General settings, including the option to offer to record when a call starts" width="1080" height="652" loading="lazy"></a><figcaption>Actual app: General settings. Click to enlarge.</figcaption></figure>
+          <figure class="beat-visual screenshot">
+            <a href="assets/banner.png" target="_blank" rel="noopener"><img src="assets/banner.png" alt="AnyRec offers Audio Only and Record above a fictional two-person call" width="1080" height="540" loading="lazy"></a>
+            <figcaption>AnyRec’s reminder above a staged call.</figcaption>
+          </figure>
         </article>
         <article class="beat">
           <div class="beat-copy"><h3>No audio routing to figure out</h3><p>No virtual audio driver or aggregate device to configure. First launch guides you through Screen Recording, Microphone, Accessibility, and Notifications permissions. Processing tools and local models may need downloads.</p><p>Pick a window or display, including a call running in a browser.</p></div>
@@ -73,7 +77,12 @@
     <section id="during" class="chapter" aria-labelledby="during-title">
       <div class="wrap chapter-heading"><span class="stage">02 — DURING THE CALL</span><h2 class="big" id="during-title">Keep an eye on what’s being recorded.</h2></div>
       <div class="wrap recording-facts">
-        <article class="beat-copy"><h3>Recording status at a glance</h3><p>The menu bar shows elapsed recording time. Open the recording panel to see call-audio and microphone levels, and stop the recording when you’re finished.</p></article>
+        <article class="beat-copy"><h3>Recording status at a glance</h3><p>The menu bar shows elapsed recording time. Open the recording panel to see call-audio and microphone levels, and stop the recording when you’re finished.</p>
+          <figure class="screenshot call-panel">
+            <a href="assets/recording.png" target="_blank" rel="noopener"><img src="assets/recording.png" alt="AnyRec’s timer beside Wi-Fi in the Mac menu bar, with recording controls open below it" width="800" height="414" loading="lazy"></a>
+            <figcaption>The demo feeds sample levels into both meters.</figcaption>
+          </figure>
+        </article>
         <article class="beat-copy"><h3>Mute tracking, with clear limits</h3><p>For supported Slack and Teams mute controls, Accessibility helps AnyRec track when the call is listening. Detected muted intervals are silenced in the combined video and mixed audio used for transcription.</p><p class="important-detail">The original microphone file is retained unchanged and can contain speech while muted. If mute tracking is unavailable—or you transcribe a single raw track—don’t rely on this exclusion.</p></article>
         <article class="beat-copy"><h3>Audio balanced for playback</h3><p>When both audio tracks are present, AnyRec measures their levels before combining them. If it detects call audio leaking into the microphone, it lowers the microphone while the call audio plays.</p><p>That can also lower your voice if you talk over someone. Headphones give the clearest separation; this is not a guarantee of echo-free audio.</p></article>
         <article class="beat-copy"><h3>Close the recorded window to finish</h3><p>When the captured window closes, recording stops and saves. If you hang up but the window stays open, stop manually. Closing a call window does not end a display recording.</p><p>After stopping, you can dismiss the saved panel and start another recording while earlier work continues in the background.</p></article>
@@ -83,7 +92,12 @@
       <div class="wrap chapter-heading"><span class="stage">03 — AFTER THE CALL</span><h2 class="big" id="after-title">Play it back. Read it through. Pick up the next step.</h2></div>
       <div class="wrap">
         <div class="after-copy">
-          <article class="beat-copy"><h3>Names for familiar voices</h3><p>Enable speaker recognition and download its model to separate voices and match them to people you’ve named. Open “People in this call” to see who spoke. AnyRec asks one question at a time when a name needs checking. You can choose a person or leave them under “Not sure who”.</p><p>Names and speaking turns can need correction. Recognition helps identify a voice; it doesn’t guarantee every short utterance belongs to the right person.</p></article>
+          <article class="beat-copy"><h3>Names for familiar voices</h3><p>Enable speaker recognition and download its model to separate voices and match them to people you’ve named. Open “People in this call” to see who spoke. AnyRec asks one question at a time when a name needs checking. You can choose a person or leave them under “Not sure who”.</p><p>Names and speaking turns can need correction. Recognition helps identify a voice; it doesn’t guarantee every short utterance belongs to the right person.</p>
+            <figure class="screenshot">
+              <video src="assets/speaker-correction.webm" width="1156" height="712" controls loop muted playsinline preload="metadata" aria-label="Correct a speaker in the sample transcript"></video>
+              <figcaption>In this silent demo, “Someone else…” lets you assign a line to Robin Vale, a saved speaker from an earlier call.</figcaption>
+            </figure>
+          </article>
           <article class="beat-copy"><h3>Decisions and action items</h3><p>With an available AI provider, AnyRec can generate an overview, decisions, and action items. Items with a timestamp let you play from that moment; checkboxes let you mark them done.</p><p>Automatic summaries default to on when a provider is available. Turn off “Summarize after transcribing” in Settings if you want to keep transcript text away from a cloud provider. LLM transcript review is a separate opt-in.</p></article>
         </div>
         <figure class="screenshot library-screenshot"><a href="assets/recording-library.png" target="_blank" rel="noopener" aria-label="Open full-size screenshot of the AnyRec recording library"><img src="assets/recording-library.png" alt="AnyRec library showing a sample transcript, summary, timestamped action items, and a question in People in this call" width="2808" height="2200" loading="lazy"></a><figcaption>AnyRec with staged sample audio, transcript, and summary. Click to enlarge.</figcaption></figure>

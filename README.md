@@ -144,7 +144,7 @@ fallback on older systems.
 
 ### The menu bar app
 
-The same recorder, without a terminal open:
+Open the release DMG and drag AnyRec into Applications. You can also install the app with Homebrew.
 
 ```
 brew install --cask doruchiulan/tap/anyrec-app
@@ -541,7 +541,7 @@ Two things worth knowing:
 ```
 swift build
 swift test
-scripts/release.sh 0.4.0    # universal app + CLI archives and SHA256SUMS
+scripts/release.sh 0.4.0    # universal app DMG, CLI tarball and SHA256SUMS
 scripts/bundle-app.sh       # dist/AnyRec.app
 ```
 

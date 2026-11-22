@@ -5,13 +5,26 @@ VERSION="${1:?usage: scripts/verify-release.sh X.Y.Z}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 SCRATCH="$(mktemp -d)"
-trap 'rm -rf "$SCRATCH"' EXIT
+mount="$SCRATCH/volume"
+mounted=0
+cleanup() {
+    if [[ "$mounted" == 1 ]]; then hdiutil detach "$mount" || return 1; fi
+    rm -rf "$SCRATCH"
+}
+trap cleanup EXIT
 
 (cd "$DIST" && shasum -a 256 -c SHA256SUMS)
-ditto -x -k "$DIST/AnyRec-$VERSION.zip" "$SCRATCH"
+DMG="$DIST/AnyRec-$VERSION.dmg"
+hdiutil verify "$DMG"
+codesign --verify --strict "$DMG"
+mkdir "$mount"
+hdiutil attach -readonly -nobrowse -mountpoint "$mount" "$DMG"
+mounted=1
+[[ "$(readlink "$mount/Applications")" == /Applications && -s "$mount/.DS_Store" ]]
+cmp "$ROOT/Resources/AppIcon.icns" "$mount/AnyRec.app/Contents/Resources/AppIcon.icns"
 mkdir "$SCRATCH/cli"
 tar -xzf "$DIST/anyrec-$VERSION-universal.tar.gz" -C "$SCRATCH/cli"
-APP="$SCRATCH/AnyRec.app"
+APP="$mount/AnyRec.app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")" == "$VERSION" ]]
 for binary in "$APP/Contents/MacOS/AnyRec" "$SCRATCH/cli/bin/anyrec"; do
     for architecture in arm64 x86_64; do
@@ -36,6 +49,8 @@ CLI_VERSION="$("$SCRATCH/cli/bin/anyrec" --version)" || {
 }
 [[ "$CLI_VERSION" == "$VERSION" ]]
 if [[ "${ANYREC_REQUIRE_NOTARIZATION:-0}" == 1 ]]; then
+    xcrun stapler validate "$DMG"
+    spctl --assess --type open --context context:primary-signature "$DMG"
     xcrun stapler validate "$APP"
     spctl --assess --type execute "$APP"
     codesign --verify --strict --check-notarization -R=notarized "$SCRATCH/cli/bin/anyrec"

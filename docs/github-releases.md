@@ -5,9 +5,10 @@ the version in `Sources/anyrec/AnyRec.swift`. The workflow tests the tagged code
 builds universal Apple Silicon and Intel binaries, signs with Developer ID,
 notarizes both products, verifies the extracted downloads, and publishes:
 
-- `AnyRec-X.Y.Z.zip`: app with its notarization ticket stapled.
+- `AnyRec-X.Y.Z.dmg` contains AnyRec and an Applications shortcut. Both the app and disk image carry a notarization ticket.
 - `anyrec-X.Y.Z-universal.tar.gz`: CLI and its embedded Whisper framework.
 - `SHA256SUMS`: checksums of both downloads.
+- `appcast.xml` points Sparkle at the signed DMG.
 
 The workflow uses GitHub's `macos-26` runner and its default Xcode. See the
 [runner image inventory](https://github.com/actions/runner-images) for available tools.
@@ -57,7 +58,7 @@ No provisioning profile is needed for this Developer ID distribution.
 4. Follow **Actions → Release**. Publication happens only after tests, signing,
    notarization, archive checks, and artifact upload succeed.
 5. Update the Homebrew formula and cask version/checksums separately if distributing
-   through the tap. The workflow does not edit those files.
+   through the tap. For the first DMG release, change the cask URL suffix from `.zip` to `.dmg` alongside its version and checksum. The workflow does not edit those files.
 
 Use a new version for each release; the commands above illustrate `v0.4.0`.
 Only numeric stable tags are supported. Existing releases are never overwritten.
@@ -67,6 +68,17 @@ and enter the tag. Manual dispatch becomes available once the workflow is on the
 default branch. If publication failed after creating a draft release, inspect its
 assets and either finish that draft manually or remove the draft before retrying.
 Published release tags must not be moved or reused.
+
+## Build the installer
+
+With Python 3.11 or later available as `python3`, run:
+
+```bash
+scripts/bundle-app.sh release
+scripts/package-app.sh dist/AnyRec.app dist/AnyRec-preview.dmg
+```
+
+The packaging script installs the pinned disk-image tools into a project-local virtual environment. Finder reads the icon positions and background from the image on first open. The editable artwork is in `Resources/Installer/`.
 
 ## Local verification
 

@@ -36,8 +36,7 @@ that older detail. Installed-app captures do not prove source/build parity.
 
 ## Screenshot provenance
 
-All product screenshots are native captures. No compositing, cropping,
-retouching, or replacement UI was applied. The JPEGs came from the installed
+The product screenshots come from native captures. The Transcription screenshot has one edit in the upper-left corner to remove the macOS screen-sharing badge. The JPEGs came from the installed
 app during the original 2026-10-24 capture session.
 
 | Asset | Captured content |
@@ -69,12 +68,21 @@ library were left untouched during this capture.
 Isolated executable SHA-256:
 `e049e22606d46b5aa0f0e2db8b7cef6db876c6a052a33335621c9f220e5c426b`.
 
+## Website demo scenes
+
+The demo is built from AnyRec 0.11.1 source with the website demo flag. It uses the shipping reminder, recording controls, level bars, transcript rows, speaker picker and reassignment logic. The call backdrop and participant initials are fictional. The timer measures time in the demo and a fixture supplies the two meter levels.
+
+| Asset | Source |
+| --- | --- |
+| `assets/banner.png` | 1080 × 540. ScreenCaptureKit captured the native floating reminder and the separate staged call window together on a neutral background. |
+| `assets/recording.png` | 800 × 414. One ScreenCaptureKit frame includes the macOS menu bar and the shared borderless recording panel. Solid capture backgrounds keep the desktop and other apps out of the shot. |
+| `assets/speaker-correction.webm` | A 9.5-second silent screen recording restricted to the demo app and its popover. It shows a synthesized clip playing and a user assigning its line to Robin Vale. The edit was read back from the transcript UI. |
+
+The [capture instructions](CAPTURE.md) describe how to replay the scenes.
+
 ## Brand assets
 
-The Dual track, Record ring, and Call note marks and their wordmarks are hand-drawn
-SVGs. The favicon PNGs and the 1200 × 630 social card are raster exports of SVG
-artwork. The share card contains typography and the brand mark. The existing
-app icon comes from `Resources/AppIcon.icns`.
+The supplied Dual Track Cutout artwork is used for the website wordmark, favicons, social card, and Mac app. The editable Mac icon is `Resources/AppIcon.svg`. The app bundle and installer volume use the supplied `Resources/AppIcon.icns`.
 
 ## Publishing
 

@@ -30,10 +30,10 @@ they need not be uploaded.
 
 ## Screenshots and claims
 
-The product screenshots in `assets/` are untouched native app captures.
+The product screenshots in `assets/` come from native app captures. The Transcription screenshot has the screen-sharing badge removed from its title bar.
 The library screenshot uses staged sample audio, transcript, and summary
 content; it demonstrates the interface, not transcription or summary accuracy.
-No private conversation content is included. The icon comes from the Mac app.
+No private conversation content is included. The reminder, recording panel and speaker correction movie use the separate [website demo build](CAPTURE.md). The icon comes from the Mac app.
 
 [FACTS.md](FACTS.md) records the implementation evidence, known limits, and
 screenshot provenance. Recheck it when changing product copy or app behavior.

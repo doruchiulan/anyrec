@@ -53,7 +53,7 @@ through — is 15.2.
 swift build                 # debug
 swift test                  # swift-testing suites
 swift build -c release
-scripts/release.sh <ver>    # universal, signed: CLI tarball + app zip + sha256s
+scripts/release.sh <ver>    # universal, signed: CLI tarball + app DMG + sha256s
 scripts/bundle-app.sh       # dist/AnyRec.app — the Mac app and its menu bar helper
 ./.build/debug/anyrec doctor
 ./.build/debug/anyrec speakers --download   # the 22 MB speaker models, no terminal UI needed
@@ -697,9 +697,7 @@ Invariants worth preserving:
   Developer ID`, and clearing the attribute by hand is the only way in. Formulae
   are the ones that install unquarantined, which is why the CLI never needed any
   of this, and why reading across from `Formula/anyrec.rb` gets it wrong.
-- The app zip is made with `ditto -c -k --keepParent`, never `zip`. `zip` drops the
-  symlinks and extended attributes a bundle's signature is checked against, and the
-  app arrives with a signature that no longer verifies.
+- The public app download is a signed DMG. The packaging script uses a private `ditto` archive to notarize the app before placing it in the disk image.
 - `NSMicrophoneUsageDescription` must be in the bundle's `Info.plist`. Without it
   the mic prompt terminates the app rather than failing softly.
 - The app must *ask* for Screen Recording, not just preflight it.

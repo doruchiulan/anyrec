@@ -8,5 +8,9 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - name: Render the native views
         run: swift test --filter PeopleReviewArtboards
+      - name: Compile the website demo scenes
+        run: swift build --product AnyRecBar -Xswiftc -DANYREC_WEBSITE_DEMO

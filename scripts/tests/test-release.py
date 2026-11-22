@@ -195,10 +195,21 @@ if [[ "$*" == *--show-bin-path* ]]; then echo "$TEST_BINARY_DIR"; fi
         binary.parent.mkdir()
         binary.write_text('#!/bin/bash\necho 1.2.3\n')
         binary.chmod(0o700)
-        archive = dist / 'AnyRec-1.2.3.zip'
+        archive = dist / 'AnyRec-1.2.3.dmg'
+        volume = self.root / 'installer'
+        volume.mkdir()
+        shutil.copytree(contents.parent, volume / 'AnyRec.app')
+        icon = self.root / 'Resources/AppIcon.icns'
+        icon.parent.mkdir()
+        icon.write_bytes(b'icon fixture')
+        bundled = volume / 'AnyRec.app/Contents/Resources'
+        bundled.mkdir()
+        shutil.copy(icon, bundled)
+        (volume / '.DS_Store').write_bytes(b'layout fixture')
+        (volume / 'Applications').symlink_to('/Applications')
         tarball = dist / 'anyrec-1.2.3-universal.tar.gz'
-        self.assertEqual(self.run_command('ditto', '-c', '-k', '--keepParent',
-                                          str(contents.parent), str(archive)).returncode, 0)
+        self.assertEqual(self.run_command('hdiutil', 'create', '-quiet', '-volname', 'AnyRec Test',
+                                          '-srcfolder', str(volume), str(archive)).returncode, 0)
         self.assertEqual(self.run_command('tar', '-czf', str(tarball), '-C',
                                           str(self.root), 'bin').returncode, 0)
         (dist / 'SHA256SUMS').write_text(''.join(
@@ -212,7 +223,7 @@ echo "$*" >>"$TEST_CALL_LOG"
 if [[ "$*" == *--check-notarization* ]]; then exit "${TEST_NOTARY_EXIT:-0}"; fi
 ''')
         self.tool('spctl', '''
-if [[ "${@: -1}" != *.app ]]; then
+if [[ "${@: -1}" != *.app && "$*" != *"--type open --context context:primary-signature"*.dmg ]]; then
     echo 'rejected (the code is valid but does not seem to be an app)' >&2
     exit 3
 fi
