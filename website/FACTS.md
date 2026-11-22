@@ -36,8 +36,7 @@ that older detail. Installed-app captures do not prove source/build parity.
 
 ## Screenshot provenance
 
-All product screenshots are native captures. No compositing, cropping,
-retouching, or replacement UI was applied. The JPEGs came from the installed
+The product screenshots come from native captures. The Transcription screenshot has one edit in the upper-left corner to remove the macOS screen-sharing badge. The JPEGs came from the installed
 app during the original 2026-10-24 capture session.
 
 | Asset | Captured content |
@@ -83,10 +82,7 @@ The [capture instructions](CAPTURE.md) describe how to replay the scenes.
 
 ## Brand assets
 
-The Dual track, Record ring, and Call note marks and their wordmarks are hand-drawn
-SVGs. The favicon PNGs and the 1200 × 630 social card are raster exports of SVG
-artwork. The share card contains typography and the brand mark. The existing
-app icon comes from `Resources/AppIcon.icns`.
+The supplied Dual Track Cutout artwork is used for the website wordmark, favicons, social card, and Mac app. The editable Mac icon is `Resources/AppIcon.svg`. The app bundle and installer volume use the supplied `Resources/AppIcon.icns`.
 
 ## Publishing
 

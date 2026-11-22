@@ -54,6 +54,10 @@ jobs:
             exit 1
           fi
 
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+        with:
+          python-version: '3.13'
+          cache: ''
       - name: Test
         run: |
           xcodebuild -version
@@ -88,7 +92,7 @@ jobs:
         with:
           name: anyrec-${{ env.RELEASE_TAG }}
           path: |
-            dist/AnyRec-*.zip
+            dist/AnyRec-*.dmg
             dist/anyrec-*-universal.tar.gz
             dist/SHA256SUMS
             dist/appcast.xml
@@ -100,7 +104,7 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" --verify-tag --draft --notes-file "release-notes/${RELEASE_TAG#v}.md" \
             --title "AnyRec ${RELEASE_TAG#v}" \
-            "dist/AnyRec-${RELEASE_TAG#v}.zip" \
+            "dist/AnyRec-${RELEASE_TAG#v}.dmg" \
             "dist/anyrec-${RELEASE_TAG#v}-universal.tar.gz" dist/SHA256SUMS dist/appcast.xml
           gh release edit "$RELEASE_TAG" --draft=false
 
