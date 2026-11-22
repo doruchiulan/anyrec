@@ -86,6 +86,4 @@ The supplied Dual Track Cutout artwork is used for the website wordmark, favicon
 
 ## Publishing
 
-The download URL remains the existing GitHub releases fallback. No App Store
-availability, price, purchase flow, or free license is asserted. Configure the
-final sales link before announcing the paid release.
+The website links directly to the signed Mac installer on GitHub Releases. Release notes are available separately.
