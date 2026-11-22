@@ -1,5 +1,5 @@
 .screenshot { margin: 0; display: flex; flex-direction: column; gap: 12px; }
-.screenshot > a { display: block; width: 100%; border-radius: 14px; }
+.screenshot > a { cursor: zoom-in; display: block; width: 100%; border-radius: 14px; }
 .screenshot img { width: 100%; height: auto; border-radius: 14px; box-shadow: 0 20px 50px rgba(20, 30, 60, 0.14), 0 0 0 0.5px #0000001f; }
 .screenshot figcaption { font-size: 12px; line-height: 19px; color: var(--mfg); }
 .beat-visual.screenshot { align-items: center; }
@@ -7,10 +7,10 @@
 .beat-visual.settings-screenshot > a { max-width: 360px; }
 .beat-visual.settings-screenshot figcaption { max-width: 360px; }
 .recording-facts, .after-copy { display: grid; grid-template-columns: 1fr 1fr; gap: 40px 64px; }
-.recording-facts { padding-top: 42px; padding-bottom: 30px; }
+.recording-facts { padding-bottom: 30px; }
 .recording-facts article { border-top: 1px solid var(--line); padding-top: 28px; }
 .recording-facts h3, .after-copy h3 { font-family: var(--display); font-size: 28px; line-height: 34px; letter-spacing: -0.02em; font-weight: 600; color: var(--ink); text-wrap: balance; }
-.recording-facts .important-detail { padding: 14px 16px; border-left: 2px solid var(--pdeep); background: var(--side); font-size: 14px; line-height: 23px; }
+.recording-facts .important-detail { padding: 14px 16px; border-radius: 8px; background: var(--side); color: var(--fg); font-size: 14px; line-height: 23px; }
 .after-copy { padding-block: 42px; border-top: 1px solid var(--line); }
 .library-screenshot { margin-bottom: 56px; }
 .export-copy { align-items: flex-start; }
@@ -19,7 +19,8 @@
   .beat-visual.screenshot { align-items: flex-start; }
 }
 @media (max-width: 560px) {
-  .recording-facts, .after-copy { grid-template-columns: 1fr; padding-top: 28px; }
+  .recording-facts, .after-copy { grid-template-columns: 1fr; }
+  .after-copy { padding-top: 28px; }
   .recording-facts h3, .after-copy h3 { font-size: 25px; line-height: 31px; }
   .library-screenshot { margin-bottom: 36px; }
   .screenshot img { border-radius: 10px; }

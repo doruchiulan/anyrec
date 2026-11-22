@@ -41,7 +41,7 @@
           <div class="hero-actions"><a class="cta primary" href="https://github.com/doruchiulan/anyrec/releases/download/v0.11.2/AnyRec-0.11.2.dmg">Download for Mac</a><span>For macOS 15.2 and later</span></div>
         </div>
         <figure class="screenshot hero-preview">
-          <a href="assets/recording.png" target="_blank" rel="noopener"><img src="assets/recording.png" alt="AnyRec’s Mac menu bar timer and recording panel with separate call and microphone meters" width="800" height="414"></a>
+          <a href="assets/recording.png" target="_blank" rel="noopener" aria-label="Open full-size screenshot of AnyRec’s recording panel"><img src="assets/recording.png" alt="AnyRec’s Mac menu bar timer and recording panel with separate call and microphone meters" width="800" height="414"></a>
           <figcaption>Recording a demo Slack call from the Mac menu bar.</figcaption>
         </figure>
       </div>
@@ -63,12 +63,12 @@
       </div>
     </section>
     <section id="before" class="chapter chapter-first" aria-labelledby="before-title">
-      <div class="wrap chapter-heading"><span class="stage">01 — BEFORE THE CALL</span><h2 class="big" id="before-title">A reminder before the conversation gets going.</h2></div>
+      <h2 class="wrap chapter-heading big" id="before-title">Before the call</h2>
       <div class="wrap">
         <article class="beat">
-          <div class="beat-copy"><h3>It offers to record a detected call</h3><p>With call reminders enabled, AnyRec looks for call apps using the microphone. For supported Slack and Teams windows, a reminder can start recording that window directly. Other notifications open the window picker.</p><p>You start the recording. Detecting activity doesn’t start it for you.</p></div>
+          <div class="beat-copy"><h3>A reminder to record</h3><p>With call reminders enabled, AnyRec looks for call apps using the microphone. For supported Slack and Teams windows, a reminder can start recording that window directly. Other notifications open the window picker.</p><p>You start the recording. Detecting activity doesn’t start it for you.</p></div>
           <figure class="beat-visual screenshot">
-            <a href="assets/banner.png" target="_blank" rel="noopener"><img src="assets/banner.png" alt="AnyRec offers Audio Only and Record above a fictional two-person call" width="1080" height="540" loading="lazy"></a>
+            <a href="assets/banner.png" target="_blank" rel="noopener" aria-label="Open full-size screenshot of the call reminder"><img src="assets/banner.png" alt="AnyRec offers Audio Only and Record above a fictional two-person call" width="1080" height="540" loading="lazy"></a>
             <figcaption>AnyRec’s reminder above a staged call.</figcaption>
           </figure>
         </article>
@@ -79,7 +79,7 @@
       </div>
     </section>
     <section id="during" class="chapter" aria-labelledby="during-title">
-      <div class="wrap chapter-heading"><span class="stage">02 — DURING THE CALL</span><h2 class="big" id="during-title">Keep an eye on what’s being recorded.</h2></div>
+      <h2 class="wrap chapter-heading big" id="during-title">During the call</h2>
       <div class="wrap recording-facts">
         <article class="beat-copy"><h3>Recording status at a glance</h3><p>The menu bar shows elapsed recording time. Open the recording panel to see call-audio and microphone levels, and stop the recording when you’re finished.</p></article>
         <article class="beat-copy"><h3>Mute tracking, with clear limits</h3><p>For supported Slack and Teams mute controls, Accessibility helps AnyRec track when the call is listening. Detected muted intervals are silenced in the combined video and mixed audio used for transcription.</p><p class="important-detail">The original microphone file is retained unchanged and can contain speech while muted. If mute tracking is unavailable—or you transcribe a single raw track—don’t rely on this exclusion.</p></article>
@@ -88,7 +88,7 @@
       </div>
     </section>
     <section id="after" class="chapter" aria-labelledby="after-title">
-      <div class="wrap chapter-heading"><span class="stage">03 — AFTER THE CALL</span><h2 class="big" id="after-title">Play it back. Read it through. Pick up the next step.</h2></div>
+      <h2 class="wrap chapter-heading big" id="after-title">After the call</h2>
       <div class="wrap">
         <div class="after-copy">
           <article class="beat-copy"><h3>Names for familiar voices</h3><p>Enable speaker recognition and download its model to separate voices and match them to people you’ve named. Open “People in this call” to see who spoke. AnyRec asks one question at a time when a name needs checking. You can choose a person or leave them under “Not sure who”.</p><p>Names and speaking turns can need correction. Recognition helps identify a voice; it doesn’t guarantee every short utterance belongs to the right person.</p>
@@ -99,10 +99,10 @@
           </article>
           <article class="beat-copy"><h3>Decisions and action items</h3><p>With an available AI provider, AnyRec can generate an overview, decisions, and action items. Items with a timestamp let you play from that moment; checkboxes let you mark them done.</p><p>Automatic summaries default to on when a provider is available. Turn off “Summarize after transcribing” in Settings if you want to keep transcript text away from a cloud provider. LLM transcript review is a separate opt-in.</p></article>
         </div>
-        <figure class="screenshot library-screenshot"><a href="assets/recording-library.png" target="_blank" rel="noopener" aria-label="Open full-size screenshot of the AnyRec recording library"><img src="assets/recording-library.png" alt="AnyRec library showing a sample transcript, summary, timestamped action items, and a question in People in this call" width="2808" height="2200" loading="lazy"></a><figcaption>AnyRec with staged sample audio, transcript, and summary. Click to enlarge.</figcaption></figure>
+        <figure class="screenshot library-screenshot"><a href="assets/recording-library.png" target="_blank" rel="noopener" aria-label="Open full-size screenshot of the AnyRec recording library"><img src="assets/recording-library.png" alt="AnyRec library showing a sample transcript, summary, timestamped action items, and a question in People in this call" width="2808" height="2200" loading="lazy"></a><figcaption>The recording library with a sample call, transcript, and summary.</figcaption></figure>
         <article class="beat">
           <div class="beat-copy"><h3>Choose an engine for your language</h3><p>Parakeet supports 25 languages. The bundled Whisper engine lists 100, including Romanian and English. Both process audio on your Mac after their models are downloaded. Apple transcription requires macOS 26 and a supported locale.</p><p>Automatic chooses an available enabled local engine; it does not first check whether Parakeet supports the call’s language. Choose an appropriate engine yourself for languages outside Parakeet’s list.</p><p>Turn on parallel transcription and select multiple engines to compare results. LLM review is optional and sends transcript text to its provider.</p></div>
-          <figure class="beat-visual screenshot settings-screenshot"><a href="assets/transcription-settings.jpg" target="_blank" rel="noopener" aria-label="Open full-size screenshot of AnyRec Transcription settings"><img src="assets/transcription-settings.jpg" alt="Actual AnyRec Transcription settings with engine switches, parallel processing off, and LLM review off" width="1080" height="1416" loading="lazy"></a><figcaption>Actual app: enabled engines and optional review. Readiness depends on your Mac and downloaded models. Click to enlarge.</figcaption></figure>
+          <figure class="beat-visual screenshot settings-screenshot"><a href="assets/transcription-settings.jpg" target="_blank" rel="noopener" aria-label="Open full-size screenshot of AnyRec Transcription settings"><img src="assets/transcription-settings.jpg" alt="Actual AnyRec Transcription settings with engine switches, parallel processing off, and LLM review off" width="1080" height="1416" loading="lazy"></a><figcaption>Transcription engines and review settings. Readiness depends on your Mac and downloaded models.</figcaption></figure>
         </article>
         <article class="beat export-copy">
           <div class="beat-copy"><h3>Keep the files. Revisit the transcript.</h3><p>AnyRec keeps the original video and audio tracks alongside the combined recording. Generated transcripts have Markdown, JSON, and SRT subtitle files. You can generate or regenerate a transcript from the app.</p><p>The source microphone track is not edited to remove muted speech. Review the files you choose to share.</p></div>
@@ -112,12 +112,12 @@
     </section>
     <section id="privacy" class="privacy" aria-labelledby="privacy-title">
       <div class="wrap privacy-grid">
-        <div class="privacy-copy"><span class="stage">AND THE WHOLE TIME</span><h2 class="big" id="privacy-title">Keep it on your Mac.</h2><p class="intro">Recording, local transcription, and local voice matching run on your Mac. OpenAI transcription sends audio to OpenAI. Summaries and LLM review send transcript text to their configured provider.</p></div>
-        <div class="privacy-details"><ul><li>Use local engines without a cloud transcription account</li><li>The voices you name are stored on your Mac</li><li>Model setup shows download sizes before you install</li><li>Keep your original recordings and export your transcripts</li></ul><p>For a local-only workflow, use a local transcription engine, turn off automatic summaries, and leave LLM review off. Provider subscriptions or API charges are separate from AnyRec.</p><p>Let everyone on the call know you’re recording. Keep in mind that retained source tracks may include microphone audio excluded from the combined file.</p></div>
+        <div class="privacy-copy"><h2 class="big" id="privacy-title">What stays on your Mac</h2><p class="intro">Recording, local transcription, and local voice matching run on your Mac. OpenAI transcription sends audio to OpenAI. Summaries and LLM review send transcript text to their configured provider.</p></div>
+        <div class="privacy-details"><ul><li>Transcribe locally without a cloud account</li><li>The voices you name are stored on your Mac</li><li>See model sizes before downloading</li><li>Keep recordings and export transcripts</li></ul><p>For a local-only workflow, use a local transcription engine, turn off automatic summaries, and leave LLM review off. Provider subscriptions or API charges are separate from AnyRec.</p><p>Let everyone on the call know you’re recording. Keep in mind that retained source tracks may include microphone audio excluded from the combined file.</p></div>
       </div>
     </section>
     <section id="install" class="install" aria-labelledby="install-title">
-      <div class="wrap install-content"><img class="install-icon" src="assets/app-icon.png" width="88" height="88" alt="AnyRec app icon"><h2 class="big" id="install-title">Your next call, kept.</h2><p class="intro">For macOS 15.2 and later.</p><a class="cta primary" href="https://github.com/doruchiulan/anyrec/releases/download/v0.11.2/AnyRec-0.11.2.dmg">Download for Mac</a><a class="release-notes" href="https://github.com/doruchiulan/anyrec/releases/latest">Release notes</a><p class="install-note">Local engines are optional downloads. Cloud AI uses your own provider.</p></div>
+      <div class="wrap install-content"><img class="install-icon" src="assets/app-icon.png" width="88" height="88" alt="AnyRec app icon"><h2 class="big" id="install-title">Get AnyRec for Mac</h2><p class="intro">For macOS 15.2 and later.</p><div class="install-actions"><a class="cta primary" href="https://github.com/doruchiulan/anyrec/releases/download/v0.11.2/AnyRec-0.11.2.dmg">Download for Mac</a><a class="release-notes" href="https://github.com/doruchiulan/anyrec/releases/latest">Release notes</a></div><p class="install-note">Local engines are optional downloads. Cloud AI uses your own provider.</p></div>
     </section>
   </main>
   <footer class="site-footer"><div class="wrap footer-content"><span>AnyRec for Mac</span><div><a href="https://github.com/doruchiulan/anyrec">GitHub</a><a href="https://github.com/doruchiulan/anyrec/blob/main/docs/pipeline.md">How it works, in detail</a><a href="https://github.com/doruchiulan/anyrec/issues">Support</a></div></div></footer>
