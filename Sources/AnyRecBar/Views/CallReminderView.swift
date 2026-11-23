@@ -11,7 +11,10 @@ struct CallReminderView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "waveform.circle.fill").font(.title2).foregroundStyle(.teal)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
                 .accessibilityHidden(true)
             Text("Record \(appName) call?").font(.callout.weight(.medium))
                 .lineLimit(1)
