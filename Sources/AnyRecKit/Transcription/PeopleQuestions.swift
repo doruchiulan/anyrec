@@ -123,6 +123,16 @@ extension RecordingSpeakers {
             if !unasked.isEmpty {
                 let seconds = unasked.reduce(0) { $0 + max(0, lines[$1].end - lines[$1].start) }
                 asked.append(.init(kind: .unnamedBits(lines: unasked, seconds: seconds, onlyOther: nil), id: "bits"))
+            } else {
+                /// What the model could not place, where the call window showed one person
+                /// talking: line by line, with that name as the guess. Once everything had been
+                /// asked, a Teams call kept 65 such lines (39 with someone shown) under a panel
+                /// that said there was nothing to check.
+                let guessed = shownAlone(unclaimed.filter { !suggested.contains($0) })
+                if !guessed.isEmpty {
+                    asked.append(.init(kind: .eachLine(.others, lines: guessed.keys.sorted(), guesses: guessed, severalPeople: false),
+                                       id: "lines-others"))
+                }
             }
         }
         /// Lines nobody claimed that the model was sure of are one group, assigned at once;

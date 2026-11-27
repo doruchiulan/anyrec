@@ -104,6 +104,17 @@ struct UnclaimedLineReviewTests {
         #expect(bits() == nil)
     }
 
+    @Test("once the model has been asked about all of them, the ones the call window showed someone on are asked line by line with that guess")
+    func leftoversWithTheWindowsGuess() {
+        let several = lines + [Utterance(start: 15, end: 18, text: "Hi all", speaker: .named("Sam Rivera"))]
+        var speakers = RecordingSpeakers.build(lines: several, voices: voices, suggestions: [], corrections: [],
+                                               participants: window, info: nil, library: VoiceLibrary())
+        #expect(!speakers.questions.contains { $0.id == "lines-others" })
+        speakers.askedAboutUnclaimed = [1, 3, 4]
+        #expect(speakers.questions.first { $0.id == "lines-others" }?.kind
+            == .eachLine(.others, lines: [1, 3], guesses: [1: "Alex Morgan", 3: "Sam Rivera"], severalPeople: false))
+    }
+
     @Test("the People panel asks about the sure ones together, the likely ones one by one, and the review's own apart")
     func questions() {
         var sure = SpeakerCorrection(line: 1, from: .others, to: .voice("A"), reason: "r", quote: "it.", evidenceLine: 1)
