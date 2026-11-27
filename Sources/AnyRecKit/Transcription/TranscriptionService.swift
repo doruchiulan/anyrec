@@ -57,6 +57,9 @@ public enum TranscriptionService {
     /// Audio tracks of a recording, microphone first. Empty files are skipped —
     /// a track that was switched off still leaves a zero-length placeholder.
     public static func tracks(in plan: OutputPlan) -> [Track] {
+        /// A copy of someone else's recording keeps their microphone to listen to, but
+        /// transcribed here it would come back as this Mac's owner.
+        guard !SharedCopy.exists(in: plan.directory) else { return [] }
         let separate = [Track(url: plan.microphone, speaker: .me), Track(url: plan.systemAudio, speaker: .others)]
             .filter { hasAudio($0.url) }
         if !separate.isEmpty { return separate }

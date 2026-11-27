@@ -37,7 +37,30 @@ final class OpenRecording {
 
     var directory: URL { playback.entry.directory }
 
+    /// The waveform someone else's recording was published with.
+    private(set) var sharedWaveform: [Float]?
+    /// Someone else's recording as it was last read, so an unchanged one is not laid out again.
+    private(set) var shared: SharedMeeting?
+
+    /// Someone else's recording, all of it from its manifest: nothing here waits for a file.
+    private func load(shared meeting: SharedMeeting, in directory: URL) {
+        guard shared != meeting else { return }
+        shared = meeting
+        transcript = meeting.transcript
+        voices = nil
+        named()
+        desk = SpeakerDesk(shared: meeting.speakers(), directory: directory, controller: controller)
+        summary = nil
+        legacySummary = meeting.legacySummary
+        setSummary(meeting.summary)
+        sharedWaveform = meeting.waveform
+    }
+
     func load(_ entry: LibraryEntry) {
+        if entry.shared != nil {
+            if let meeting = controller.team.meeting(entry.directory) { load(shared: meeting, in: entry.directory) }
+            return
+        }
         let current = RecordingTranscript.read(in: entry.directory)
         transcript = current?.transcript
         voices = current?.voices
@@ -130,6 +153,7 @@ private struct RecordingPage: View {
     private var transcript: Transcript? { recording.transcript }
     private var voices: RecordingVoices? { recording.voices }
     private var observed: CallParticipants? { recording.observed }
+    private var isShared: Bool { entry.shared != nil }
     private var desk: SpeakerDesk? { recording.desk }
     private var summary: RecordingSummaryPresentation? { recording.summary }
     private var legacySummary: String? { recording.legacySummary }
@@ -163,8 +187,12 @@ private struct RecordingPage: View {
                     header
                     ProcessingStatusView(controller: controller, directory: entry.directory)
                     if entry.media != nil || !playback.available.isEmpty { playerCard }
-                    TranscriptReviewDetails(directory: entry.directory).id(entry.revision)
-                    if transcript != nil { summaryCard.disabled(controller.processing.working.contains(entry.directory)) }
+                    if let shared = recording.shared {
+                        SharedReviewDetails(directory: entry.directory, meeting: shared)
+                    } else {
+                        TranscriptReviewDetails(directory: entry.directory).id(entry.revision)
+                    }
+                    if transcript != nil && (!isShared || summary != nil || legacySummary != nil) { summaryCard.disabled(controller.processing.working.contains(entry.directory)) }
                     speakersSection.id(Self.speakersAnchor)
                 }
                 .padding(.horizontal, 28).padding(.vertical, 22)
@@ -185,11 +213,40 @@ private struct RecordingPage: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(Wording.title(of: entry)).font(.system(size: 18, weight: .semibold))
-                RecordingMetadataLine(entry: entry, publication: controller.team.publication(entry))
-                    .id(entry.media ?? entry.directory)
+                RecordingMetadataLine(entry: entry, mark: controller.team.mark(entry), note: controller.team.note(entry))
+                /// Why nothing here can be changed, and the way to a copy that can be.
+                if let shared = entry.shared {
+                    HStack(spacing: 4) {
+                        Label(Wording.sharedBy(shared.sharedBy), systemImage: "person.crop.circle")
+                        Text("·")
+                        Text("View only").help("Only the person who recorded it can change it. Make a Copy to edit your own.")
+                        if controller.team.copying.contains(entry.directory) {
+                            Text("·")
+                            ProgressView().controlSize(.mini)
+                            Text("Making a copy…")
+                        }
+                        if !controller.team.isLinked(entry.directory) {
+                            Text("·")
+                            Button("Add to Library") { controller.team.add(entry.directory) }
+                                .buttonStyle(.link).disabled(controller.team.busy)
+                                .help("List this meeting with your own recordings")
+                        }
+                    }
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
             Spacer()
         }
+    }
+
+    private var copyButton: some View {
+        let copying = controller.team.copying.contains(entry.directory)
+        return Button { controller.team.copy(entry, controller: controller) } label: {
+            Label("Make a Copy", systemImage: "doc.on.doc")
+        }
+        .labelStyle(.iconOnly)
+        .help(copying ? "Copying…" : "Make your own copy, to edit its transcript and summary")
+        .disabled(copying)
     }
 
     @ToolbarContentBuilder private var actions: some ToolbarContent {
@@ -206,12 +263,20 @@ private struct RecordingPage: View {
                 Label("Show in Finder", systemImage: "folder")
             }
             .help("Show in Finder")
-            if entry.transcript != nil && SharedCopy.exists(in: entry.directory) {
+            if !isShared, entry.transcript != nil && SharedCopy.exists(in: entry.directory) {
                 Button("Edit transcript", systemImage: "pencil") { editCopy = true }
             }
-            MeetingSyncButton(team: controller.team, entry: entry)
+            /// One place whoever recorded it, holding the sync button or Make a Copy, so moving
+            /// between one's own recordings and shared ones rebuilds no items. A test build was
+            /// twice stopped selecting a shared recording: SwiftUI re-vended the toolbar's items
+            /// on a focused-values change during layout, which asked for layout again, until
+            /// AppKit gave up ("more Update Constraints in Window passes than there are views").
+            /// Not reproduced since, in 40 tries; what kept the focused values changing is unknown.
+            ZStack {
+                if isShared { copyButton } else { MeetingSyncButton(team: controller.team, entry: entry) }
+            }
             SlackDraftButton(title: Wording.title(of: entry), summary: summary?.markdown ?? legacySummary,
-                            audioOnly: entry.audioOnly, linkFile: RecordingCloud.linkFile(for: entry))
+                            audioOnly: entry.audioOnly, linkFile: isShared ? nil : RecordingCloud.linkFile(for: entry))
                 .background(FileShareAnchor(controller: controller, entry: entry, request: controller.shareRequest))
         }
         /// Only while the inspector is closed; open, the inspector's own toolbar ends with it.
@@ -238,6 +303,9 @@ private struct RecordingPage: View {
             }
             WaveformBar(playback: playback).frame(height: 44)
             controls
+            if let shared = entry.shared, let download = playback.download {
+                SharedDownloadStatus(shared: shared, playback: playback, download: download)
+            }
         }
         .padding(14)
         .card()
@@ -248,11 +316,12 @@ private struct RecordingPage: View {
             VideoSurface(player: playback.player)
                 .aspectRatio(aspect, contentMode: .fit)
                 .frame(maxHeight: 380)
-                .opacity(playback.enabled.contains(.video) ? 1 : 0)
+                .opacity(playback.enabled.contains(.video) && playback.isReady ? 1 : 0)
+                .background { SharedStill(entry: entry, playback: playback) }
                 .background(Color(white: 0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .frame(maxWidth: .infinity)
-            if controller.showsCaptions, !lines.isEmpty {
+            if controller.showsCaptions, !lines.isEmpty, playback.isReady {
                 Caption(lines: lines, meName: voices?.meName, playback: playback)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .padding(.horizontal, 24).padding(.bottom, 14)
@@ -270,6 +339,8 @@ private struct RecordingPage: View {
                     .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 7))
             }
             .buttonStyle(.plain).padding(8)
+            .disabled(!playback.isReady)
+            .opacity(playback.isReady ? 1 : 0)
             .help("Open in its own window, with Picture in Picture")
             .accessibilityLabel("Open in its own window")
         }
@@ -323,7 +394,7 @@ private struct RecordingPage: View {
 
     private var trackButtons: some View {
         HStack(spacing: 8) {
-            Text("Tracks").font(.system(size: 11)).foregroundStyle(.secondary)
+            if !playback.available.isEmpty { Text("Tracks").font(.system(size: 11)).foregroundStyle(.secondary) }
             ForEach(playback.available, id: \.self) { track in
                 TrackChip(
                     title: Wording.trackName(track), on: playback.enabled.contains(track)
@@ -356,7 +427,8 @@ private struct RecordingPage: View {
     private var summaryCard: some View {
         let busy = controller.summarizing.contains(entry.directory)
         let provider = controller.activeSummaryProvider
-        let source = provider.map { "\(summary?.original.provider ?? $0.name) · from the transcript" }
+        let source = isShared ? summary.map { "\($0.original.provider) · from the transcript" }
+            : provider.map { "\(summary?.original.provider ?? $0.name) · from the transcript" }
         return VStack(alignment: .leading, spacing: 12) {
             /// The source line sits beside the title when there is room and under it when
             /// there is not. Squeezed beside it, both wrapped a few letters per line.
@@ -374,7 +446,7 @@ private struct RecordingPage: View {
                 }
             } else if let summary {
                 structured(summary.named)
-                if let stale = summary.staleNotice {
+                if !isShared, let stale = summary.staleNotice {
                     HStack(alignment: .firstTextBaseline) {
                         Notice(stale, level: .advisory)
                         Button("Refresh Summary") { controller.summarize(entry) }.disabled(busy || provider == nil)
@@ -422,10 +494,12 @@ private struct RecordingPage: View {
                 let text = summary?.markdown ?? legacySummary ?? ""
                 Button { copy(text) } label: { Image(systemName: "doc.on.doc") }
                     .help("Copy summary").accessibilityLabel("Copy summary")
-                providerMenu
-                Button { controller.summarize(entry) } label: { Image(systemName: "arrow.clockwise") }
-                    .help("Regenerate summary").accessibilityLabel("Regenerate summary")
-                    .disabled(busy)
+                if !isShared {
+                    providerMenu
+                    Button { controller.summarize(entry) } label: { Image(systemName: "arrow.clockwise") }
+                        .help("Regenerate summary").accessibilityLabel("Regenerate summary")
+                        .disabled(busy)
+                }
             }
         }
         .fixedSize()
@@ -466,6 +540,7 @@ private struct RecordingPage: View {
                                     .font(.system(size: 13))
                             }
                             .toggleStyle(.checkbox)
+                            .allowsHitTesting(!isShared)
                             if let at = action.at {
                                 Button(Wording.clock(at)) { playback.play(from: at) }
                                     .buttonStyle(.link).monospacedDigit()
@@ -491,7 +566,7 @@ private struct RecordingPage: View {
     }
 
     private func tick(_ index: Int, _ done: Bool) {
-        guard var original = summary?.original, let url = entry.summary, url.pathExtension == "json" else { return }
+        guard !isShared, var original = summary?.original, let url = entry.summary, url.pathExtension == "json" else { return }
         original.actions[index].done = done
         try? original.write(to: url)
         _ = try? TranscriptStore.render(in: entry.directory)
@@ -573,7 +648,7 @@ struct RecordingInspector: View {
                     TranscriptFilter(lines: lines, meName: recording.voices?.meName,
                                      filter: Binding(get: { recording.transcriptFilter }, set: { recording.transcriptFilter = $0 }))
                     Spacer()
-                    TranscriptAction(controller: controller, entry: entry)
+                    if entry.shared == nil { TranscriptAction(controller: controller, entry: entry) }
                 }
                 .padding(12)
                 Divider()
@@ -596,8 +671,10 @@ struct RecordingInspector: View {
 
     @ViewBuilder private var transcriptLines: some View {
         if transcript != nil {
-            TranscriptList(lines: lines, meName: recording.voices?.meName, playback: playback, desk: recording.desk,
+            TranscriptList(lines: lines, meName: recording.voices?.meName, playback: playback, desk: entry.shared == nil ? recording.desk : nil,
                            filter: Binding(get: { recording.transcriptFilter }, set: { recording.transcriptFilter = $0 }))
+        } else if entry.shared != nil {
+            Text("No transcript yet").font(.headline).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             TranscriptPlaceholder(controller: controller, entry: entry)
         }
@@ -606,24 +683,27 @@ struct RecordingInspector: View {
     /// The three masters, each with what it is, how big, and a switch for hearing it. The
     /// picture's master is `screen.mov` until a verified merge replaces it, then the merged file.
     private var tracks: some View {
-        let plan = OutputPlan(directory: entry.directory)
-        let video = RecordingMedia.video(in: entry.directory, info: entry.info)
+        let files = Playback.files(of: entry)
         let rows: [(Playback.Track, URL)] = [
-            video.map { (.video, $0) }, (.callAudio, plan.systemAudio), (.microphone, plan.microphone),
+            files.video.map { (.video, $0) }, files.callAudio.map { (.callAudio, $0) }, files.microphone.map { (.microphone, $0) },
         ].compactMap { $0 }
+        let shown = rows.filter { entry.shared != nil || FileManager.default.fileExists(atPath: $0.1.path) }
         return VStack(spacing: 0) {
-            ForEach(rows.filter { FileManager.default.fileExists(atPath: $0.1.path) }, id: \.1) { track, url in
+            if shown.isEmpty { Text("This recording has no separate tracks.").font(.callout).foregroundStyle(.secondary).padding(12) }
+            ForEach(shown, id: \.1) { track, url in
                 HStack {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(Wording.trackName(track)).font(.system(size: 13))
                         Text(url.lastPathComponent).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if entry.shared != nil { SharedFileMark(file: url) }
                     Text(Wording.size(Wording.bytes(of: url))).font(.system(size: 11)).foregroundStyle(.secondary)
                     Toggle("", isOn: Binding(
                         get: { playback.enabled.contains(track) }, set: { playback.set(track, on: $0) }))
                         .labelsHidden().toggleStyle(.switch).controlSize(.small)
                         .accessibilityLabel("Play \(Wording.trackName(track))")
+                        .disabled(!playback.available.contains(track))
                     Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
                         Image(systemName: "magnifyingglass")
                     }
@@ -637,17 +717,18 @@ struct RecordingInspector: View {
 
     private var files: some View {
         let layout = RecordingLayout(directory: entry.directory)
-        let urls = RecordingLayout.Place.allCases.flatMap { layout.files(in: $0) }
+        let urls = (entry.shared == nil ? RecordingLayout.Place.allCases : [.top, .tracks]).flatMap { layout.files(in: $0) }
             .filter { !$0.lastPathComponent.hasPrefix(".") }
         let prefix = layout.directory.path + "/"
         func label(_ url: URL) -> String { url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent }
         return VStack(spacing: 0) {
-            RecordingLinkButton(entry: entry, publication: controller.team.publication(entry))
+            if entry.shared == nil { RecordingLinkButton(entry: entry, publication: controller.team.publication(entry)) }
             ForEach(urls.sorted { label($0) < label($1) }, id: \.self) { url in
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
                     HStack {
                         Text(label(url)).font(.system(size: 13))
                         Spacer()
+                        if entry.shared != nil { SharedFileMark(file: url) }
                         Text(Wording.size(Wording.bytes(of: url))).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 12).frame(height: 32).contentShape(Rectangle())

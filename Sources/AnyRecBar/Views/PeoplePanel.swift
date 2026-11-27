@@ -31,7 +31,10 @@ struct PeoplePanel: View {
         let position = position(in: questions)
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                if questions.isEmpty {
+                if desk.readOnly {
+                    /// Answered by whoever recorded it; nothing to ask anyone else.
+                    EmptyView()
+                } else if questions.isEmpty {
                     Label(Wording.nothingToAsk(unclaimed: speakers.lineIndexes(of: .others).count),
                           systemImage: "checkmark.circle")
                         .foregroundStyle(.secondary)
@@ -54,7 +57,7 @@ struct PeoplePanel: View {
                 }
                 if let failure = desk.failure { Notice(failure, level: .error) }
                 list
-                footer
+                if !desk.readOnly { footer }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(4)
@@ -63,8 +66,10 @@ struct PeoplePanel: View {
             HStack {
                 Text("People in this call").font(.headline)
                 Spacer()
-                Text(Wording.questions(questions.count)).font(.subheadline)
-                    .foregroundStyle(questions.isEmpty && speakers.lineIndexes(of: .others).isEmpty ? Color.green : .secondary)
+                if !desk.readOnly {
+                    Text(Wording.questions(questions.count)).font(.subheadline)
+                        .foregroundStyle(questions.isEmpty && speakers.lineIndexes(of: .others).isEmpty ? Color.green : .secondary)
+                }
             }
         }
     }

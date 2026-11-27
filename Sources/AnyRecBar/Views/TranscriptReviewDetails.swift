@@ -24,7 +24,10 @@ struct TranscriptReviewDetails: View {
                     ForEach(current.reviewFailures, id: \.self) { Notice($0, level: .advisory) }
                 }
                 .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                .sheet(isPresented: $showsSources) { TranscriptSourcesView(sources: sources, failures: current.reviewFailures) }
+                .sheet(isPresented: $showsSources) { TranscriptSourcesView(
+                    sources: sources.map { source in
+                        .init(title: Wording.version(source)) { Transcript.read(source.url)?.plainText ?? "" }
+                    }, failures: current.reviewFailures) }
             }
         }
         .task {
@@ -34,8 +37,18 @@ struct TranscriptReviewDetails: View {
     }
 }
 
-private struct TranscriptSourcesView: View {
-    let sources: [TranscriptStore.SourceVersion]
+struct TranscriptSourcesView: View {
+    struct Source {
+        let title: String
+        let read: () -> String
+        init(title: String, read: @escaping () -> String) {
+            self.title = title
+            self.read = read
+        }
+        init(title: String, text: String) { self.init(title: title) { text } }
+    }
+
+    let sources: [Source]
     let failures: [String]
     @State private var selected = 0
     @State private var text = ""
@@ -46,7 +59,7 @@ private struct TranscriptSourcesView: View {
             Text("Source Transcripts").font(.title2.bold())
             Picker("Version", selection: $selected) {
                 ForEach(Array(sources.enumerated()), id: \.offset) { index, source in
-                    Text(Wording.version(source)).tag(index)
+                    Text(source.title).tag(index)
                 }
             }
             ScrollView {
@@ -58,7 +71,7 @@ private struct TranscriptSourcesView: View {
         }
         .padding(24).frame(width: 650, height: 550)
         .task(id: selected) {
-            text = sources.indices.contains(selected) ? (Transcript.read(sources[selected].url)?.plainText ?? "") : ""
+            text = sources.indices.contains(selected) ? sources[selected].read() : ""
         }
     }
 }

@@ -6,22 +6,22 @@ import SwiftUI
 /// was said, and where it came from — with a still from the video on the right.
 struct LibraryList: View {
     @Bindable var controller: RecordingController
+    /// This Mac's recordings and the shared ones added to them, newest first.
     let entries: [LibraryEntry]
-    let linked: [SharedLibraryItem]
+    var empty = (title: "No Recordings", symbol: "tray", note: "Recordings appear here when they finish.")
 
     /// A pinned section heading: `.title2` bold with its padding, as measured on screen.
     static let headingHeight: CGFloat = 40
 
     var body: some View {
         List(selection: $controller.selection) {
-            if !linked.isEmpty { Section("Shared") { SharedMeetingRows(items: linked) } }
             ForEach(groups, id: \.name) { group in
                 Section {
                     ForEach(group.entries) { entry in
                         LibraryRow(
                             entry: entry, working: controller.working.contains(entry.directory),
                             progress: controller.processingMessage(for: entry.directory),
-                            publication: controller.team.publication(entry)
+                            mark: controller.team.mark(entry)
                         )
                         .tag(entry.directory)
                         .listRowSeparator(.visible)
@@ -40,19 +40,32 @@ struct LibraryList: View {
         /// The scroller starts under the pinned heading ("Today"), not above it.
         .contentMargins(.top, Self.headingHeight, for: .scrollIndicators)
         .overlay {
-            if entries.isEmpty && linked.isEmpty {
+            if entries.isEmpty {
                 ContentUnavailableView(
-                    "No Recordings", systemImage: "tray",
-                    description: Text("Recordings appear here when they finish."))
+                    empty.title, systemImage: empty.symbol, description: Text(empty.note))
             }
         }
-        .navigationSubtitle(Wording.count(entries.count + linked.count))
+        .navigationSubtitle(Wording.count(entries.count))
     }
 
     /// The few things done to one recording, in the order they are reached for. Each is
     /// also in the File and Recording menus.
     @ViewBuilder private func menu(for entry: LibraryEntry) -> some View {
         Button("Show in Finder") { controller.reveal(entry) }
+        if entry.shared != nil {
+            if controller.team.isLinked(entry.directory) {
+                Button("Remove from Library") { controller.team.removeFromLibrary(entry.directory) }
+            } else {
+                Button("Add to Library") { controller.team.add(entry.directory) }
+            }
+            Button("Make a Copy") { controller.team.copy(entry, controller: controller) }
+                .disabled(controller.team.copying.contains(entry.directory))
+        } else {
+            ownMenu(for: entry)
+        }
+    }
+
+    @ViewBuilder private func ownMenu(for entry: LibraryEntry) -> some View {
         if entry.media != nil {
             Button("Share Files…") { controller.share(entry) }
         }

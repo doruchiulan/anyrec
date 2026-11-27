@@ -1,107 +1,54 @@
 import AnyRecKit
-import AVKit
 import SwiftUI
 
-struct SharedMeetingRows: View {
-    let items: [SharedLibraryItem]
-    var body: some View {
-        ForEach(items) { item in
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.meeting.title).font(.headline)
-                Text(item.meeting.started.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .tag(item.directory)
-        }
-    }
-}
-
+/// Every meeting in the connected team folders, listed as the library lists its own, with
+/// the folders themselves under them.
 struct SharedMeetingsList: View {
     @Bindable var controller: RecordingController
-    let items: [SharedLibraryItem]
+    let entries: [LibraryEntry]
+
+    private var team: TeamLibrary { controller.team }
 
     var body: some View {
-        List(selection: $controller.selection) { SharedMeetingRows(items: items) }
-            .overlay {
-                if items.isEmpty {
-                    ContentUnavailableView("No shared meetings", systemImage: "folder.badge.person.crop")
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                VStack(alignment: .leading) {
-                    ForEach(controller.team.snapshot?.state.folders ?? [], id: \.self) { folder in
-                        Label(folder.lastPathComponent, systemImage: "folder")
-                            .help(folder.path)
-                        if let issue = controller.team.snapshot?.failures[folder] { Text(issue).font(.caption) }
+        let folders = team.snapshot?.state.folders ?? []
+        LibraryList(
+            controller: controller, entries: entries,
+            empty: folders.isEmpty
+                ? ("No Shared Meetings", "folder.badge.person.crop", "Connect the team folder your colleagues sync to.")
+                : ("No Shared Meetings", "folder.badge.person.crop", "Meetings appear here when a colleague syncs one."))
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let arriving = team.snapshot?.arriving, arriving > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(Wording.arriving(arriving)).font(.caption).foregroundStyle(.secondary)
                     }
-                    Button("Connect team folder…") { controller.team.connect() }.disabled(controller.team.busy)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                ForEach(folders, id: \.self) { folder in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(Wording.syncFolder(folder), systemImage: "folder").lineLimit(1).truncationMode(.middle)
+                        if let issue = team.snapshot?.failures[folder] { Text(issue).font(.caption).foregroundStyle(.orange) }
+                    }
+                    .help(folder.path)
+                    .contextMenu {
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                        Button("Disconnect") { team.disconnect(folder) }
+                    }
+                }
+                let unreadable = unreadable(folders)
+                if unreadable > 0 {
+                    Text(unreadable == 1 ? "1 meeting couldn't be read" : "\(unreadable) meetings couldn't be read")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+                Button("Connect Team Folder…") { team.connect() }.disabled(team.busy)
             }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+            .background(.bar)
+            .overlay(alignment: .top) { Divider() }
+        }
     }
-}
 
-struct SharedMeetingDetail: View {
-    let item: SharedLibraryItem
-    @Bindable var controller: RecordingController
-    @State private var player: AVPlayer?
-    @State private var mediaError: String?
-    @State private var attempt = 0
-    @State private var query = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(item.meeting.title).font(.title2.bold())
-            if let player { VideoPlayer(player: player).frame(minHeight: 100, maxHeight: 260) }
-            else if let mediaError {
-                HStack {
-                    Text(mediaError)
-                    Button("Retry") { attempt += 1 }
-                }
-            } else { ProgressView("Opening recording…") }
-            if let notes = item.meeting.notes {
-                DisclosureGroup("Summary") {
-                    ScrollView { Text(notes).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                        .frame(maxHeight: 180)
-                }
-            }
-            TextField("Find in transcript", text: $query).textFieldStyle(.roundedBorder)
-            List {
-                ForEach(Array((item.meeting.transcript?.utterances ?? []).enumerated()), id: \.offset) { _, line in
-                    if query.isEmpty || (line.speaker.label + " " + line.text).localizedStandardContains(query) {
-                        Button {
-                            player?.seek(to: CMTime(seconds: line.start, preferredTimescale: 600))
-                            player?.play()
-                        } label: {
-                            VStack(alignment: .leading) {
-                                Text(Wording.clock(line.start) + "  " + line.speaker.label).font(.caption.bold())
-                                Text(line.text)
-                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                        }.buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding()
-        .toolbar {
-            SlackDraftButton(title: item.meeting.title, summary: item.meeting.notes, audioOnly: item.meeting.audioOnly)
-            if controller.team.snapshot?.state.linked.contains(item.directory) == false {
-                Button("Add to Library") { controller.team.add(item) }.disabled(controller.team.busy)
-            }
-            Button("Make a Copy") { controller.team.copy(item, controller: controller) }.disabled(controller.team.busy)
-        }
-        .task(id: attempt) {
-            player?.pause()
-            player = nil
-            mediaError = nil
-            do {
-                let url = try await item.meeting.playableFile(in: item.directory)
-                try Task.checkCancellation()
-                player = AVPlayer(url: url)
-            } catch {
-                if !Task.isCancelled { mediaError = error.localizedDescription }
-            }
-        }
-        .onDisappear { player?.pause() }
+    private func unreadable(_ folders: [URL]) -> Int {
+        (team.snapshot?.failures.keys ?? [:].keys).filter { folders.contains($0.deletingLastPathComponent()) }.count
     }
 }
