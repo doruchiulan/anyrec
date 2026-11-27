@@ -9,17 +9,13 @@ struct LibraryRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            /// The margin Notes keeps for a shared note's badge carries what a recording
-            /// still needs: being worked on, or voices waiting for names.
-            /// Always there, badge or not, so every row's text starts at the same edge.
+            /// The margin Notes keeps for a shared note's badge shows a recording being worked
+            /// on. Always there, badge or not, so every row's text starts at the same edge.
+            /// Who still needs a name is said in words on the third line: as a badge it was
+            /// an icon nobody could read.
             ZStack {
                 Color.clear
-                if working {
-                    Image(systemName: "hourglass").help(progress ?? "Working…")
-                } else if entry.hasUnnamedSpeech {
-                    Image(systemName: "person.crop.circle.badge.questionmark")
-                        .help(entry.hasUnclaimedLines ? "Includes lines marked Not sure who" : Wording.unnamed(entry.unnamedVoices))
-                }
+                if working { Image(systemName: "hourglass").help(progress ?? "Working…") }
             }
             .foregroundStyle(.secondary)
             .frame(width: 16, height: 16)
@@ -32,9 +28,15 @@ struct LibraryRow: View {
                     Text(progress ?? entry.preview ?? Wording.size(entry.bytes))
                         .foregroundStyle(.secondary).lineLimit(1)
                 }
-                Label(entry.shared.map { Wording.sharedBy($0.sharedBy) } ?? Wording.rowSource(of: entry),
-                      systemImage: entry.shared != nil ? "person.2" : entry.info?.isCall == true ? "phone" : "record.circle")
-                    .foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 4) {
+                    Label(entry.shared.map { Wording.sharedBy($0.sharedBy) } ?? Wording.rowSource(of: entry),
+                          systemImage: entry.shared != nil ? "person.2" : entry.info?.isCall == true ? "phone" : "record.circle")
+                        .foregroundStyle(.secondary)
+                    if let toName = Wording.toName(voices: entry.unnamedVoices, unclaimed: entry.hasUnclaimedLines) {
+                        Text("· " + toName).foregroundStyle(.orange)
+                    }
+                }
+                .lineLimit(1)
             }
             Spacer(minLength: 8)
             /// Synced recordings carry a cloud on the corner of their square, where it is

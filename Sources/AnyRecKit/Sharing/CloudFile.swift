@@ -95,4 +95,14 @@ public enum SharedUpload: Sendable, Equatable {
         }
         return files.contains { $0.state == .uploaded } ? .uploaded : .notCloud
     }
+
+    /// Several shared copies taken together: failed if any did, going up while any is, up
+    /// once one is and none is still going. Nil when there are none.
+    public static func combined(_ copies: [SharedUpload]) -> SharedUpload? {
+        guard !copies.isEmpty else { return nil }
+        for case .failed(let reason) in copies { return .failed(reason) }
+        let going = copies.compactMap { if case .uploading(let done, let total) = $0 { (done, total) } else { nil } }
+        if !going.isEmpty { return .uploading(done: going.reduce(0) { $0 + $1.0 }, total: going.reduce(0) { $0 + $1.1 }) }
+        return copies.contains(.uploaded) ? .uploaded : .notCloud
+    }
 }

@@ -2,15 +2,14 @@ import AnyRecKit
 import SwiftUI
 
 enum LibraryFilter: String, Hashable {
-    case all, calls, transcribed, inProgress, people, unnamed, shared
+    /// This Mac's recordings and the meetings colleagues synced to the sync location.
+    case all, mine, shared, people, unnamed
 
     var title: String {
         switch self {
-        case .shared: "Shared with me"
         case .all: "All Recordings"
-        case .calls: "Calls"
-        case .transcribed: "Transcribed"
-        case .inProgress: "In Progress"
+        case .mine: "Mine"
+        case .shared: "Shared with You"
         case .people: "People"
         case .unnamed: "Unnamed Voices"
         }
@@ -18,26 +17,25 @@ enum LibraryFilter: String, Hashable {
 
     var symbol: String {
         switch self {
-        case .shared: "folder.badge.person.crop"
         case .all: "tray.full"
-        case .calls: "phone"
-        case .transcribed: "text.bubble"
-        case .inProgress: "hourglass"
+        case .mine: "person"
+        case .shared: "shared.with.you"
         case .people: "person.2"
         case .unnamed: "person.crop.circle.badge.questionmark"
         }
     }
 
-    func includes(_ entry: LibraryEntry, working: Set<URL> = []) -> Bool {
+    /// Whether one of this Mac's own recordings is listed.
+    func includes(_ entry: LibraryEntry) -> Bool {
         switch self {
+        case .all, .mine, .people: true
         case .shared: false
-        case .all, .people: true
-        case .calls: entry.info?.isCall ?? false
-        case .transcribed: entry.transcript != nil
-        case .inProgress: working.contains(entry.directory)
         case .unnamed: entry.hasUnnamedSpeech
         }
     }
+
+    /// Whether a colleague's meeting is listed. Nobody can name the voices in one.
+    var includesShared: Bool { self == .all || self == .shared }
 }
 
 struct LibrarySidebar: View {
@@ -48,11 +46,8 @@ struct LibrarySidebar: View {
         List(selection: Binding<LibraryFilter?>(get: { filter }, set: { filter = $0 ?? .all })) {
             Section("Library") {
                 row(.all)
-                row(.calls)
-                row(.transcribed)
-                row(.inProgress)
-                Label(LibraryFilter.shared.title, systemImage: LibraryFilter.shared.symbol)
-                    .badge(controller.team.snapshot?.meetings.count ?? 0).tag(LibraryFilter.shared)
+                row(.mine)
+                row(.shared)
             }
             Section("Speakers") {
                 Label(LibraryFilter.people.title, systemImage: LibraryFilter.people.symbol)
@@ -65,10 +60,10 @@ struct LibrarySidebar: View {
     }
 
     private func row(_ target: LibraryFilter) -> some View {
-        let linked = controller.team.entries.filter { controller.team.isLinked($0.directory) && target.includes($0) }
+        let own = controller.library.filter(target.includes).count
+        let shared = target.includesShared ? controller.team.entries.count : 0
         return Label(target.title, systemImage: target.symbol)
-            .badge(controller.library.filter { target.includes($0, working: controller.working) }.count + linked.count)
+            .badge(own + shared)
             .tag(target)
     }
 }
-

@@ -6,6 +6,8 @@ public struct MeetingPublication: Codable, Equatable, Sendable {
     public let folder: URL
     let name: String
     public var directory: URL { folder.appendingPathComponent(name, isDirectory: true) }
+    /// Where it was before a move, in state files from versions that had Move to…; the
+    /// next pass removes it from there.
     var previousFolder: URL?
     var withdrawing = false
     /// What AnyRec wrote into the shared folder, file by file, so a change made there —
@@ -29,15 +31,6 @@ public struct MeetingPublication: Codable, Equatable, Sendable {
         name = "Meeting " + RecordingMedia.folderName(title: RecordingInfo.read(source)?.title ?? source.lastPathComponent,
                                         app: nil, started: RecordingLibrary.started(source)) + " " + id.uuidString
     }
-
-    private init(moving old: Self, to folder: URL) {
-        id = old.id
-        name = old.name
-        self.folder = folder
-        previousFolder = old.folder
-    }
-
-    func moved(to folder: URL) -> Self { Self(moving: self, to: folder) }
 
     /// The shared folder's files as they are now, in the same terms as `fingerprints`. A
     /// small file the provider has taken off this Mac is compared by size alone: reading it

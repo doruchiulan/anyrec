@@ -112,6 +112,7 @@ struct LibraryView: View {
         }
         .onChange(of: controller.selection) { _, _ in
             if filter == .shared, controller.selectedEntry != nil { filter = .all }
+            if filter == .mine, shared.contains(where: { $0.directory == controller.selection }) { filter = .all }
         }
         .background(LibraryWindowReader { found in if window !== found { window = found } })
         .task { await controller.reloadLibrary() }
@@ -161,10 +162,10 @@ struct LibraryView: View {
         })
     }
 
-    /// The recording the detail shows, when it shows one: this Mac's own, or someone else's
-    /// from a team folder.
+    /// The recording the detail shows, when it shows one: this Mac's own, or a colleague's
+    /// from the sync location.
     private var shownEntry: LibraryEntry? {
-        if let shared = (filter == .shared ? shared : linked).first(where: { $0.directory == controller.selection }) { return shared }
+        if filter.includesShared, let shared = shared.first(where: { $0.directory == controller.selection }) { return shared }
         return filter == .shared ? nil : controller.selectedEntry
     }
 
@@ -179,19 +180,16 @@ struct LibraryView: View {
         }
     }
 
-    /// Shared meetings added to the library, listed among this Mac's own.
-    private var linked: [LibraryEntry] {
-        shared.filter { controller.team.isLinked($0.directory) && filter.includes($0) }
-    }
-
+    /// This Mac's recordings, with colleagues' meetings among them by date where the filter
+    /// lists them.
     private var shown: [LibraryEntry] {
-        let filtered = controller.library.filter { filter.includes($0, working: controller.working) }
+        let filtered = controller.library.filter(filter.includes)
         let needle = query.trimmingCharacters(in: .whitespaces)
         let own = needle.isEmpty ? filtered : filtered.filter {
             Wording.title(of: $0).localizedCaseInsensitiveContains(needle)
                 || (searchable[$0.directory]?.localizedCaseInsensitiveContains(needle) ?? false)
         }
-        let linked = linked
+        let linked = filter.includesShared ? shared : []
         return linked.isEmpty ? own : (own + linked).sorted { $0.started > $1.started }
     }
 

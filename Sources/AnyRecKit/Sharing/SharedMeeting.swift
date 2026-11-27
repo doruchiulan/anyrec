@@ -88,7 +88,9 @@ public struct SharedMeeting: Codable, Equatable, Sendable {
             id: id, title: info?.title ?? source.lastPathComponent,
             started: RecordingLibrary.started(source, info: info), audioOnly: media.pathExtension.lowercased() == "m4a",
             transcript: clean, summary: summary, legacySummary: legacy, mediaStamp: try stamp(media))
-        meeting.sharedBy = current?.voices?.meName ?? library.owner?.shownName ?? NSFullUserName()
+        /// The Mac account's full name, the same on every meeting someone shares: the name a
+        /// transcript or the voice library calls them can differ from call to call.
+        meeting.sharedBy = Self.sharerName()
         meeting.bundleID = info?.bundleID
         meeting.width = info?.width
         meeting.height = info?.height
@@ -140,6 +142,11 @@ public struct SharedMeeting: Codable, Equatable, Sendable {
     /// Every path a meeting may publish. Nothing else in a manifest is followed.
     static let known: Set<String> = ["Recording.mp4", "Recording.m4a", callTrack, microphoneTrack, sourcesName, previewName,
                                      "Summary.md", "Transcript.md"]
+
+    static func sharerName(_ full: String = NSFullUserName()) -> String? {
+        let name = full.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
 
     public func makeCopy(from directory: URL, in library: URL) throws -> URL {
         let fm = FileManager.default

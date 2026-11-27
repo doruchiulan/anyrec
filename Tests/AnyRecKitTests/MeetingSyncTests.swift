@@ -37,10 +37,43 @@ struct MeetingSyncTests {
         func clean() { try? FileManager.default.removeItem(at: root) }
     }
 
+    @Test("the first sync chooses the sync location; another folder for one recording, or a move, leaves it")
+    func syncLocation() async throws {
+        let f = try Fixture()
+        defer { f.clean() }
+        #expect(try await f.owner.snapshot().state.location == nil)
+        try await f.owner.sync(f.source, to: f.folder)
+        #expect(try await f.owner.snapshot().state.location == f.folder)
+        try await f.owner.sync(f.source, to: f.other)
+        #expect(try await f.owner.snapshot().state.location == f.folder)
+        try await f.owner.setLocation(f.other)
+        #expect(try await f.owner.snapshot().state.location == f.other)
+        try await f.owner.disconnect()
+        let after = try await f.owner.snapshot()
+        #expect(after.state.location == nil && after.state.publications.count == 1)
+    }
+
+    @Test("an original deleted with its shared copies kept leaves them as they are, listed as shared")
+    func forgetKeepsCopies() async throws {
+        let f = try Fixture()
+        defer { f.clean() }
+        try await f.owner.sync(f.source, to: f.folder)
+        try await f.owner.sync(f.source, to: f.other)
+        let copies = try await f.owner.snapshot().state.copies(of: f.source)
+        #expect(try await f.owner.snapshot().meetings.isEmpty)
+        try FileManager.default.removeItem(at: f.source)
+        try await f.owner.forget(f.source)
+        let after = try await f.owner.refresh()
+        #expect(after.state.publications.isEmpty && after.failures.isEmpty)
+        #expect(copies.allSatisfy { FileManager.default.fileExists(atPath: $0.directory.appending(path: "Recording.mp4").path) })
+        #expect(after.meetings.map(\.directory) == [copies[0].directory])
+        #expect(after.meetings.first?.meeting.sharedBy == SharedMeeting.sharerName())
+    }
+
     @Test func explicitSyncAndUpdates() async throws {
         let f = try Fixture()
         defer { f.clean() }
-        try await f.reader.connect(f.folder)
+        try await f.reader.setLocation(f.folder)
         #expect(try await f.reader.refresh().meetings.isEmpty)
         try await f.owner.sync(f.source, to: f.folder)
         let first = try #require(try await f.reader.refresh().meetings.first)
@@ -48,13 +81,12 @@ struct MeetingSyncTests {
         #expect(first.meeting.transcript?.notes.isEmpty == true)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: first.directory.path)) ==
             ["Meeting.json", "Transcript.md", "Recording.mp4", "Summary.md", "Sources.json"])
-        try await f.reader.addToLibrary(first.directory)
         try f.revise("Monday")
         let restarted = MeetingSync(stateFile: f.root.appending(path: "owner.json"))
         #expect(try await restarted.refresh().failures.isEmpty)
         let view = try await f.reader.refresh()
         let updated = try #require(view.meetings.first)
-        #expect(updated.id == first.id && view.state.linked.contains(first.id))
+        #expect(updated.id == first.id)
         #expect(updated.meeting.summary?.overview == "Monday")
         #expect(updated.meeting.transcript?.utterances.first?.text == "Monday")
         #expect(try Data(contentsOf: updated.directory.appending(path: "Recording.mp4")) == f.media)
@@ -66,7 +98,7 @@ struct MeetingSyncTests {
         defer { f.clean() }
         try await f.owner.sync(f.source, to: f.folder)
         var view = try await f.owner.refresh()
-        let publication = try #require(view.state.publications.values.first)
+        let publication = try #require(view.state.publications.values.first?.first)
         let summary = publication.directory.appending(path: "Summary.md")
         let original = try Data(contentsOf: summary)
         #expect(publication.restored == nil)
@@ -75,13 +107,13 @@ struct MeetingSyncTests {
         let written = try summary.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         view = try await f.owner.refresh()
         #expect(try summary.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate == written)
-        #expect(view.state.publications.values.first?.restored == nil)
+        #expect(view.state.publications.values.first?.first?.restored == nil)
 
         /// Someone with edit access rewrites the summary: it is put back, and that is noted.
         try Data("Somebody else's summary".utf8).write(to: summary)
         view = try await f.owner.refresh()
         #expect(try Data(contentsOf: summary) == original)
-        #expect(view.state.publications.values.first?.restored != nil)
+        #expect(view.state.publications.values.first?.first?.restored != nil)
 
         /// The recording is deleted: it is copied back.
         let media = publication.directory.appending(path: "Recording.mp4")
@@ -108,9 +140,8 @@ struct MeetingSyncTests {
         let f = try Fixture()
         defer { f.clean() }
         try await f.owner.sync(f.source, to: f.folder)
-        try await f.reader.connect(f.folder)
+        try await f.reader.setLocation(f.folder)
         let item = try #require(try await f.reader.refresh().meetings.first)
-        try await f.reader.addToLibrary(item.directory)
         let copy = try item.meeting.makeCopy(from: item.directory, in: f.library)
         let original = try #require(RecordingTranscript.read(in: copy)?.named)
         var lines = original.utterances
@@ -126,16 +157,19 @@ struct MeetingSyncTests {
         #expect(Summary.read(fresh)?.overview == "Revised summary")
         #expect(TranscriptionService.tracks(in: OutputPlan(directory: copy)).isEmpty)
         #expect(try await f.reader.refresh().meetings.first?.meeting.transcript?.utterances.first?.text == "Friday")
+        /// Another folder is another copy, with its own id; the first stays until it is stopped there.
         try await f.owner.sync(f.source, to: f.other)
-        let afterMove = try await f.reader.refresh()
-        #expect(afterMove.meetings.isEmpty && afterMove.state.linked.isEmpty)
-        try await f.reader.connect(f.other)
-        let moved = try #require(try await f.reader.refresh().meetings.first)
-        #expect(moved.meeting.id == item.meeting.id && moved.directory != item.directory)
-        try await f.reader.addToLibrary(moved.directory)
+        #expect(try await f.owner.snapshot().state.copies(of: f.source).map(\.folder) == [f.folder, f.other])
+        #expect(try await f.reader.refresh().meetings.map(\.directory) == [item.directory])
+        try await f.owner.remove(f.source, from: f.folder)
+        #expect(try await f.reader.refresh().meetings.isEmpty)
+        #expect(try await f.owner.snapshot().state.copies(of: f.source).map(\.folder) == [f.other])
+        try await f.reader.setLocation(f.other)
+        let second = try #require(try await f.reader.refresh().meetings.first)
+        #expect(second.meeting.id != item.meeting.id && second.meeting.title == item.meeting.title)
         try await f.owner.remove(f.source)
         let removed = try await f.reader.refresh()
-        #expect(removed.meetings.isEmpty && removed.state.linked.isEmpty)
+        #expect(removed.meetings.isEmpty)
         #expect(RecordingTranscript.read(in: copy)?.named.utterances == lines)
         #expect(try Data(contentsOf: f.source.appending(path: "call.mp4")) == f.media)
     }
@@ -144,12 +178,11 @@ struct MeetingSyncTests {
         let f = try Fixture()
         defer { f.clean() }
         try await f.owner.sync(f.source, to: f.folder)
-        try await f.reader.connect(f.folder)
+        try await f.reader.setLocation(f.folder)
         let item = try #require(try await f.reader.refresh().meetings.first)
-        try await f.reader.addToLibrary(item.directory)
         let parked = f.root.appending(path: "unmounted")
         try FileManager.default.moveItem(at: f.folder, to: parked)
-        #expect(try await f.reader.refresh().state.linked.contains(item.directory))
+        #expect(try await f.reader.refresh().state.location == f.folder)
         try FileManager.default.moveItem(at: parked, to: f.folder)
         let extra = item.directory.appending(path: "Budget.xlsx")
         try Data([1]).write(to: extra)
@@ -166,12 +199,12 @@ struct MeetingSyncTests {
         try FileManager.default.createDirectory(at: f.library, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: f.source, to: moved)
         try await f.owner.relocate(to: [moved])
-        try await f.reader.connect(f.folder)
+        try await f.reader.setLocation(f.folder)
         #expect(try await f.owner.refresh().state.publications.count == 1)
         let remote = try #require(try await f.reader.refresh().meetings.first)
         try FileManager.default.removeItem(at: RecordingLayout(directory: moved).url("sync-id"))
         try Data("Private replacement".utf8).write(to: moved.appending(path: "call.mp4"))
-        #expect(try await f.owner.refresh().failures.count == 1)
+        #expect(try await f.owner.refresh().failures.keys.contains(remote.directory))
         #expect(try Data(contentsOf: remote.directory.appending(path: remote.meeting.mediaName)) == f.media)
     }
 
@@ -186,7 +219,7 @@ struct MeetingSyncTests {
         try RecordingInfo(title: "Audio", bundleID: nil, width: 0, height: 0, fps: 0,
                           audioOnly: true, mergedFile: media.lastPathComponent).write(to: f.source)
         try await f.owner.sync(f.source, to: f.folder)
-        try await f.reader.connect(f.folder)
+        try await f.reader.setLocation(f.folder)
         let item = try #require(try await f.reader.refresh().meetings.first)
         let remote = try await item.meeting.playableFile(in: item.directory)
         let copy = try item.meeting.makeCopy(from: item.directory, in: f.library)
