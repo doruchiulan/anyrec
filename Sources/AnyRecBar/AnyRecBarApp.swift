@@ -19,27 +19,41 @@ enum AnyRecLaunch {
         serve(arguments.dropFirst())
     }
 
+    /// Serves the app's library, wherever Settings keeps it; `--recordings` while the folder
+    /// it names is there (`MCPTools.root`).
     private static func serve(_ options: ArraySlice<String>) -> Never {
-        var root = Defaults.outputRoot
+        /// A client that has gone away leaves a closed pipe: writing to it is then an error
+        /// to ignore, not a signal that ends the process.
+        signal(SIGPIPE, SIG_IGN)
+        var requested: String?
         var options = options
         while let option = options.popFirst() {
             guard option == "--recordings", let folder = options.popFirst() else {
-                FileHandle.standardError.write(Data("usage: AnyRec mcp [--recordings <folder>]\n".utf8))
+                report("usage: AnyRec mcp [--recordings <folder>]")
                 exit(64)
             }
-            root = folder
+            requested = folder
         }
+        let root = MCPTools.root(requested: requested, library: Preferences.recordingsFolder ?? Defaults.outputRoot)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         Task {
             do {
-                try await MCPTools.serve(root: URL(fileURLWithPath: root.expandingTilde), version: version)
+                try await MCPTools.serve(root: URL(fileURLWithPath: root), version: version)
                 exit(0)
             } catch {
-                FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+                report(error.localizedDescription)
                 exit(1)
             }
         }
         dispatchMain()
+    }
+
+    /// Standard error, if anyone is still reading it. `FileHandle.write(_:)` raises an
+    /// Objective-C exception on a closed descriptor, which Swift cannot catch: a client that
+    /// closed it turned "The recordings folder does not exist" into an abort, ten crash
+    /// reports in three days.
+    private static func report(_ text: String) {
+        try? FileHandle.standardError.write(contentsOf: Data((text + "\n").utf8))
     }
 }
 

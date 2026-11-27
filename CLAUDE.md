@@ -668,7 +668,14 @@ Invariants worth preserving:
   on that path. Claude Code's `~/.claude.json` is never written directly: running
   sessions rewrite it constantly, so changes go through `claude mcp`. The other files
   are edited in place, with only the `anyrec` entry changed, and a file that cannot be
-  read is never written. A translocated app (run from Downloads) cannot connect: the
+  read is never written. The app connects clients to `AnyRec mcp` with no folder: the binary
+  serves the library Settings keeps (`Preferences.recordingsFolder`), and a `--recordings`
+  folder that is gone falls back to it (`MCPTools.root`). Entries used to name the folder,
+  and after the recordings moved off the Desktop every client got "Connection closed"; an
+  older entry of the same binary that still serves the library reads as connected
+  (`MCPLaunch.serves(like:library:exists:)`). The server ignores SIGPIPE and writes standard
+  error with the throwing `write(contentsOf:)`: `FileHandle.write(_:)` raises an Objective-C
+  exception on a closed descriptor, which aborted the process (ten crash reports from 0.11.2). A translocated app (run from Downloads) cannot connect: the
   path it would hand out is temporary. Claude Desktop and ChatGPT read MCP servers only
   at launch, so a connected app started before its settings changed offers Restart.
   The server reads stdio through `TolerantTransport`, which empties `initialize`'s

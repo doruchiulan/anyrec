@@ -18,10 +18,32 @@ public struct MCPLaunch: Equatable, Sendable {
         self.arguments = arguments
     }
 
-    /// `executable mcp --recordings root`: the app's own binary or the CLI, which both serve
-    /// the same tools.
+    /// `executable mcp --recordings root`: the CLI, which serves the folder it is given.
     public static func serving(_ root: String, with executable: String) -> MCPLaunch {
         MCPLaunch(command: executable, arguments: ["mcp", "--recordings", root])
+    }
+
+    /// `AnyRec mcp`: the app's own binary, which serves wherever the app keeps its recordings
+    /// when it starts. Entries used to name the folder, and went on naming it after the
+    /// recordings moved off the Desktop: every connected app then got "Connection closed".
+    public static func app(_ executable: String) -> MCPLaunch {
+        MCPLaunch(command: executable, arguments: ["mcp"])
+    }
+
+    /// The folder `--recordings` names, if any.
+    public var recordings: String? {
+        guard let flag = arguments.firstIndex(of: "--recordings"), flag + 1 < arguments.count else { return nil }
+        return arguments[flag + 1]
+    }
+
+    /// Runs what `launch`, the app's own, runs: the same binary serving `library`, either
+    /// named outright or because the folder it names is gone (`MCPTools.root`).
+    public func serves(like launch: MCPLaunch, library: String, exists: (String) -> Bool) -> Bool {
+        guard self != launch else { return true }
+        guard command == launch.command, arguments.first == "mcp", launch.arguments == ["mcp"] else { return false }
+        guard let folder = recordings else { return arguments == ["mcp"] }
+        return arguments == ["mcp", "--recordings", folder]
+            && (folder.expandingTilde == library.expandingTilde || !exists(folder.expandingTilde))
     }
 
     /// The `mcpServers` shape most clients take, for pasting into ones not listed.
@@ -111,15 +133,25 @@ public struct AgentConnections: Sendable {
         }
     }
 
-    public func state(of app: AgentApp, for launch: MCPLaunch) -> AgentConnection {
+    /// `library`, for the app's own launch: an older entry of the same binary that still
+    /// serves it counts as connected (`MCPLaunch.serves(like:library:exists:)`).
+    public func state(of app: AgentApp, for launch: MCPLaunch, library: String? = nil) -> AgentConnection {
         let file = settingsFile(of: app)
         let entry: Entry
         do { entry = try self.entry(of: app) } catch { return .unreadable(file) }
         switch entry {
         case .none: return isInstalled(app) ? .notConnected : .notInstalled
-        case .found(let found): return found == launch ? .connected : .connectedElsewhere(found)
+        case .found(let found):
+            guard let found else { return .connectedElsewhere(nil) }
+            let same = library.map { found.serves(like: launch, library: $0, exists: Self.isDirectory) } ?? (found == launch)
+            return same ? .connected : .connectedElsewhere(found)
         case .inline: return .connectedElsewhere(nil)
         }
+    }
+
+    public static func isDirectory(_ path: String) -> Bool {
+        var directory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
     }
 
     /// Points `app` at `launch`, replacing any `anyrec` entry it had.

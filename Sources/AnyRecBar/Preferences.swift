@@ -121,6 +121,11 @@ enum Preferences {
         set { defaults.set(newValue, forKey: Key.summaryLanguage) }
     }
 
+    /// The recordings folder somebody chose, if not the default. Read by `AnyRec mcp`.
+    static var recordingsFolder: String? {
+        defaults.string(forKey: Key.recordingsFolder).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     /// "Off" has to survive a relaunch as surely as a choice does, so the transcript
     /// engine is stored as an empty string rather than left absent.
     static func loaded(into configuration: inout RecordingConfiguration) {

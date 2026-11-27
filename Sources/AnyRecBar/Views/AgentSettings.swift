@@ -11,10 +11,13 @@ struct AgentSettings: View {
     @State private var links = AgentLinks()
     @State private var copied = false
 
+    /// No folder in it: the binary serves wherever the library is when it starts, so a
+    /// move in Settings › Recording › Storage leaves every connection working.
     private var launch: MCPLaunch {
-        MCPLaunch.serving(controller.configuration.outputRoot.expandingTilde,
-                          with: Bundle.main.executablePath ?? CommandLine.arguments[0])
+        MCPLaunch.app(Bundle.main.executablePath ?? CommandLine.arguments[0])
     }
+
+    private var library: String { controller.configuration.outputRoot.expandingTilde }
 
     /// Run from the download folder, macOS starts the app from a random temporary path,
     /// which would stop working the next time.
@@ -50,7 +53,7 @@ struct AgentSettings: View {
                 }
             }
         }
-        .task(id: launch) { await links.refresh(for: launch) }
+        .task(id: [launch.command, library]) { await links.refresh(for: launch, library: library) }
     }
 
     @ViewBuilder
@@ -101,11 +104,14 @@ final class AgentLinks {
     private(set) var working: AgentApp?
     private(set) var failure: String?
     @ObservationIgnored private let connections = AgentConnections()
+    /// Where the recordings are: an older entry of this binary that still serves them is connected.
+    @ObservationIgnored private var library: String?
 
-    func refresh(for launch: MCPLaunch) async {
-        let connections = connections
+    func refresh(for launch: MCPLaunch, library: String? = nil) async {
+        if let library { self.library = library }
+        let connections = connections, served = self.library
         states = await Task.detached {
-            Dictionary(uniqueKeysWithValues: AgentApp.allCases.map { ($0, connections.state(of: $0, for: launch)) })
+            Dictionary(uniqueKeysWithValues: AgentApp.allCases.map { ($0, connections.state(of: $0, for: launch, library: served)) })
         }.value
         stale = Set(AgentApp.allCases.filter { app in
             guard states[app] == .connected, let changed = changed(app) else { return false }

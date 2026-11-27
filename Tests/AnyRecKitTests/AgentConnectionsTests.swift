@@ -177,4 +177,38 @@ struct AgentConnectionsTests {
         #expect(entry["command"] as? String == launch.command)
         #expect(entry["args"] as? [String] == launch.arguments)
     }
+
+    @Test("the app's own launch names no folder; an older entry of the same binary is connected while it still serves the library")
+    func appLaunchServesTheLibrary() throws {
+        let binary = "/Applications/AnyRec.app/Contents/MacOS/AnyRec"
+        let app = MCPLaunch.app(binary)
+        let library = "/Users/me/Library/Application Support/anyrec/Recordings"
+        let present: (String) -> Bool = { $0 == library || $0 == "/Users/me/Elsewhere" }
+        #expect(app.arguments == ["mcp"] && app.recordings == nil)
+        #expect(MCPLaunch.serving("/Users/me/Desktop/AnyRec Recordings", with: binary).recordings == "/Users/me/Desktop/AnyRec Recordings")
+
+        /// The folder written before the recordings moved off the Desktop: gone, so the library is served.
+        #expect(MCPLaunch.serving("/Users/me/Desktop/AnyRec Recordings", with: binary).serves(like: app, library: library, exists: present))
+        #expect(MCPLaunch.serving(library, with: binary).serves(like: app, library: library, exists: present))
+        /// A folder that is there and is not the library, another binary, another command: not the same.
+        #expect(!MCPLaunch.serving("/Users/me/Elsewhere", with: binary).serves(like: app, library: library, exists: present))
+        #expect(!MCPLaunch.app("/dev/anyrec").serves(like: app, library: library, exists: present))
+        #expect(!MCPLaunch(command: binary, arguments: ["mcp", "--verbose"]).serves(like: app, library: library, exists: present))
+
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        try write("[mcp_servers.anyrec]\ncommand = \"\(binary)\"\nargs = [\"mcp\", \"--recordings\", \"\(home.path)/gone\"]\n",
+                  to: home.appendingPathComponent(".codex/config.toml"))
+        let agents = connections(home)
+        #expect(agents.state(of: .codex, for: app, library: library) == .connected)
+        #expect(agents.state(of: .codex, for: app) == .connectedElsewhere(MCPLaunch.serving("\(home.path)/gone", with: binary)))
+    }
+
+    @Test("the app's server serves the folder it was given while it is there, else the library")
+    func servedRoot() {
+        let library = "/Users/me/Library/Application Support/anyrec/Recordings"
+        #expect(MCPTools.root(requested: nil, library: library, exists: { _ in true }) == library)
+        #expect(MCPTools.root(requested: "/Volumes/Team", library: library, exists: { _ in true }) == "/Volumes/Team")
+        #expect(MCPTools.root(requested: "/Users/me/Desktop/AnyRec Recordings", library: library, exists: { _ in false }) == library)
+    }
 }
