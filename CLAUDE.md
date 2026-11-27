@@ -596,9 +596,9 @@ Invariants worth preserving:
 - The library's list is laid out the way Notes lays out its own: large bold headings
   for Today, Yesterday, Previous 7 Days, Previous 30 Days, then months, then years;
   rows of a bold title, the date and time it started (with the progress message while it
-  is worked on), and whose it is, the app and the length where Notes puts the folder (the
-  Mac account's name for the owner's own, `Wording.rowSource`), then "· 2 people to name"
-  in orange (`Wording.toName`; an icon for it read as nothing); in the leading margin the
+  is worked on), and whose it is ("You" for the owner's own), the app and the length where
+  Notes puts the folder (`Wording.rowSource`); who still needs naming is the Unnamed Voices
+  filter's business, not the row's (a badge for it read as nothing); in the leading margin the
   sidebar's mark for Mine or Shared with You, an hourglass while it is worked on; and a
   still on the right, with a cloud mark on the still's corner (`TeamLibrary.mark`).
   The sidebar's Library is All Recordings, Mine and Shared with You, three filters over one

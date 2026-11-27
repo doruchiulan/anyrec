@@ -189,13 +189,6 @@ enum Wording {
         recordings == 1 ? "1 recording" : "\(recordings) recordings"
     }
 
-    /// What a library row says still needs the owner: people not named yet, else lines
-    /// nobody claimed. Nil when there is nothing to do.
-    static func toName(voices: Int, unclaimed: Bool) -> String? {
-        if voices > 0 { return voices == 1 ? "1 person to name" : "\(voices) people to name" }
-        return unclaimed ? "Lines to check" : nil
-    }
-
     static func unnamed(_ voices: Int) -> String {
         voices == 1 ? "1 unnamed voice" : "\(voices) unnamed voices"
     }
@@ -604,15 +597,11 @@ enum Wording {
         date.formatted(date: .numeric, time: .shortened)
     }
 
-    /// What shared meetings and the owner's own rows call the person recording: the Mac
-    /// account's full name.
-    static let me = SharedMeeting.sharerName()
-
-    /// A row's third line, where Notes puts the folder: whose it is, the app it was recorded
-    /// in when that is known, and how long it ran. A meeting shared before names were
-    /// published leaves the name out.
-    static func rowSource(of entry: LibraryEntry, me: String? = me) -> String {
-        let owner = entry.shared.map(\.sharedBy) ?? me
+    /// A row's third line, where Notes puts the folder: whose it is ("You" for one's own),
+    /// the app it was recorded in when that is known, and how long it ran. A meeting shared
+    /// before names were published leaves the name out.
+    static func rowSource(of entry: LibraryEntry) -> String {
+        let owner = entry.shared.map(\.sharedBy) ?? "You"
         return [owner, entry.info?.appName, duration(entry.duration)].compactMap { $0 }.joined(separator: " · ")
     }
 
