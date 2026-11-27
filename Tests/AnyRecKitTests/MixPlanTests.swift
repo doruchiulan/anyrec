@@ -18,16 +18,17 @@ struct MixPlanTests {
         #expect(MixPlan.plain.filter(systemAudio: 1, microphone: 0) == "[0:a][1:a]" + sum)
     }
 
-    @Test("gives each matched track its own volume stage, and none when it is flat")
+    @Test("gives each matched track its own volume stage, and none when it is flat; a raised one is limited")
     func matched() {
         let both = MixPlan(balance: .matched(TrackGains(systemAudio: -2, microphone: 6.4)))
         let flat = MixPlan(balance: .matched(TrackGains(systemAudio: 0, microphone: 5)))
+        let limit = ",alimiter=limit=0.794:level=0:latency=1"
 
         #expect(
             both.filter(systemAudio: 1, microphone: 2)
-                == "[1:a]volume=-2.0dB[g1];[2:a]volume=6.4dB[g2];[g1][g2]" + sum)
+                == "[1:a]volume=-2.0dB[g1];[2:a]volume=6.4dB\(limit)[g2];[g1][g2]" + sum)
         #expect(
-            flat.filter(systemAudio: 1, microphone: 2) == "[2:a]volume=5.0dB[g2];[1:a][g2]" + sum)
+            flat.filter(systemAudio: 1, microphone: 2) == "[2:a]volume=5.0dB\(limit)[g2];[1:a][g2]" + sum)
     }
 
     @Test("keys the microphone off the call when the call is in it")

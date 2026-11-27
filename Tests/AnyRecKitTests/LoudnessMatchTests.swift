@@ -16,16 +16,25 @@ struct LoudnessMatchTests {
         #expect(gains.systemAudio == 0)
     }
 
-    @Test("takes off the louder track whatever headroom cannot absorb")
-    func splitsAgainstTheCeiling() {
-        let loud = Loudness(integrated: -20, truePeak: -6)
-        let quiet = Loudness(integrated: -30, truePeak: -6)
+    @Test("never lowers the louder track, even when the quieter one has no headroom: the mix limits it instead")
+    func neverCutsTheLouder() {
+        /// The headphone Teams call: the call went into the merge 29 dB down, at −46 LUFS.
+        let call = Loudness(integrated: -18.1, truePeak: -0.3)
+        let microphone = Loudness(integrated: -38.8, truePeak: -1.9)
 
-        let gains = LoudnessMatch.gains(systemAudio: loud, microphone: quiet)
+        let gains = LoudnessMatch.gains(systemAudio: call, microphone: microphone)
 
-        #expect(abs(gains.microphone - 4) < 0.001)
-        #expect(abs(gains.systemAudio + 6) < 0.001)
-        #expect(abs(gains.microphone - gains.systemAudio - 10) < 0.001)
+        #expect(gains.systemAudio == 0)
+        #expect(abs(gains.microphone - 20.7) < 0.001)
+        #expect(LoudnessMatch.gains(systemAudio: microphone, microphone: call).microphone == 0)
+    }
+
+    @Test("raises the quieter track by at most 24 dB")
+    func cappedBoost() {
+        let gains = LoudnessMatch.gains(systemAudio: Loudness(integrated: -16, truePeak: -1),
+                                        microphone: Loudness(integrated: -50, truePeak: -30))
+
+        #expect(gains == TrackGains(systemAudio: 0, microphone: 24))
     }
 
     @Test("leaves a difference nobody would hear alone")
