@@ -4,39 +4,44 @@ import SwiftUI
 struct MeetingSyncButton: View {
     let team: TeamLibrary
     let entry: LibraryEntry
-    @State private var moving: URL?
-    @State private var removing = false
+    @State private var removing: MeetingPublication?
 
+    private var copies: [MeetingPublication] { team.copies(entry) }
     private var failure: String? { team.failure(entry) }
     private var upload: SharedUpload? { team.upload(entry) }
     private var preparing: Bool { team.isPreparing(entry) }
     private var uploadFailed: Bool { if case .failed? = upload { true } else { false } }
     private var status: String {
-        Wording.syncStatus(failure: failure, restored: team.publication(entry)?.restored, preparing: preparing, upload: upload)
+        Wording.syncStatus(failure: failure, restored: copies.compactMap(\.restored).max(), preparing: preparing, upload: upload)
+    }
+
+    private func status(_ copy: MeetingPublication) -> String {
+        Wording.syncStatus(failure: team.failure(copy), restored: copy.restored, preparing: preparing, upload: team.upload(copy))
     }
 
     var body: some View {
         Menu {
             /// Where things stand first, so a recording that is not synced never reads as one,
-            /// and one that is shows that its shared copy is current.
-            if let current = team.publication(entry) {
-                Text(Wording.syncedTo(current.folder))
-                Text(status)
-                if !preparing, let note = Wording.sharedTracks(call: current.sharesTracks, microphone: current.sharesMicrophone) { Text(note) }
-                if failure != nil { Button("Try Again") { team.retry(entry) } }
-                Divider()
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([current.directory]) }
-                Button("Move to…") {
-                    if let folder = team.choose("Choose new destination", message: Wording.viewOnlyTip), folder != current.folder { moving = folder }
-                }
-                Button("Stop Syncing…", role: .destructive) { removing = true }
-            } else {
+            /// and one that is shows that each shared copy is current.
+            if copies.isEmpty {
                 Text(Wording.syncedTo(nil))
-                Divider()
-                if let folder = team.snapshot?.state.lastFolder {
-                    Button("Sync to " + Wording.syncFolder(folder)) { team.publish(entry, to: folder) }
+            } else if copies.count == 1, let copy = copies.first {
+                Text(Wording.syncedTo(copy.folder))
+                details(copy)
+            } else {
+                Text(Wording.syncedTo(places: copies.count))
+                ForEach(copies, id: \.id) { copy in
+                    Menu(Wording.syncFolder(copy.folder) + " — " + status(copy)) { details(copy) }
                 }
-                Button("Choose Folder…") { team.publish(entry) }
+            }
+            Divider()
+            if let location = team.location, !copies.contains(where: { $0.folder == location }) {
+                Button("Sync to " + Wording.syncFolder(location)) { team.publish(entry, to: location) }
+            }
+            if team.location == nil && copies.isEmpty {
+                Button(Wording.chooseSyncLocation) { team.publish(entry) }
+            } else {
+                Button("Sync to Another Location…") { team.publish(entry) }
             }
         } label: {
             Label {
@@ -45,35 +50,41 @@ struct MeetingSyncButton: View {
                 icon
             }
         } primaryAction: {
-            if let current = team.publication(entry) {
-                NSWorkspace.shared.activateFileViewerSelecting([current.directory])
-            } else { team.publish(entry, to: team.snapshot?.state.lastFolder) }
+            if let copy = copies.first {
+                NSWorkspace.shared.activateFileViewerSelecting([copy.directory])
+            } else { team.publish(entry, to: team.location) }
         }
         /// A toolbar menu is made into an `NSMenu` once and its items are not rebuilt when
         /// what they read changes: the icon followed a sync while the menu still said "Not
         /// synced". A new identity whenever the state changes builds it again.
-        .id(MenuState(
-            synced: team.publication(entry)?.directory, status: status, defaultFolder: team.snapshot?.state.lastFolder
-        ))
+        .id(MenuState(copies: copies.map { [$0.directory.path, status($0)] }, status: status, location: team.location))
         .disabled(team.syncing.contains(entry.directory.standardizedFileURL) || entry.media == nil || team.snapshot == nil)
-        .help(team.publication(entry) == nil ? label : "\(label). \(status)")
+        .help(copies.isEmpty ? label : "\(label). \(status)")
         /// An icon, like the toolbar's other items: the label truncated to "Sync…" in a
         /// window of ordinary width. The state is in the menu, the header's cloud and the help.
         .labelStyle(.iconOnly)
-        .confirmationDialog("Move from \(team.publication(entry)?.folder.lastPathComponent ?? "") to \(moving?.lastPathComponent ?? "")?",
-                            isPresented: Binding(get: { moving != nil }, set: { if !$0 { moving = nil } }), presenting: moving) { folder in
-            Button("Move") { team.publish(entry, to: folder) }
+        .confirmationDialog(Wording.stopSyncing(removing.map { Wording.syncFolder($0.folder) } ?? "the shared folder"),
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), presenting: removing) { copy in
+            Button(copies.count > 1 ? "Stop Syncing Here" : "Stop Syncing", role: .destructive) { team.remove(entry, from: copy) }
+        } message: { _ in
+            Text("The shared copy there is removed. Colleagues who see it there lose it; copies they made stay. Your recording stays as it is\(copies.count > 1 ? ", and stays synced to its other places" : "").")
         }
-        .confirmationDialog("Stop syncing to \(team.publication(entry)?.folder.lastPathComponent ?? "the shared folder")?",
-                            isPresented: $removing) {
-            Button("Stop Syncing", role: .destructive) { team.remove(entry) }
-        } message: { Text("The shared copy is removed. Colleagues who added it to their library lose it; copies they made stay. Your recording stays as it is.") }
+    }
+
+    /// One shared copy: how it stands, and what can be done with it.
+    @ViewBuilder private func details(_ copy: MeetingPublication) -> some View {
+        Text(status(copy))
+        if !preparing, let note = Wording.sharedTracks(call: copy.sharesTracks, microphone: copy.sharesMicrophone) { Text(note) }
+        if team.failure(copy) != nil { Button("Try Again") { team.retry(entry, copy) } }
+        Divider()
+        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([copy.directory]) }
+        Button(copies.count > 1 ? "Stop Syncing Here…" : "Stop Syncing…", role: .destructive) { removing = copy }
     }
 
     private struct MenuState: Hashable {
-        let synced: URL?
+        let copies: [[String]]
         let status: String
-        let defaultFolder: URL?
+        let location: URL?
     }
 
     /// The state at a glance. Synced is a filled cloud in the accent colour, the same as the
@@ -81,7 +92,7 @@ struct MeetingSyncButton: View {
     /// outlines a mark apart, and "cloud with an arrow up" read as uploaded when it meant
     /// "not synced yet".
     private var symbol: String {
-        guard team.publication(entry) != nil else { return preparing ? "arrow.clockwise.icloud.fill" : "icloud.and.arrow.up" }
+        guard !copies.isEmpty else { return preparing ? "arrow.clockwise.icloud.fill" : "icloud.and.arrow.up" }
         if failure != nil || uploadFailed { return "exclamationmark.icloud.fill" }
         if preparing { return "arrow.clockwise.icloud.fill" }
         if case .uploading? = upload { return "arrow.clockwise.icloud.fill" }
@@ -92,7 +103,7 @@ struct MeetingSyncButton: View {
     /// SwiftUI tint they carry: a synced cloud only shows blue as a coloured, non-template
     /// image. Not synced stays a template, so it follows the toolbar like the other items.
     private var icon: Image {
-        let colour: NSColor? = team.publication(entry) == nil ? nil
+        let colour: NSColor? = copies.isEmpty ? nil
             : failure != nil || uploadFailed ? .systemOrange : .controlAccentColor
         /// Painted over the plain symbol rather than given a palette colour, which filled
         /// the checkmark's cut-out along with the cloud.
@@ -110,8 +121,9 @@ struct MeetingSyncButton: View {
 
     private var label: String {
         if failure != nil || uploadFailed { return "Sync needs attention" }
-        if let current = team.publication(entry) { return Wording.syncedTo(current.folder) }
-        if let folder = team.snapshot?.state.lastFolder { return "Sync to " + Wording.syncFolder(folder) }
-        return "Sync…"
+        if copies.count == 1, let copy = copies.first { return Wording.syncedTo(copy.folder) }
+        if copies.count > 1 { return Wording.syncedTo(places: copies.count) }
+        if let folder = team.location { return "Sync to " + Wording.syncFolder(folder) }
+        return String(Wording.chooseSyncLocation.dropLast())
     }
 }

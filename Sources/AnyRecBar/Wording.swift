@@ -189,6 +189,13 @@ enum Wording {
         recordings == 1 ? "1 recording" : "\(recordings) recordings"
     }
 
+    /// What a library row says still needs the owner: people not named yet, else lines
+    /// nobody claimed. Nil when there is nothing to do.
+    static func toName(voices: Int, unclaimed: Bool) -> String? {
+        if voices > 0 { return voices == 1 ? "1 person to name" : "\(voices) people to name" }
+        return unclaimed ? "Lines to check" : nil
+    }
+
     static func unnamed(_ voices: Int) -> String {
         voices == 1 ? "1 unnamed voice" : "\(voices) unnamed voices"
     }
@@ -324,7 +331,25 @@ enum Wording {
     /// The sync menu's first line: where a recording is shared, or that it is not.
     static func syncedTo(_ folder: URL?) -> String { folder.map { "Synced to \(syncFolder($0))" } ?? "Not synced" }
 
-    static let syncFolderFooter = "Recordings you sync go to this folder unless you choose another. Share it with your team as view-only so nobody can change your meetings; AnyRec puts back anything that is changed. Your recordings themselves stay in the recordings folder."
+    static func syncedTo(places: Int) -> String { "Synced to \(places) places" }
+
+    static func stopSyncing(_ place: String) -> String { "Stop syncing to \(place)?" }
+
+    /// Deleting a synced recording: what happens to its shared copies either way.
+    /// The copy in the sync location is the one that shows under Shared with You afterwards.
+    static func trashSynced(places: [String], inLocation: Bool) -> String {
+        let there = places.count == 1 ? "It is synced to \(places[0])." : "It is synced to \(places.joined(separator: " and "))."
+        let kept = inLocation ? "colleagues can still watch it, and so can you, under Shared with You." : "colleagues can still watch it."
+        return there + " Keep the shared copies and " + kept + " Remove them and it is gone for everyone. Copies colleagues made stay either way."
+    }
+
+    static let syncFolderFooter = "Recordings you sync go to this folder, and meetings your colleagues sync to it are listed under Shared with you. Share it with your team as view-only so nobody can change your meetings; AnyRec puts back anything that is changed. Your recordings themselves stay in the recordings folder. Disconnecting leaves recordings already synced there as they are."
+
+    static let chooseSyncLocation = "Choose Sync Location…"
+
+    static let noSyncLocation = "Choose a sync location from a recording's Sync button. Meetings your colleagues sync there appear here."
+
+    static let syncLocationTip = "Recordings you sync go here, and meetings your colleagues sync here are listed under Shared with you. Share this folder with your team as view-only, so nobody can change your meetings."
 
     /// The sync menu's second line, for a synced recording: what state the shared copy is in.
     static func syncStatus(failure: String?, restored: Date?, preparing: Bool = false, upload: SharedUpload?,

@@ -6,7 +6,7 @@ import SwiftUI
 /// was said, and where it came from — with a still from the video on the right.
 struct LibraryList: View {
     @Bindable var controller: RecordingController
-    /// This Mac's recordings and the shared ones added to them, newest first.
+    /// This Mac's recordings and colleagues' meetings, as the filter lists them, newest first.
     let entries: [LibraryEntry]
     var empty = (title: "No Recordings", symbol: "tray", note: "Recordings appear here when they finish.")
 
@@ -53,11 +53,6 @@ struct LibraryList: View {
     @ViewBuilder private func menu(for entry: LibraryEntry) -> some View {
         Button("Show in Finder") { controller.reveal(entry) }
         if entry.shared != nil {
-            if controller.team.isLinked(entry.directory) {
-                Button("Remove from Library") { controller.team.removeFromLibrary(entry.directory) }
-            } else {
-                Button("Add to Library") { controller.team.add(entry.directory) }
-            }
             Button("Make a Copy") { controller.team.copy(entry, controller: controller) }
                 .disabled(controller.team.copying.contains(entry.directory))
         } else {

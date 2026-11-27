@@ -493,29 +493,40 @@ final class RecordingController {
     /// To the Trash rather than deleted, so Finder's Put Back is the undo.
     func trash(_ entry: LibraryEntry) {
         guard !working.contains(entry.directory) else { return }
-        if team.publication(entry) != nil {
+        let copies = team.copies(entry)
+        if !copies.isEmpty {
             let alert = NSAlert()
-            alert.messageText = "Remove the shared meeting and move your original to Trash?"
-            alert.informativeText = "Linked entries will disappear. Independent copies will stay."
+            alert.messageText = "Move “\(Wording.title(of: entry))” to the Trash?"
+            alert.informativeText = Wording.trashSynced(places: copies.map { Wording.syncFolder($0.folder) },
+                                                        inLocation: copies.contains { $0.folder == team.location })
             alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Remove and Move to Trash")
-            if alert.runModal() == .alertSecondButtonReturn {
+            alert.addButton(withTitle: "Keep Shared Copies")
+            alert.addButton(withTitle: "Remove Shared Copies")
+            switch alert.runModal() {
+            case .alertSecondButtonReturn:
+                /// The original goes first: if it cannot, everything stays as it was.
+                if trashLocal(entry) { team.forget(entry) }
+            case .alertThirdButtonReturn:
                 team.remove(entry) { self.trashLocal(entry) }
+            default: break
             }
             return
         }
         trashLocal(entry)
     }
 
-    private func trashLocal(_ entry: LibraryEntry) {
+    @discardableResult
+    private func trashLocal(_ entry: LibraryEntry) -> Bool {
         compressor.stop(entry.directory)
+        defer { Task { await reloadLibrary() } }
         do {
             try FileManager.default.trashItem(at: entry.directory, resultingItemURL: nil)
             if selection == entry.directory { selection = nil }
+            return true
         } catch {
             failure = "It could not be moved to the Trash: \(error.localizedDescription)"
+            return false
         }
-        Task { await reloadLibrary() }
     }
 
     /// Set to a recording's folder to have its page's Share button open the share menu:

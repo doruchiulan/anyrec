@@ -595,9 +595,13 @@ Invariants worth preserving:
   for Today, Yesterday, Previous 7 Days, Previous 30 Days, then months, then years;
   rows of a bold title, the time or date beside a line of what was said (the summary's
   first sentence, else the transcript's first words), and the app and length where Notes
-  puts the folder; a status badge in the leading margin and a still on the right, with a
-  cloud mark on the still's corner (`TeamLibrary.mark`). Shared meetings added to the library
-  are rows among the owner's own, by date, saying who shared them.
+  puts the folder; an hourglass in the leading margin while it is worked on, "· 2 people
+  to name" in orange on the third line (`Wording.toName`; an icon there read as nothing),
+  and a still on the right, with a cloud mark on the still's corner (`TeamLibrary.mark`).
+  The sidebar's Library is All Recordings, Mine and Shared with You, three filters over one
+  list: colleagues' meetings from the sync location are rows among the owner's own in All,
+  by date, saying who shared them, and alone in Shared with You, which has nothing to set
+  up. Speakers keeps People and Unnamed Voices.
 - A recording's waveform is decoded once and kept as `Cache/waveform.json`;
   its list thumbnail likewise as `Cache/thumbnail.jpg`.
   Decoding is the cost — about 4 s of CPU for a 100-minute call, however the samples are
@@ -758,12 +762,17 @@ Invariants worth preserving:
   encodes what it has queued first (14 s on a 720p test). Quit and updates stop it, never
   wait for it; leftovers are deleted before the next try. `anyrec compress` runs it on one
   recording.
-- A recording has one cloud copy, and it is the synced one. The original stays in the
+- A recording's cloud copies are the synced ones. The original stays in the
   library on the owner's Mac and is what the app works from; `MeetingSync` publishes it
-  one-way into a team folder (never reading anything back into it), and Share Files… only
+  one-way into a team folder (never reading anything back into it), the sync location's
+  and any other folder it was also synced to, one copy each with its own id
+  (`MeetingSyncState.publications`, a list per recording, the location's first; state files
+  from before held one, which becomes the first; the recording's `sync-id` lists every
+  copy's id, one a line). Each copy is made, checked and put back on its own, and one that
+  fails does not hold up the others. Share Files… only
   hands files to the system share sheet — the "Save to OneDrive/iCloud" export is gone, and
   old export folders are never deleted. The cloud badge (list and header) means exactly
-  "the synced copy is uploaded" (`CloudMark.uploaded`, from `TeamLibrary.marks`, with marks of
+  "the synced copies are uploaded" (`CloudMark.uploaded`, from `TeamLibrary.marks`, with marks of
   their own for going up, failed, and someone else's not here yet); a saved Slack link or an old
   export no longer shows one. The sync button's icon is the state, filled and tinted once synced
   so it cannot be read as the action: `checkmark.icloud.fill` in the accent colour synced and
@@ -771,11 +780,23 @@ Invariants worth preserving:
   attention, the plain outline `icloud.and.arrow.up` not synced (the outline of the
   checkmark read as the same icon as the arrow). Folders are named with the cloud that keeps them
   (`CloudFolder.provider(of:)`: iCloud Drive, OneDrive with its account, Google Drive,
-  Dropbox, Box, else "on this Mac"), as "AnyRec (iCloud Drive)". The default sync folder is
-  `MeetingSyncState.lastFolder`, set by every sync and move and shown and changed in
-  Settings › Recording › Sharing (`MeetingSync.setDefaultFolder`). The sync menu says where things stand first ("Synced to …"
-  with up to date / uploading / restored / needs attention, or "Not synced"), then Show in
-  Finder, Move to… and Stop Syncing…. The shared copy is protected: the team folder should be
+  Dropbox, Box, else "on this Mac"), as "AnyRec (iCloud Drive)". There is one sync location
+  (`MeetingSyncState.location`): where "Sync to …" sends a recording and the one folder
+  colleagues' meetings are read from. It is chosen by the Sync button's Choose Sync
+  Location… (the first sync while there is none; a later "Sync to Another Location…" adds a
+  copy elsewhere and leaves it), and shown, changed and disconnected in
+  Settings › Recording › Sharing (`setLocation`, `disconnect`). Disconnecting clears it, so
+  nothing offers it any more; recordings synced there stay synced. Older state files kept a
+  default folder (`lastFolder`) and a separate list of connected team folders; the first
+  stands in, else the first connected folder. The sync menu says where things stand first ("Synced to …"
+  with up to date / uploading / restored / needs attention, "Synced to 2 places" with a
+  submenu per place, or "Not synced"), then per copy Show in Finder and Stop Syncing (Here)…,
+  which removes that copy alone; then Sync to the location if it has no copy there, and Sync
+  to Another Location…. There is no Move to…: a move left in an older state file is finished
+  (`previousFolder`). Deleting a synced recording asks: Remove Shared Copies (every copy
+  withdrawn, then the original trashed) or Keep Shared Copies (the original trashed first,
+  then `MeetingSync.forget` lets go of the copies untouched: nobody updates or restores them
+  any more, and the one in the sync location is listed under Shared with You like anyone's). Each shared copy is protected: the team folder should be
   shared view-only (the folder picker says so), and each publication keeps a fingerprint of
   what AnyRec wrote (`MeetingPublication.fingerprints`: the recording's size, the small files'
   SHA-256); a refresh that finds the shared copy changed, partly deleted or gone publishes
@@ -787,6 +808,8 @@ Invariants worth preserving:
   (`LibraryEntry.shared`, built by `SharedMeeting.entry(in:)` from `Meeting.json` alone), read
   only: no desk writes (`SpeakerDesk.readOnly`), no summary, ticks or regeneration, and
   nothing is ever written into the team folder by a viewer. Make a Copy is how a viewer edits.
+  It says who shared it by the publisher's Mac account full name (`SharedMeeting.sharerName`),
+  never the transcript's or the voice library's name for them, which differ between calls.
   Published: the merged file, `Tracks/Call audio.m4a`, `Tracks/Microphone.m4a`, `Meeting.json`
   (transcript, summary, waveform, duration, size, roster, the call track's offset, every
   file's size), `Sources.json` (selected and compared sources, without diagnostics),

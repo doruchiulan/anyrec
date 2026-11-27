@@ -1,8 +1,9 @@
 import AnyRecKit
 import SwiftUI
 
-/// Every meeting in the connected team folders, listed as the library lists its own, with
-/// the folders themselves under them.
+/// Shared with You: the meetings colleagues synced to the sync location, listed as the
+/// library lists its own. A filter, nothing more: the location is chosen from a recording's
+/// Sync button, or in Settings › Recording › Sharing.
 struct SharedMeetingsList: View {
     @Bindable var controller: RecordingController
     let entries: [LibraryEntry]
@@ -10,45 +11,30 @@ struct SharedMeetingsList: View {
     private var team: TeamLibrary { controller.team }
 
     var body: some View {
-        let folders = team.snapshot?.state.folders ?? []
         LibraryList(
             controller: controller, entries: entries,
-            empty: folders.isEmpty
-                ? ("No Shared Meetings", "folder.badge.person.crop", "Connect the team folder your colleagues sync to.")
-                : ("No Shared Meetings", "folder.badge.person.crop", "Meetings appear here when a colleague syncs one."))
+            empty: team.location == nil
+                ? ("Nothing Shared Yet", "shared.with.you", Wording.noSyncLocation)
+                : ("Nothing Shared Yet", "shared.with.you", "Meetings appear here when a colleague syncs one to \(Wording.syncFolder(team.location!))."))
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                if let arriving = team.snapshot?.arriving, arriving > 0 {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(Wording.arriving(arriving)).font(.caption).foregroundStyle(.secondary)
-                    }
+            if let note {
+                HStack(spacing: 6) {
+                    if team.snapshot?.arriving ?? 0 > 0 { ProgressView().controlSize(.small) }
+                    Text(note).font(.caption).foregroundStyle(team.snapshot?.arriving ?? 0 > 0 ? .secondary : Color.orange)
                 }
-                ForEach(folders, id: \.self) { folder in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label(Wording.syncFolder(folder), systemImage: "folder").lineLimit(1).truncationMode(.middle)
-                        if let issue = team.snapshot?.failures[folder] { Text(issue).font(.caption).foregroundStyle(.orange) }
-                    }
-                    .help(folder.path)
-                    .contextMenu {
-                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
-                        Button("Disconnect") { team.disconnect(folder) }
-                    }
-                }
-                let unreadable = unreadable(folders)
-                if unreadable > 0 {
-                    Text(unreadable == 1 ? "1 meeting couldn't be read" : "\(unreadable) meetings couldn't be read")
-                        .font(.caption).foregroundStyle(.orange)
-                }
-                Button("Connect Team Folder…") { team.connect() }.disabled(team.busy)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                .background(.bar)
+                .overlay(alignment: .top) { Divider() }
             }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-            .background(.bar)
-            .overlay(alignment: .top) { Divider() }
         }
     }
 
-    private func unreadable(_ folders: [URL]) -> Int {
-        (team.snapshot?.failures.keys ?? [:].keys).filter { folders.contains($0.deletingLastPathComponent()) }.count
+    /// Meetings still on their way, else what could not be read.
+    private var note: String? {
+        if let arriving = team.snapshot?.arriving, arriving > 0 { return Wording.arriving(arriving) }
+        guard let location = team.location else { return nil }
+        if let issue = team.snapshot?.failures[location] { return issue }
+        let unreadable = (team.snapshot?.failures.keys ?? [:].keys).filter { $0.deletingLastPathComponent() == location }.count
+        return unreadable == 0 ? nil : unreadable == 1 ? "1 meeting couldn't be read" : "\(unreadable) meetings couldn't be read"
     }
 }

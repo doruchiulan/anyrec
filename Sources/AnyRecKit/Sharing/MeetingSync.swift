@@ -7,10 +7,49 @@ public struct SharedLibraryItem: Equatable, Sendable, Identifiable {
 }
 
 public struct MeetingSyncState: Codable, Equatable, Sendable {
-    public fileprivate(set) var publications: [URL: MeetingPublication] = [:]
-    public fileprivate(set) var folders: [URL] = []
-    public fileprivate(set) var linked: Set<URL> = []
-    public fileprivate(set) var lastFolder: URL?
+    /// Each synced recording's shared copies, one per folder: the sync location's, and any
+    /// other folder it was also synced to. Files from before held one copy a recording, as
+    /// `publications`; it becomes the first.
+    public fileprivate(set) var publications: [URL: [MeetingPublication]] = [:]
+    /// The sync location: one folder, chosen from a recording's Sync button or Settings, where
+    /// recordings are synced and where colleagues' meetings are read from. Nil until one is
+    /// chosen, and again once disconnected. Files from before kept it as `lastFolder` beside a
+    /// separate list of connected `folders`; the first of those stands in when it was never set.
+    public fileprivate(set) var location: URL?
+
+    public init() {}
+
+    private enum CodingKeys: String, CodingKey { case copies, publications, location, lastFolder, folders }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        publications = try container.decodeIfPresent([URL: [MeetingPublication]].self, forKey: .copies)
+            ?? container.decodeIfPresent([URL: MeetingPublication].self, forKey: .publications)?.mapValues { [$0] } ?? [:]
+        location = try container.decodeIfPresent(URL.self, forKey: .location)
+            ?? container.decodeIfPresent(URL.self, forKey: .lastFolder)
+            ?? container.decodeIfPresent([URL].self, forKey: .folders)?.first
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(publications, forKey: .copies)
+        try container.encodeIfPresent(location, forKey: .location)
+    }
+
+    /// A recording's shared copies, the sync location's first.
+    public func copies(of source: URL) -> [MeetingPublication] {
+        (publications[source.standardizedFileURL] ?? []).sorted { a, b in (a.folder == location ? 0 : 1) < (b.folder == location ? 0 : 1) }
+    }
+
+    fileprivate mutating func change(_ source: URL, _ id: UUID, _ edit: (inout MeetingPublication) -> Void) {
+        guard let index = publications[source]?.firstIndex(where: { $0.id == id }) else { return }
+        edit(&publications[source]![index])
+    }
+
+    fileprivate mutating func drop(_ source: URL, _ id: UUID) {
+        publications[source]?.removeAll { $0.id == id }
+        if publications[source]?.isEmpty == true { publications[source] = nil }
+    }
 }
 
 public struct MeetingSyncSnapshot: Equatable, Sendable {
@@ -28,12 +67,15 @@ public actor MeetingSync {
     private var state = MeetingSyncState()
     private var loaded = false
     private var cache: [URL: (String, SharedMeeting)] = [:]
-    private var published: [URL: String] = [:]
+    /// The signature each copy was last published from, by its id.
+    private var published: [UUID: String] = [:]
     /// Making a shared copy renders and copies files, off the actor, so the state it reports
     /// is read while it works. One at a time for each recording.
     private var running: [URL: Task<Void, Error>] = [:]
     private var preparing: Set<URL> = []
+    /// By recording, and by each copy's folder in the team folder.
     private var publishFailures: [URL: String] = [:]
+    private var copyFailures: [URL: String] = [:]
     private let fm = FileManager.default
 
     public init(stateFile: URL) { self.stateFile = stateFile }
@@ -52,44 +94,26 @@ public actor MeetingSync {
         state = next
     }
 
-    public func connect(_ folder: URL) throws {
-        try load()
-        let folder = try checkedFolder(folder)
-        guard !state.folders.contains(folder) else { return }
-        var next = state
-        next.folders.append(folder)
-        try save(next)
-    }
-
-    public func addToLibrary(_ directory: URL) throws {
-        try load()
-        guard state.folders.contains(directory.deletingLastPathComponent()), try SharedMeeting.read(directory).id ==
-            UUID(uuidString: String(directory.lastPathComponent.suffix(36))) else { throw RecordingShare.Failure.failed("Choose a meeting in a connected team folder.") }
-        var next = state
-        next.linked.insert(directory)
-        try save(next)
-    }
-
-    public func removeFromLibrary(_ directory: URL) throws {
+    /// Stops using the sync location: nothing new is offered a sync there and colleagues'
+    /// meetings are no longer listed. Recordings already synced there stay synced, and
+    /// nothing in the folder changes.
+    public func disconnect() throws {
         try load()
         var next = state
-        next.linked.remove(directory)
+        next.location = nil
         if next != state { try save(next) }
     }
 
-    /// Stops listing a team folder here. Nothing in it changes.
-    public func disconnect(_ folder: URL) throws {
-        try load()
-        var next = state
-        next.folders.removeAll { $0 == folder }
-        next.linked = next.linked.filter { $0.deletingLastPathComponent() != folder }
-        if next != state { try save(next) }
+    /// The ids of the copies the owner synced this recording to, one a line, kept in the
+    /// recording so they follow it when the library moves.
+    private func consent(_ source: URL) -> Set<UUID> {
+        let text = (try? String(contentsOf: RecordingLayout(directory: source).readURL("sync-id"), encoding: .utf8)) ?? ""
+        return Set(text.split(whereSeparator: \.isNewline).compactMap { UUID(uuidString: String($0)) })
     }
 
-    private func consentFile(_ source: URL) -> URL { RecordingLayout(directory: source).url("sync-id") }
-
-    private func consent(_ source: URL) -> UUID? {
-        (try? String(contentsOf: consentFile(source), encoding: .utf8)).flatMap(UUID.init(uuidString:))
+    private func addConsent(_ id: UUID, to source: URL) throws {
+        let ids = (consent(source).map(\.uuidString).sorted() + [id.uuidString]).joined(separator: "\n")
+        try ids.write(to: RecordingLayout(directory: source).writeURL("sync-id"), atomically: true, encoding: .utf8)
     }
 
     public func relocate(to directories: [URL]) throws {
@@ -97,8 +121,9 @@ public actor MeetingSync {
         var next = state
         for directory in directories {
             let target = RecordingLayout(directory: directory).directory
-            guard let id = consent(target),
-                  let old = state.publications.first(where: { $0.value.id == id }),
+            let ids = consent(target)
+            guard !ids.isEmpty,
+                  let old = state.publications.first(where: { $0.value.contains { ids.contains($0.id) } }),
                   old.key != target, !fm.fileExists(atPath: old.key.path) else { continue }
             next.publications[old.key] = nil
             next.publications[target] = old.value
@@ -115,46 +140,62 @@ public actor MeetingSync {
               !RecordingLibrary.isRecording(folder) else {
             throw RecordingShare.Failure.failed("Choose a team folder outside the recording library.")
         }
-        let existing = state.publications[source]
-        guard existing?.withdrawing != true, existing?.previousFolder == nil else {
-            throw RecordingShare.Failure.failed("Finish the pending move or removal first.")
-        }
-        var next = state
-        if let existing {
-            guard consent(source) == existing.id else { throw CocoaError(.fileWriteNoPermission) }
-            next.publications[source] = existing.folder == folder ? existing : existing.moved(to: folder)
+        /// Another folder is another copy; the same folder brings its copy up to date.
+        if let existing = state.publications[source]?.first(where: { $0.folder == folder }) {
+            guard !existing.withdrawing else { throw RecordingShare.Failure.failed("Finish removing it from there first.") }
+            guard consent(source).contains(existing.id) else { throw CocoaError(.fileWriteNoPermission) }
+            published[existing.id] = nil
         } else {
             let publication = MeetingPublication(source: source, folder: folder)
-            try publication.id.uuidString.write(to: RecordingLayout(directory: source).writeURL("sync-id"), atomically: true, encoding: .utf8)
-            next.publications[source] = publication
+            try addConsent(publication.id, to: source)
+            var next = state
+            next.publications[source, default: []].append(publication)
+            if next.location == nil { next.location = folder }
+            try save(next)
         }
-        next.lastFolder = folder
-        try save(next)
-        published[source] = nil
         try await reconcile(source)
     }
 
-    /// Where "Sync to …" sends a recording until another folder is chosen. Every sync and
-    /// move sets it too.
-    public func setDefaultFolder(_ destination: URL) throws {
+    /// Chooses the sync location. The first recording synced while there is none chooses it
+    /// too; syncing or moving one recording to another folder leaves it as it is.
+    public func setLocation(_ destination: URL) throws {
         try load()
         let folder = try checkedFolder(destination)
         guard !RecordingLibrary.isRecording(folder) else {
             throw RecordingShare.Failure.failed("Choose a team folder outside the recording library.")
         }
         var next = state
-        next.lastFolder = folder
+        next.location = folder
         if next != state { try save(next) }
     }
 
-    public func remove(_ source: URL) async throws {
+    /// Stops syncing a recording: every copy, or only the one in `folder`.
+    public func remove(_ source: URL, from folder: URL? = nil) async throws {
         try load()
         let source = source.standardizedFileURL
-        guard state.publications[source] != nil else { return }
+        guard let copies = state.publications[source] else { return }
         var next = state
-        next.publications[source]?.withdrawing = true
+        for copy in copies where folder == nil || copy.folder == folder { next.change(source, copy.id) { $0.withdrawing = true } }
+        guard next != state else { return }
         try save(next)
         try await reconcile(source)
+    }
+
+    /// Lets go of a recording's shared copies without touching them, for an original that is
+    /// being deleted while colleagues keep its copies. They are nobody's to update or put back
+    /// from then on, and the one in the sync location is listed as shared, like anyone else's.
+    public func forget(_ source: URL) throws {
+        try load()
+        let source = source.standardizedFileURL
+        guard let copies = state.publications[source] else { return }
+        var next = state
+        next.publications[source] = nil
+        try save(next)
+        for copy in copies {
+            published[copy.id] = nil
+            copyFailures[copy.directory] = nil
+        }
+        publishFailures[source] = nil
     }
 
     private func checkedFolder(_ url: URL) throws -> URL {
@@ -175,24 +216,25 @@ public actor MeetingSync {
         guard (try? load()) != nil else { return }
         for source in Array(state.publications.keys) { try? await reconcile(source) }
         publishFailures = publishFailures.filter { state.publications[$0.key] != nil }
+        let directories = Set(state.publications.values.joined().map(\.directory))
+        copyFailures = copyFailures.filter { directories.contains($0.key) }
     }
 
     /// Where things stand, without making or changing any shared copy.
     public func snapshot() throws -> MeetingSyncSnapshot {
         try load()
-        var failures = publishFailures
+        var failures = publishFailures.merging(copyFailures) { first, _ in first }
         var arriving = 0
-        let own = Set(state.publications.values.map(\.directory))
+        let copies = state.publications.values.joined()
+        let own = Set(copies.map(\.directory))
         /// By id as well: the same folder can be reached by two paths.
-        let ownIDs = Set(state.publications.values.map(\.id.uuidString))
+        let ownIDs = Set(copies.map(\.id.uuidString))
         var items = [SharedLibraryItem]()
-        var next = state
-        for folder in state.folders {
+        if let folder = state.location {
             do {
                 let children = try fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
                 let candidates = children.filter { UUID(uuidString: String($0.lastPathComponent.suffix(36))) != nil }
                 let existing = Set(candidates.map { folder.appendingPathComponent($0.lastPathComponent, isDirectory: true) })
-                next.linked = next.linked.filter { $0.deletingLastPathComponent() != folder || existing.contains($0) }
                 for directory in existing.subtracting(own) where !ownIDs.contains(String(directory.lastPathComponent.suffix(36))) {
                     do {
                         if let found = try item(directory) { items.append(found) } else { arriving += 1 }
@@ -202,7 +244,6 @@ public actor MeetingSync {
                 failures[folder] = RecordingShare.Failure.folderUnavailable(folder.lastPathComponent).localizedDescription
             }
         }
-        if next != state { try save(next) }
         let visible = Set(items.map(\.id))
         cache = cache.filter { visible.contains($0.key) }
         return MeetingSyncSnapshot(state: state, meetings: items.sorted { $0.meeting.started > $1.meeting.started },
@@ -244,38 +285,61 @@ public actor MeetingSync {
         }
     }
 
+    /// Each copy in turn; one that fails does not hold up the others, and the first failure
+    /// is the recording's.
     private func reconcileOnce(_ source: URL) async throws {
-        guard let publication = state.publications[source] else { return }
+        var signature: Result<String, Error>?
+        var first: Error?
+        for copy in state.publications[source] ?? [] {
+            do {
+                try await reconcile(copy, of: source) {
+                    if signature == nil {
+                        signature = await Task.detached(priority: .utility) { Result { try Self.signature(of: source) } }.value
+                    }
+                    return try signature!.get()
+                }
+                copyFailures[copy.directory] = nil
+            } catch {
+                copyFailures[copy.directory] = error.localizedDescription
+                first = first ?? error
+            }
+        }
+        if let first { throw first }
+    }
+
+    private func reconcile(_ publication: MeetingPublication, of source: URL, signature: () async throws -> String) async throws {
+        let current = { [self] in state.publications[source]?.first { $0.id == publication.id } }
         if publication.withdrawing {
             try await Task.detached(priority: .utility) { try publication.withdraw(from: publication.folder) }.value
         } else {
-            guard consent(source) == publication.id else { throw CocoaError(.fileReadNoPermission) }
-            let signature = try await Task.detached(priority: .utility) { try Self.signature(of: source) }.value
+            guard consent(source).contains(publication.id) else { throw CocoaError(.fileReadNoPermission) }
+            let signature = try await signature()
             let present = fm.fileExists(atPath: publication.directory.path)
             let tampered = await Task.detached(priority: .utility) { publication.isTampered }.value
-            if published[source] != signature || !present || tampered {
+            if published[publication.id] != signature || !present || tampered {
                 preparing.insert(source)
                 defer { preparing.remove(source) }
                 let fingerprints = try await Task.detached(priority: .utility) { try publication.publish(from: source) }.value
-                /// Moved or removed while its copy was being made: what is recorded is for
-                /// the publication it was made for, and the next pass does the rest.
-                guard let now = state.publications[source], now.id == publication.id, now.folder == publication.folder else { return }
-                published[source] = signature
+                /// Removed while its copy was being made: the next pass does the rest.
+                guard let now = current(), now.folder == publication.folder, !now.withdrawing else { return }
+                published[publication.id] = signature
                 var next = state
-                next.publications[source]?.fingerprints = fingerprints
-                if tampered { next.publications[source]?.restored = Date() }
+                next.change(source, publication.id) {
+                    $0.fingerprints = fingerprints
+                    if tampered { $0.restored = Date() }
+                }
                 if next != state { try save(next) }
             }
         }
+        /// A move begun by a version that still had Move to…, finished.
         if let old = publication.previousFolder {
             try await Task.detached(priority: .utility) { try publication.withdraw(from: old) }.value
         }
-        guard let now = state.publications[source], now.id == publication.id,
-              now.folder == publication.folder, now.withdrawing == publication.withdrawing else { return }
+        guard let now = current(), now.folder == publication.folder, now.withdrawing == publication.withdrawing else { return }
         if publication.withdrawing || publication.previousFolder != nil {
             var next = state
-            if publication.withdrawing { next.publications[source] = nil; published[source] = nil }
-            else { next.publications[source]?.previousFolder = nil }
+            if publication.withdrawing { next.drop(source, publication.id); published[publication.id] = nil }
+            else { next.change(source, publication.id) { $0.previousFolder = nil } }
             try save(next)
         }
     }

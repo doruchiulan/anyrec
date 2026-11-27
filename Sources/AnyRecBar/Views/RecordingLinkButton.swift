@@ -3,7 +3,7 @@ import SwiftUI
 
 struct RecordingLinkButton: View {
     let entry: LibraryEntry
-    let publication: MeetingPublication?
+    let publications: [MeetingPublication]
     @State private var editing = false
 
     var body: some View {
@@ -18,5 +18,5 @@ struct RecordingLinkButton: View {
             }
     }
     /// The synced copy, the one cloud copy a recording has.
-    private var copies: [URL] { [RecordingCloud.syncedMedia(for: entry, publication: publication)].compactMap { $0 } }
+    private var copies: [URL] { publications.compactMap { RecordingCloud.syncedMedia(for: entry, publication: $0) } }
 }

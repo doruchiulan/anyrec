@@ -25,7 +25,7 @@ struct SharedMeetingTests {
 
     private func item(_ f: Fixture) async throws -> SharedLibraryItem {
         try await f.owner.sync(f.source, to: f.folder)
-        try await f.reader.connect(f.folder)
+        try await f.reader.setLocation(f.folder)
         return try #require(try await f.reader.refresh().meetings.first)
     }
 
@@ -85,7 +85,7 @@ struct SharedMeetingTests {
         #expect(try shared.meeting.encoded() == first)
         let written = try manifest.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         let relaunched = MeetingSync(stateFile: f.root.appending(path: "owner.json"))
-        #expect(try await relaunched.refresh().state.publications.values.first?.restored == nil)
+        #expect(try await relaunched.refresh().state.publications.values.first?.first?.restored == nil)
         var again = URL(fileURLWithPath: manifest.path)
         again.removeAllCachedResourceValues()
         #expect(try again.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate == written)
@@ -180,19 +180,42 @@ struct SharedMeetingTests {
         #expect(TranscriptionService.tracks(in: plan).isEmpty)
     }
 
-    @Test("a team folder can be disconnected, and a meeting taken back out of the library")
+    @Test("disconnecting the sync location stops listing its meetings and changes nothing in it")
     func disconnect() async throws {
         let f = try Fixture()
         defer { f.clean() }
         let shared = try await item(f)
-        try await f.reader.addToLibrary(shared.directory)
-        try await f.reader.removeFromLibrary(shared.directory)
-        #expect(try await f.reader.snapshot().state.linked.isEmpty)
-        try await f.reader.addToLibrary(shared.directory)
-        try await f.reader.disconnect(f.folder)
+        try await f.reader.disconnect()
         let after = try await f.reader.snapshot()
-        #expect(after.meetings.isEmpty && after.state.linked.isEmpty && after.state.folders.isEmpty)
+        #expect(after.meetings.isEmpty && after.state.location == nil)
         #expect(FileManager.default.fileExists(atPath: shared.directory.path))
+    }
+
+    @Test("a meeting says who shared it by the Mac account's full name, whatever the transcript calls them")
+    func sharedBy() async throws {
+        let f = try Fixture()
+        defer { f.clean() }
+        #expect(try await item(f).meeting.sharedBy == SharedMeeting.sharerName())
+        #expect(SharedMeeting.sharerName("  Alex Morgan \n") == "Alex Morgan")
+        #expect(SharedMeeting.sharerName(" ") == nil)
+    }
+
+    @Test("a state file from before keeps its folder as the sync location")
+    func olderState() throws {
+        func decoded(_ json: String) throws -> MeetingSyncState { try JSONDecoder().decode(MeetingSyncState.self, from: Data(json.utf8)) }
+        let both = try decoded(#"{"publications":[],"folders":["file:///Team/"],"linked":["file:///Team/A/"],"lastFolder":"file:///Mine/"}"#)
+        #expect(both.location == URL(string: "file:///Mine/"))
+        #expect(try decoded(#"{"publications":[],"folders":["file:///Team/"],"linked":[]}"#).location == URL(string: "file:///Team/"))
+        #expect(try decoded(#"{"publications":[],"folders":[],"linked":[]}"#).location == nil)
+        let written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(both)) as? [String: Any]
+        #expect(Set(written?.keys.map { $0 } ?? []) == ["copies", "location"])
+
+        /// One shared copy a recording, as every version before extra copies wrote it.
+        struct Legacy: Encodable { let publications: [URL: MeetingPublication]; let lastFolder: URL }
+        let call = URL(fileURLWithPath: "/Library/Call", isDirectory: true), team = URL(fileURLWithPath: "/Team", isDirectory: true)
+        let copy = MeetingPublication(source: call, folder: team)
+        let legacy = try decoded(String(decoding: JSONEncoder().encode(Legacy(publications: [call: copy], lastFolder: team)), as: UTF8.self))
+        #expect(legacy.copies(of: call) == [copy] && legacy.location == team)
     }
 
     @Test("one's own meetings are not listed as shared, however their folder is reached")
@@ -202,7 +225,7 @@ struct SharedMeetingTests {
         try await f.owner.sync(f.source, to: f.folder)
         let alias = f.root.appending(path: "Alias")
         try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: f.folder)
-        try await f.owner.connect(alias)
+        try await f.owner.setLocation(alias)
         #expect(try await f.owner.snapshot().meetings.isEmpty)
     }
 

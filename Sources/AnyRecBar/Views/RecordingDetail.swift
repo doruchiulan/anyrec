@@ -225,12 +225,6 @@ private struct RecordingPage: View {
                             ProgressView().controlSize(.mini)
                             Text("Making a copy…")
                         }
-                        if !controller.team.isLinked(entry.directory) {
-                            Text("·")
-                            Button("Add to Library") { controller.team.add(entry.directory) }
-                                .buttonStyle(.link).disabled(controller.team.busy)
-                                .help("List this meeting with your own recordings")
-                        }
                     }
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
@@ -722,7 +716,7 @@ struct RecordingInspector: View {
         let prefix = layout.directory.path + "/"
         func label(_ url: URL) -> String { url.path.hasPrefix(prefix) ? String(url.path.dropFirst(prefix.count)) : url.lastPathComponent }
         return VStack(spacing: 0) {
-            if entry.shared == nil { RecordingLinkButton(entry: entry, publication: controller.team.publication(entry)) }
+            if entry.shared == nil { RecordingLinkButton(entry: entry, publications: controller.team.copies(entry)) }
             ForEach(urls.sorted { label($0) < label($1) }, id: \.self) { url in
                 Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
                     HStack {

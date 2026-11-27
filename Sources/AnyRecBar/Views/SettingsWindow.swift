@@ -152,24 +152,29 @@ struct RecordingSettings: View {
                 LabeledContent("Used", value: "\(Wording.size(RecordingLibrary.size(of: controller.library))) in \(Wording.count(controller.library.count))")
                 LabeledContent("Available", value: Wording.size(controller.freeSpace))
             }
-            /// Where synced recordings go: the one cloud copy each recording can have. Before
-            /// this it was only ever the last folder synced to, shown nowhere.
+            /// The sync location: where synced recordings go (the one cloud copy each can have)
+            /// and where colleagues' meetings are read from for Shared with you.
             Section {
-                LabeledContent("Sync folder") {
+                LabeledContent("Sync location") {
                     VStack(alignment: .trailing, spacing: 6) {
-                        if let folder = controller.team.snapshot?.state.lastFolder {
+                        if let folder = controller.team.location {
                             Text(Wording.syncFolder(folder))
                             Text(folder.path)
                                 .font(.callout).foregroundStyle(.secondary)
                                 .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                            if let issue = controller.team.snapshot?.failures[folder] {
+                                Text(issue).font(.callout).foregroundStyle(.orange)
+                            }
                         } else {
                             Text("Not chosen yet").foregroundStyle(.secondary)
                         }
                         HStack {
-                            if let folder = controller.team.snapshot?.state.lastFolder {
+                            if let folder = controller.team.location {
                                 Button("Show in Finder") { NSWorkspace.shared.open(folder) }
+                                Button("Disconnect") { controller.team.disconnect() }
+                                    .disabled(controller.team.busy)
                             }
-                            Button("Change…") { controller.team.chooseDefaultFolder() }
+                            Button(controller.team.location == nil ? Wording.chooseSyncLocation : "Change…") { controller.team.chooseLocation() }
                                 .disabled(controller.team.busy || controller.team.snapshot == nil)
                         }
                     }
