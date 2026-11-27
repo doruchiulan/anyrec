@@ -9,13 +9,18 @@ struct LibraryRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
-            /// The margin Notes keeps for a shared note's badge shows a recording being worked
-            /// on. Always there, badge or not, so every row's text starts at the same edge.
-            /// Who still needs a name is said in words on the third line: as a badge it was
-            /// an icon nobody could read.
+            /// The margin Notes keeps for a shared note's badge says whose a recording is: the
+            /// sidebar's own marks, Mine and Shared with You. While one is worked on, an
+            /// hourglass takes its place.
             ZStack {
                 Color.clear
-                if working { Image(systemName: "hourglass").help(progress ?? "Working…") }
+                if working {
+                    Image(systemName: "hourglass").help(progress ?? "Working…")
+                } else if let shared = entry.shared {
+                    Image(systemName: LibraryFilter.shared.symbol).help(Wording.sharedBy(shared.sharedBy))
+                } else {
+                    Image(systemName: LibraryFilter.mine.symbol).help("Your recording")
+                }
             }
             .foregroundStyle(.secondary)
             .frame(width: 16, height: 16)
@@ -25,13 +30,10 @@ struct LibraryRow: View {
                 Text(Wording.rowTitle(of: entry)).font(.headline).lineLimit(1)
                 HStack(spacing: 8) {
                     Text(Wording.rowDate(entry.started)).monospacedDigit().lineLimit(1).fixedSize()
-                    Text(progress ?? entry.preview ?? Wording.size(entry.bytes))
-                        .foregroundStyle(.secondary).lineLimit(1)
+                    if let progress { Text(progress).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 HStack(spacing: 4) {
-                    Label(entry.shared.map { Wording.sharedBy($0.sharedBy) } ?? Wording.rowSource(of: entry),
-                          systemImage: entry.shared != nil ? "person.2" : entry.info?.isCall == true ? "phone" : "record.circle")
-                        .foregroundStyle(.secondary)
+                    Text(Wording.rowSource(of: entry)).foregroundStyle(.secondary)
                     if let toName = Wording.toName(voices: entry.unnamedVoices, unclaimed: entry.hasUnclaimedLines) {
                         Text("· " + toName).foregroundStyle(.orange)
                     }

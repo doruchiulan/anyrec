@@ -160,8 +160,10 @@ private struct RecordingPage: View {
     private var lines: [Utterance] { recording.lines }
 
     var body: some View {
+        /// No scroll bars on the page or in the inspector: they took a strip of each and
+        /// added nothing a trackpad, wheel or the keyboard does not.
         ResizeViewport {
-            document
+            document.scrollIndicators(.never)
         }
         /// White, like a document; the cards sit on it in a soft grey. Both are system
         /// colours, so Dark Mode turns them into near-black and a lifted grey.
@@ -611,7 +613,7 @@ struct RecordingInspector: View {
     private var lines: [Utterance] { recording.lines }
 
     var body: some View {
-        ResizeViewport { content }
+        ResizeViewport { content.scrollIndicators(.never) }
             .inspectorColumnWidth(min: 300, ideal: 400, max: 600)
             .onChange(of: recording.transcriptFilter) { _, filter in if filter != nil { tab = .transcript } }
             /// Only while shown: a collapsed inspector still contributes its toolbar items,
