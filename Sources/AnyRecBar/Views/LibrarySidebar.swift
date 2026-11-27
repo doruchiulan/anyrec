@@ -65,10 +65,7 @@ struct LibrarySidebar: View {
     }
 
     private func row(_ target: LibraryFilter) -> some View {
-        let linked = (controller.team.snapshot?.meetings ?? []).filter {
-            controller.team.snapshot?.state.linked.contains($0.id) == true
-                && (target == .all || (target == .transcribed && $0.meeting.transcript != nil))
-        }
+        let linked = controller.team.entries.filter { controller.team.isLinked($0.directory) && target.includes($0) }
         return Label(target.title, systemImage: target.symbol)
             .badge(controller.library.filter { target.includes($0, working: controller.working) }.count + linked.count)
             .tag(target)

@@ -82,8 +82,8 @@ private struct TranscriptRow: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .disabled(desk == nil)
-                .help("Change who said this")
-                .accessibilityLabel("\(label). Change who said this")
+                .help(desk == nil ? "" : "Change who said this")
+                .accessibilityLabel(desk == nil ? label : "\(label). Change who said this")
                 .popover(isPresented: $choosing, arrowEdge: .leading) {
                     if let desk {
                         LinePersonPicker(desk: desk, line: index, playback: playback) { choosing = false }

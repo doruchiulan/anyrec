@@ -10,11 +10,21 @@ final class SpeakerDesk {
     let directory: URL
     private let controller: RecordingController
     private(set) var speakers: RecordingSpeakers?
+    /// Someone else's recording: its people are shown, and nothing about them can be changed.
+    let readOnly: Bool
     var failure: String?
 
     init(directory: URL, controller: RecordingController) {
         self.directory = directory
         self.controller = controller
+        readOnly = false
+    }
+
+    init(shared speakers: RecordingSpeakers?, directory: URL, controller: RecordingController) {
+        self.directory = directory
+        self.controller = controller
+        self.speakers = speakers
+        readOnly = true
     }
 
     /// The call window's polls, kept from the first read or handed over by the page: they do
@@ -27,6 +37,7 @@ final class SpeakerDesk {
     private var latest: UUID?
 
     func load() async {
+        guard !readOnly else { return }
         let directory = directory
         let revision = TranscriptStore.revision(of: TranscriptStore.layerFiles(in: directory))
         guard loadedRevision != .some(revision) else { return }
@@ -117,7 +128,7 @@ final class SpeakerDesk {
     /// showed, to the review's model. Its answers come back as fixes to confirm: the ones it is
     /// sure of as one group, the likely ones one by one. Nothing is assigned. Says what it found.
     func askAboutUnclaimed() async -> String? {
-        guard !busy, !asking else { return nil }
+        guard !busy, !asking, !readOnly else { return nil }
         asking = true
         defer { asking = false }
         let directory = directory, provider = reviewProvider
@@ -186,7 +197,7 @@ final class SpeakerDesk {
     /// Each change is one small file and a re-render, so it runs here and then the library
     /// is re-read: the entry's revision moves and the page reloads what it shows.
     private func perform(_ change: () throws -> [URL]) {
-        guard !busy else { return }
+        guard !busy, !readOnly else { return }
         history.append(snapshot())
         if history.count > 20 { history.removeFirst() }
         do {

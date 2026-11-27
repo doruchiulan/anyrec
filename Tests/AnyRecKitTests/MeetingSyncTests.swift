@@ -47,7 +47,7 @@ struct MeetingSyncTests {
         #expect(first.meeting.transcript?.utterances.first?.speaker == .named("Recorder"))
         #expect(first.meeting.transcript?.notes.isEmpty == true)
         #expect(Set(try FileManager.default.contentsOfDirectory(atPath: first.directory.path)) ==
-            ["Meeting.json", "Transcript.md", "Recording.mp4", "Summary.md"])
+            ["Meeting.json", "Transcript.md", "Recording.mp4", "Summary.md", "Sources.json"])
         try await f.reader.addToLibrary(first.directory)
         try f.revise("Monday")
         let restarted = MeetingSync(stateFile: f.root.appending(path: "owner.json"))

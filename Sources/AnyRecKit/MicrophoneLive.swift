@@ -23,15 +23,25 @@ public struct MicrophoneLive: Sendable, Equatable {
     public let duration: TimeInterval
     /// Seconds from the start of the recording.
     public let spans: [Range<TimeInterval>]
+    /// A call app's own mute button was read at least once. Nil in files written before
+    /// this was recorded.
+    public let muteRead: Bool?
 
-    public init(duration: TimeInterval, spans: [Range<TimeInterval>]) {
+    public init(duration: TimeInterval, spans: [Range<TimeInterval>], muteRead: Bool? = nil) {
         self.duration = duration
         self.spans = spans
+        self.muteRead = muteRead
     }
+
+    /// Whether the mute was really followed, so silencing outside `spans` leaves nothing
+    /// said while muted: the button was read, or the microphone was seen going quiet and
+    /// coming back. Without either, one unbroken span is also what an unread mute looks
+    /// like. What decides whether the microphone may be shared as a track of its own.
+    public var followedMute: Bool { muteRead == true || spans.count > 1 }
 
     /// A recording opens with the call not listening — the first scan says otherwise
     /// at once if it is — and the last span closes when the recording does.
-    public init(duration: TimeInterval, transitions: [Transition]) {
+    public init(duration: TimeInterval, transitions: [Transition], muteRead: Bool? = nil) {
         var spans: [Range<TimeInterval>] = []
         var opened: TimeInterval?
         for transition in transitions {
@@ -43,7 +53,7 @@ public struct MicrophoneLive: Sendable, Equatable {
             }
         }
         if let start = opened, duration > start { spans.append(start..<duration) }
-        self.init(duration: duration, spans: spans)
+        self.init(duration: duration, spans: spans, muteRead: muteRead)
     }
 
     public var total: TimeInterval {
@@ -75,6 +85,7 @@ public struct MicrophoneLive: Sendable, Equatable {
     private struct File: Codable {
         var duration: TimeInterval
         var live: [[TimeInterval]]
+        var muteRead: Bool?
     }
 
     public static func read(_ url: URL) -> MicrophoneLive? {
@@ -85,11 +96,11 @@ public struct MicrophoneLive: Sendable, Equatable {
             guard pair.count == 2, pair[0] < pair[1] else { return nil }
             return pair[0]..<pair[1]
         }
-        return MicrophoneLive(duration: file.duration, spans: spans)
+        return MicrophoneLive(duration: file.duration, spans: spans, muteRead: file.muteRead)
     }
 
     public func write(to url: URL) throws {
-        let file = File(duration: duration, live: spans.map { [$0.lowerBound, $0.upperBound] })
+        let file = File(duration: duration, live: spans.map { [$0.lowerBound, $0.upperBound] }, muteRead: muteRead)
         try JSONEncoder().encode(file).write(to: url, options: .atomic)
     }
 }
@@ -111,6 +122,7 @@ extension MicrophoneLive {
         private var startedAt = Date()
         private var live = false
         private var sawCall = false
+        private var readMute = false
         private var transitions: [Transition] = []
         /// What `hearsMicrophone` reports, set by each scan. Behind its own lock: the panel
         /// reads it ten times a second, and the queue may be busy reading a call app's
@@ -141,6 +153,7 @@ extension MicrophoneLive {
                 startedAt = Date()
                 live = false
                 sawCall = false
+                readMute = false
                 transitions = []
                 scan()
 
@@ -160,7 +173,7 @@ extension MicrophoneLive {
                 timer = nil
                 scan()
                 guard sawCall else { return nil }
-                return MicrophoneLive(duration: elapsed, transitions: transitions)
+                return MicrophoneLive(duration: elapsed, transitions: transitions, muteRead: readMute)
             }
         }
 
@@ -184,7 +197,10 @@ extension MicrophoneLive {
             }
             if !active.isEmpty { sawCall = true }
             let listening = active.contains { id, processes in
-                processes.contains(where: \.runningInput) && !(reader(for: id)?.muted() ?? false)
+                guard processes.contains(where: \.runningInput) else { return false }
+                let muted = reader(for: id)?.muted()
+                if muted != nil { readMute = true }
+                return muted != true
             }
             published.lock()
             publishedState = sawCall ? listening : nil
