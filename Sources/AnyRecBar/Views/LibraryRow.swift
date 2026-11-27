@@ -32,13 +32,7 @@ struct LibraryRow: View {
                     Text(Wording.rowDate(entry.started)).monospacedDigit().lineLimit(1).fixedSize()
                     if let progress { Text(progress).foregroundStyle(.secondary).lineLimit(1) }
                 }
-                HStack(spacing: 4) {
-                    Text(Wording.rowSource(of: entry)).foregroundStyle(.secondary)
-                    if let toName = Wording.toName(voices: entry.unnamedVoices, unclaimed: entry.hasUnclaimedLines) {
-                        Text("· " + toName).foregroundStyle(.orange)
-                    }
-                }
-                .lineLimit(1)
+                Text(Wording.rowSource(of: entry)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
             /// Synced recordings carry a cloud on the corner of their square, where it is
