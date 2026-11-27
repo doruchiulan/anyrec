@@ -10,6 +10,8 @@ struct MCPCommand: AsyncParsableCommand {
     var recordings: String = Defaults.outputRoot
 
     func run() async throws {
+        /// A client that has gone away leaves a closed pipe; writing to it is an error, not the end.
+        signal(SIGPIPE, SIG_IGN)
         let root = URL(fileURLWithPath: (recordings as NSString).expandingTildeInPath)
         try await MCPTools.serve(root: root, version: AnyRec.configuration.version)
     }
