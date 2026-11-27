@@ -46,6 +46,24 @@ struct MixDecisionTests {
                 == .matched(LoudnessMatch.gains(systemAudio: system, microphone: mic)))
     }
 
+    @Test("a decision whose microphone was measured raw is measured again through the gate, its alignment kept")
+    func microphoneMeasuredAgain() throws {
+        let plan = try recording()
+        defer { try? FileManager.default.removeItem(at: plan.directory.deletingLastPathComponent()) }
+        try MicrophoneLive(duration: 10, spans: [0..<5]).write(to: plan.microphoneLive)
+        let offset = TrackOffset(seconds: 0.061, confidence: 0.7, windowsUsed: 4, windowsTried: 8)
+        let raw = MixDecision(basis: .of(plan), bleeding: false, microphoneLoudness: Loudness(integrated: -47.5, truePeak: -1.9),
+                              systemAudioLoudness: Loudness(integrated: -18.1, truePeak: -0.3), systemAudioOffset: offset)
+        raw.write(in: plan.directory)
+        #expect(raw.measuresMicrophoneAgain(live: MicrophoneLive.read(plan.microphoneLive)))
+        #expect(!raw.measuresMicrophoneAgain(live: nil))
+
+        _ = MixPlan.decided(for: plan, using: "/usr/bin/false")
+        let again = try #require(MixDecision.read(in: plan.directory))
+        #expect(again.microphoneGated == true && again.systemAudioOffset == offset)
+        #expect(!again.measuresMicrophoneAgain(live: MicrophoneLive.read(plan.microphoneLive)))
+    }
+
     @Test("the mix's loudness is worked out from the tracks: gated, ducked and gained as the mix is")
     func envelope() {
         let system = AudioEnvelope(frames: [0, 0, 1_000, 1_000, 0, 0, 0, 0])

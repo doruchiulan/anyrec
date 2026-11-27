@@ -75,7 +75,7 @@ public struct MixPlan: Sendable, Equatable {
             decided.microphoneLive = live
             return decided
         }
-        let decision = decide(systemAudio: systemAudio, microphone: microphone,
+        let decision = decide(systemAudio: systemAudio, microphone: microphone, live: live,
                               basis: .init(microphone: nil, systemAudio: nil, microphoneLive: nil), using: ffmpeg)
         return decision.plan(live: live)
     }
@@ -217,7 +217,8 @@ public struct MixPlan: Sendable, Equatable {
     }
 
     /// Each gain rides in as its own `volume` stage; a gain of zero adds no stage at
-    /// all. Inputs are summed in the order ffmpeg was given them.
+    /// all, and a raised track is limited at `LoudnessMatch.ceiling` (its delay
+    /// compensated, so it stays in line). Inputs are summed in the order ffmpeg was given them.
     private static func matched(
         _ tracks: [(input: Int, stream: String, gain: Double)]
     ) -> [String] {
@@ -230,13 +231,17 @@ public struct MixPlan: Sendable, Equatable {
                 continue
             }
             let label = "[g\(track.input)]"
-            stages.append(track.stream + String(format: "volume=%.1fdB", track.gain) + label)
+            let limit = track.gain > 0 ? "," + limiter : ""
+            stages.append(track.stream + String(format: "volume=%.1fdB", track.gain) + limit + label)
             inputs.append(label)
         }
 
         stages.append(inputs.joined() + sum(tracks.count))
         return stages
     }
+
+    /// `level=0`: alimiter otherwise turns its output up to full scale.
+    static let limiter = String(format: "alimiter=limit=%.3f:level=0:latency=1", pow(10, LoudnessMatch.ceiling / 20))
 
     private static func sum(_ count: Int) -> String {
         "amix=inputs=\(count):duration=longest:normalize=0[a]"

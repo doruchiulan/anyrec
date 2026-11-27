@@ -34,11 +34,16 @@ public struct TrackGains: Sendable, Equatable, Codable {
 public enum LoudnessMatch {
     /// Under this the difference is not worth a filter.
     static let threshold = 3.0
-    /// Headroom kept above the boosted track, so raising it cannot clip.
+    /// The most the quieter track is raised. Past it, what is raised is mostly its noise.
+    static let maximumBoost = 24.0
+    /// Where the raised track is limited (dBFS), so raising it cannot clip.
     static let ceiling = -2.0
 
-    /// Raises the quieter track as far as its headroom allows, then takes the rest
-    /// off the louder one — so the two always match and neither can clip.
+    /// Raises the quieter track to the louder one's loudness (up to `maximumBoost`), and
+    /// never lowers the louder one: the mix limits the raised track at `ceiling` instead.
+    /// Taking the difference off the louder track made the whole file quiet: on a
+    /// headphone Teams call the microphone measured 29 dB under the call with a peak near
+    /// full scale, and the call went into the merge 29 dB down, at −46 LUFS.
     public static func gains(systemAudio: Loudness?, microphone: Loudness?) -> TrackGains {
         guard let systemAudio, let microphone, !systemAudio.isSilent, !microphone.isSilent
         else { return .none }
@@ -46,22 +51,22 @@ public enum LoudnessMatch {
         let difference = systemAudio.integrated - microphone.integrated
         guard abs(difference) >= threshold else { return .none }
 
-        let quieter = difference > 0 ? microphone : systemAudio
-        let boost = min(abs(difference), max(0, ceiling - quieter.truePeak))
-        let cut = abs(difference) - boost
-
+        let boost = min(abs(difference), maximumBoost)
         return difference > 0
-            ? TrackGains(systemAudio: -cut, microphone: boost)
-            : TrackGains(systemAudio: boost, microphone: -cut)
+            ? TrackGains(systemAudio: 0, microphone: boost)
+            : TrackGains(systemAudio: boost, microphone: 0)
     }
 
     /// `ebur128` reports the same integrated loudness and true peak as `loudnorm`'s
     /// analysis pass in a fraction of the time — measured on a 76-minute call, 12 s and
     /// 17 s against 63 s and 123 s — because it does not resample to 192 kHz to do it.
-    public static func measure(_ url: URL, using ffmpeg: String) -> Loudness? {
+    /// `filter` goes before the meter: the microphone is measured through the mix's mute
+    /// gate, as the mix hears it.
+    public static func measure(_ url: URL, using ffmpeg: String, through filter: String? = nil) -> Loudness? {
+        let meter = "ebur128=peak=true:framelog=quiet"
         let arguments = [
             "-nostdin", "-hide_banner", "-nostats", "-i", url.path,
-            "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-",
+            "-af", filter.map { "\($0),\(meter)" } ?? meter, "-f", "null", "-",
         ]
         guard let result = try? Shell.run(ffmpeg, arguments) else { return nil }
         return parse(result.combined)

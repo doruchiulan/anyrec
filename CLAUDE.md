@@ -827,7 +827,12 @@ Invariants worth preserving:
 - Loudness is measured with `ebur128=peak=true`, not `loudnorm`'s analysis pass: the same
   integrated loudness and true peak in about a seventh of the time.
 - Balance by loudness, never by peak: speech peaks as high as continuous call
-  audio and averages ~13 dB below it, so peak-matching leaves the mic buried.
+  audio and averages ~13 dB below it, so peak-matching leaves the mic buried. The quieter
+  track is raised (at most 24 dB, through a limiter at −2 dBFS) and the louder is never
+  lowered: taking the difference off the call put a headphone Teams call's merge at
+  −46 LUFS. The microphone is measured through the mute gate, as the mix hears it
+  (`MixDecision.microphoneGated`; older decisions are measured again, their alignment
+  kept): measured raw, a call muted nine tenths of the time read 9 dB under the owner's speech.
 - Speaker bleed is checked before the mic is boosted, on the aligned envelopes of the
   microphone, and a bleeding mic is held
   under the call rather than summed with it. On speakers the far end is already in

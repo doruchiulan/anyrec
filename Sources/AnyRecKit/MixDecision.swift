@@ -49,19 +49,30 @@ public struct MixDecision: Codable, Equatable, Sendable {
     public let bleeding: Bool
     /// What the meter read. Nil when bleeding, because a bleeding microphone is never
     /// measured, or when a track could not be read.
-    public let microphoneLoudness: Loudness?
+    public var microphoneLoudness: Loudness?
     public let systemAudioLoudness: Loudness?
+    /// The microphone was measured through the mute gate, as the mix hears it. Nil in files
+    /// from before, which measured the whole raw track: on a call muted nine tenths of the
+    /// time that read 9 dB under the owner's speech, with a peak from a muted stretch.
+    public var microphoneGated: Bool?
     /// The system track's lag behind the raw microphone, measured from the far end's echo.
     /// Nil when either track could not be read.
     public var systemAudioOffset: TrackOffset?
 
     public init(basis: Basis, bleeding: Bool, microphoneLoudness: Loudness?, systemAudioLoudness: Loudness?,
-                systemAudioOffset: TrackOffset? = nil) {
+                systemAudioOffset: TrackOffset? = nil, microphoneGated: Bool? = nil) {
         self.basis = basis
         self.bleeding = bleeding
         self.microphoneLoudness = microphoneLoudness
         self.systemAudioLoudness = systemAudioLoudness
         self.systemAudioOffset = systemAudioOffset
+        self.microphoneGated = microphoneGated
+    }
+
+    /// Measured before the microphone was measured through the gate, with a gate to
+    /// measure it through. Only its loudness is measured again; the alignment stands.
+    func measuresMicrophoneAgain(live: MicrophoneLive?) -> Bool {
+        !bleeding && microphoneLoudness != nil && microphoneGated != true && live != nil
     }
 
     public var balance: MixPlan.Balance {
@@ -104,10 +115,15 @@ extension MixPlan {
         let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
         guard exists(plan.systemAudio), exists(plan.microphone) else { return MixPlan(balance: .matched(.none), microphoneLive: live) }
         let basis = MixDecision.Basis.of(plan)
-        if let cached = MixDecision.read(in: plan.directory), cached.basis == basis {
+        if var cached = MixDecision.read(in: plan.directory), cached.basis == basis {
+            if cached.measuresMicrophoneAgain(live: live) {
+                cached.microphoneLoudness = measureMicrophone(plan.microphone, live: live, using: ffmpeg)
+                cached.microphoneGated = true
+                cached.write(in: plan.directory)
+            }
             return cached.plan(live: live)
         }
-        let decision = decide(systemAudio: plan.systemAudio, microphone: plan.microphone,
+        let decision = decide(systemAudio: plan.systemAudio, microphone: plan.microphone, live: live,
                               basis: basis, boundaries: boundaries(in: plan.directory), using: ffmpeg)
         decision.write(in: plan.directory)
         return decision.plan(live: live)
@@ -123,7 +139,7 @@ extension MixPlan {
     /// end's echo, each stretch between device changes on its own), then checks the
     /// microphone for bleed on the aligned envelopes, then measures loudness only if it
     /// does not bleed.
-    static func decide(systemAudio: URL, microphone: URL, basis: MixDecision.Basis,
+    static func decide(systemAudio: URL, microphone: URL, live: MicrophoneLive?, basis: MixDecision.Basis,
                        boundaries: [TimeInterval] = [], using ffmpeg: String) -> MixDecision {
         let envelopes = AudioEnvelope.of([systemAudio, microphone], using: ffmpeg)
         let (system, raw) = (envelopes[0], envelopes[1])
@@ -148,12 +164,19 @@ extension MixPlan {
         let tracks = [systemAudio, microphone]
         loudness.withUnsafeMutableBufferPointer { slots in
             DispatchQueue.concurrentPerform(iterations: 2) { index in
-                slots[index] = LoudnessMatch.measure(tracks[index], using: ffmpeg)
+                slots[index] = index == 0 ? LoudnessMatch.measure(tracks[index], using: ffmpeg)
+                    : measureMicrophone(tracks[index], live: live, using: ffmpeg)
             }
         }
         decision = MixDecision(basis: basis, bleeding: false, microphoneLoudness: loudness[1], systemAudioLoudness: loudness[0],
-                               systemAudioOffset: systemOffset)
+                               systemAudioOffset: systemOffset, microphoneGated: true)
         return decision
+    }
+
+    /// The microphone as the mix hears it: silent wherever the call was not listening. A
+    /// muted stretch is room tone, and its loudness (and any knock in it) is nobody's.
+    static func measureMicrophone(_ url: URL, live: MicrophoneLive?, using ffmpeg: String) -> Loudness? {
+        LoudnessMatch.measure(url, using: ffmpeg, through: live.map(gate))
     }
 
     /// The loudness of the mix this plan builds, worked out from the two track envelopes
