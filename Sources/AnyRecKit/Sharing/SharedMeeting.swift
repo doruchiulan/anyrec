@@ -143,7 +143,7 @@ public struct SharedMeeting: Codable, Equatable, Sendable {
     static let known: Set<String> = ["Recording.mp4", "Recording.m4a", callTrack, microphoneTrack, sourcesName, previewName,
                                      "Summary.md", "Transcript.md"]
 
-    static func sharerName(_ full: String = NSFullUserName()) -> String? {
+    public static func sharerName(_ full: String = NSFullUserName()) -> String? {
         let name = full.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
     }

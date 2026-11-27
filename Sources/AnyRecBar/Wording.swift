@@ -599,19 +599,21 @@ enum Wording {
         return date.formatted(.dateTime.year())
     }
 
-    /// The date at the start of a row's second line: the time for today and yesterday,
-    /// whose headings already say the day, and the date for anything older.
-    static func rowDate(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
-        if calendar.isDate(date, inSameDayAs: now) || calendar.isDateInYesterday(date, relativeTo: now) {
-            return date.formatted(date: .omitted, time: .shortened)
-        }
-        return date.formatted(date: .numeric, time: .omitted)
+    /// A row's second line: when it started, date and time.
+    static func rowDate(_ date: Date) -> String {
+        date.formatted(date: .numeric, time: .shortened)
     }
 
-    /// A row's third line, where Notes puts the folder: the app it was recorded in, when
-    /// that is known, and how long it ran.
-    static func rowSource(of entry: LibraryEntry) -> String {
-        [entry.info?.appName, duration(entry.duration)].compactMap { $0 }.joined(separator: " · ")
+    /// What shared meetings and the owner's own rows call the person recording: the Mac
+    /// account's full name.
+    static let me = SharedMeeting.sharerName()
+
+    /// A row's third line, where Notes puts the folder: whose it is, the app it was recorded
+    /// in when that is known, and how long it ran. A meeting shared before names were
+    /// published leaves the name out.
+    static func rowSource(of entry: LibraryEntry, me: String? = me) -> String {
+        let owner = entry.shared.map(\.sharedBy) ?? me
+        return [owner, entry.info?.appName, duration(entry.duration)].compactMap { $0 }.joined(separator: " · ")
     }
 
     static func size(_ bytes: Int64) -> String {

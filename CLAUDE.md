@@ -573,6 +573,8 @@ Invariants worth preserving:
   (closing the panel), through the `openWindow` the menu bar's commands leave on
   `RecordingController` (`openLibrary`) — commands are built at launch, the window's
   views are not.
+- The recording page and the inspector show no scroll bars (`.scrollIndicators(.never)`,
+  which also overrides the system's "always show"); the list keeps its own.
 - The recording page does not use `ViewThatFits`. It built both alternatives in the
   window's minimum-size pass on every frame of a resize (about 15% of main-thread time,
   found by sampling); `WrappingRow` and `HeaderRow` in `RecordingDetail.swift` decide one
@@ -593,11 +595,12 @@ Invariants worth preserving:
   assigned when what is on disk changed.
 - The library's list is laid out the way Notes lays out its own: large bold headings
   for Today, Yesterday, Previous 7 Days, Previous 30 Days, then months, then years;
-  rows of a bold title, the time or date beside a line of what was said (the summary's
-  first sentence, else the transcript's first words), and the app and length where Notes
-  puts the folder; an hourglass in the leading margin while it is worked on, "· 2 people
-  to name" in orange on the third line (`Wording.toName`; an icon there read as nothing),
-  and a still on the right, with a cloud mark on the still's corner (`TeamLibrary.mark`).
+  rows of a bold title, the date and time it started (with the progress message while it
+  is worked on), and whose it is, the app and the length where Notes puts the folder (the
+  Mac account's name for the owner's own, `Wording.rowSource`), then "· 2 people to name"
+  in orange (`Wording.toName`; an icon for it read as nothing); in the leading margin the
+  sidebar's mark for Mine or Shared with You, an hourglass while it is worked on; and a
+  still on the right, with a cloud mark on the still's corner (`TeamLibrary.mark`).
   The sidebar's Library is All Recordings, Mine and Shared with You, three filters over one
   list: colleagues' meetings from the sync location are rows among the owner's own in All,
   by date, saying who shared them, and alone in Shared with You, which has nothing to set
