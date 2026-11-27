@@ -28,7 +28,9 @@ struct PersonListRow: View {
                             else { Text(name).bold() }
                         }
                         .lineLimit(1)
-                        Text(subtitle).font(.caption).foregroundStyle(attention ? Color.orange : .secondary)
+                        if !desk.readOnly {
+                            Text(subtitle).font(.caption).foregroundStyle(attention ? Color.orange : .secondary)
+                        }
                     }
                     Spacer()
                     Text(Wording.talk(row.talkTime)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
@@ -42,12 +44,14 @@ struct PersonListRow: View {
             if open {
                 VStack(alignment: .leading, spacing: 8) {
                     ClipList(clips: row.clips, speakers: speakers, playback: playback,
-                             notThem: NotThem(label: row.speaker == .me ? "Not you?" : "Not \(Wording.firstName(name))?",
+                             notThem: desk.readOnly ? nil : NotThem(label: row.speaker == .me ? "Not you?" : "Not \(Wording.firstName(name))?",
                                               speaker: row.speaker, desk: desk, done: done))
                     if let why = Wording.kept(row.kept) {
                         Text(why).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
-                    if row.speaker == .me {
+                    if desk.readOnly {
+                        EmptyView()
+                    } else if row.speaker == .me {
                         Text("Everything your microphone heard while the call could hear you. Who you are is set in People.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
@@ -128,7 +132,7 @@ struct NotSureWhoRow: View {
                     Avatar(text: "?", colour: .gray)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Not sure who").bold()
-                        Text(speakers.unclaimedTime < 60 ? "\(lines.count) short \(lines.count == 1 ? "bit" : "bits") · fine to leave" : "\(lines.count) moments without a name")
+                        Text(speakers.unclaimedTime < 60 ? "\(lines.count) short \(lines.count == 1 ? "bit" : "bits")\(desk.readOnly ? "" : " · fine to leave")" : "\(lines.count) moments without a name")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -149,8 +153,8 @@ struct NotSureWhoRow: View {
                     if lines.count > 5 {
                         Button("Show All \(lines.count) in the Transcript") { showAll() }.buttonStyle(.link).controlSize(.small)
                     }
-                    Text("These are too short to tell apart by voice. Leaving them is fine.").font(.caption).foregroundStyle(.secondary)
-                    reviewActions(lines: lines, suggested: suggested)
+                    Text("These are too short to tell apart by voice.\(desk.readOnly ? "" : " Leaving them is fine.")").font(.caption).foregroundStyle(.secondary)
+                    if !desk.readOnly { reviewActions(lines: lines, suggested: suggested) }
                 }
                 .padding(.leading, 38).padding(.bottom, 8)
             }
@@ -186,28 +190,32 @@ struct NotSureWhoRow: View {
     private func unclaimedLine(_ line: Int, suggestion: SpeakerCorrection?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             LineClip(line: line, speakers: speakers, playback: playback)
-            HStack(spacing: 6) {
-                /// The model's answer first, where it gave one.
-                if let suggestion {
-                    Button(names[suggestion.to] ?? speakers.label(suggestion.to)) {
-                        desk.accept(suggestion); done("That bit is \(names[suggestion.to] ?? speakers.label(suggestion.to))'s now.")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .help(suggestion.reason)
+            if !desk.readOnly { answers(line, suggestion: suggestion) }
+        }
+    }
+
+    private func answers(_ line: Int, suggestion: SpeakerCorrection?) -> some View {
+        HStack(spacing: 6) {
+            /// The model's answer first, where it gave one.
+            if let suggestion {
+                Button(names[suggestion.to] ?? speakers.label(suggestion.to)) {
+                    desk.accept(suggestion); done("That bit is \(names[suggestion.to] ?? speakers.label(suggestion.to))'s now.")
                 }
-                ForEach(likely.filter { $0 != suggestion?.to }, id: \.self) { speaker in
-                    Button(Wording.firstName(names[speaker] ?? speakers.label(speaker))) {
-                        desk.assignLines([line], to: .speaker(speaker)); done("That bit is \(names[speaker] ?? speakers.label(speaker))'s now.")
-                    }
-                }
-                SomeoneElseButton(desk: desk, title: "Who said this?") { choice in
-                    if let suggestion { desk.accept(suggestion, as: choice) }
-                    else { desk.assignLines([line], to: choice) }
-                    if desk.failure == nil { done("Assigned to \(PersonPicker.describe(choice, in: speakers, names: names)).") }
+                .buttonStyle(.borderedProminent)
+                .help(suggestion.reason)
+            }
+            ForEach(likely.filter { $0 != suggestion?.to }, id: \.self) { speaker in
+                Button(Wording.firstName(names[speaker] ?? speakers.label(speaker))) {
+                    desk.assignLines([line], to: .speaker(speaker)); done("That bit is \(names[speaker] ?? speakers.label(speaker))'s now.")
                 }
             }
-            .controlSize(.small)
+            SomeoneElseButton(desk: desk, title: "Who said this?") { choice in
+                if let suggestion { desk.accept(suggestion, as: choice) }
+                else { desk.assignLines([line], to: choice) }
+                if desk.failure == nil { done("Assigned to \(PersonPicker.describe(choice, in: speakers, names: names)).") }
+            }
         }
+        .controlSize(.small)
     }
 
     /// The two people who talked most, as one-click answers.
