@@ -42,11 +42,11 @@ public enum EchoCheck {
     public static func measure(_ plan: OutputPlan, using ffmpeg: String) throws -> EchoReport {
         let exists = { (url: URL) in FileManager.default.fileExists(atPath: url.path) }
         guard exists(plan.systemAudio), exists(plan.microphone) else { throw MuxError.nothingToMerge }
-        let decision = MixPlan.decide(systemAudio: plan.systemAudio, microphone: plan.microphone,
+        let live = MicrophoneLive.read(plan.microphoneLive)
+        let decision = MixPlan.decide(systemAudio: plan.systemAudio, microphone: plan.microphone, live: live,
                                       basis: .of(plan), boundaries: MixPlan.boundaries(in: plan.directory), using: ffmpeg)
         let envelopes = AudioEnvelope.of([plan.systemAudio, plan.microphone], using: ffmpeg)
         guard let system = envelopes[0], let raw = envelopes[1] else { throw MuxError.unreadable(plan.microphone, "it could not be decoded") }
-        let live = MicrophoneLive.read(plan.microphoneLive)
 
         let systemShift = decision.systemAudioOffset?.shift ?? .zero
         let far = system.advanced(by: systemShift)
