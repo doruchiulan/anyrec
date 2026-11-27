@@ -171,6 +171,8 @@ struct WordingTests {
         #expect(Wording.firstName("Barbura, Claudiu (Contractor)") == "Claudiu" && Wording.firstName("Madalin Marc") == "Madalin")
         #expect(Wording.list(["Ana", "Radu", "Ioana"]) == "Ana, Radu and Ioana")
         #expect(Wording.questions(0) == "Nothing to check" && Wording.questions(3) == "3 questions")
+        #expect(Wording.nothingToAsk(unclaimed: 0) == "Everyone has a name. Nothing to check.")
+        #expect(Wording.nothingToAsk(unclaimed: 26).hasPrefix("26 short bits have no name"))
         #expect(Wording.syncedTo(URL(fileURLWithPath: "/Volumes/Share/AnyRec Team")) == "Synced to AnyRec Team (on this Mac)")
         #expect(Wording.syncedTo(nil) == "Not synced")
         #expect(Wording.syncStatus(failure: nil, restored: nil, uploaded: true) == "Up to date")

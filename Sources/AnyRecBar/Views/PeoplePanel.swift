@@ -32,7 +32,8 @@ struct PeoplePanel: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 if questions.isEmpty {
-                    Label("Everyone has a name. Nothing to check.", systemImage: "checkmark.circle")
+                    Label(Wording.nothingToAsk(unclaimed: speakers.lineIndexes(of: .others).count),
+                          systemImage: "checkmark.circle")
                         .foregroundStyle(.secondary)
                 } else {
                     QuestionCard(
@@ -63,7 +64,7 @@ struct PeoplePanel: View {
                 Text("People in this call").font(.headline)
                 Spacer()
                 Text(Wording.questions(questions.count)).font(.subheadline)
-                    .foregroundStyle(questions.isEmpty ? Color.green : .secondary)
+                    .foregroundStyle(questions.isEmpty && speakers.lineIndexes(of: .others).isEmpty ? Color.green : .secondary)
             }
         }
     }

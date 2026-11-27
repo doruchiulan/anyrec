@@ -243,6 +243,16 @@ enum Wording {
         count == 0 ? "Nothing to check" : count == 1 ? "1 question" : "\(count) questions"
     }
 
+    /// The People panel with no question left. Lines nobody claimed may remain, which the
+    /// transcript shows as "Not sure who": saying everyone has a name beside them read as wrong.
+    static func nothingToAsk(unclaimed: Int) -> String {
+        switch unclaimed {
+        case 0: "Everyone has a name. Nothing to check."
+        case 1: "1 short bit has no name, and AnyRec can't tell who said it. Give it to someone under Not sure who, or leave it."
+        default: "\(unclaimed) short bits have no name, and AnyRec can't tell who said them. Give them to someone under Not sure who, or leave them."
+        }
+    }
+
     /// The first name, for buttons ("Yes, that's Madalin"). "Barbura, Claudiu (Contractor)"
     /// is Claudiu.
     static func firstName(_ name: String) -> String {
