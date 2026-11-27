@@ -35,9 +35,9 @@ struct LibraryView: View {
                 if filter == .people {
                     PeopleList(controller: controller)
                 } else if filter == .shared {
-                    SharedMeetingsList(controller: controller, items: shared)
+                    SharedMeetingsList(controller: controller, entries: shared)
                 } else {
-                    LibraryList(controller: controller, entries: shown, linked: linked)
+                    LibraryList(controller: controller, entries: shown)
                 }
             }
             .navigationTitle(filter.title)
@@ -48,9 +48,7 @@ struct LibraryView: View {
             /// the app.
             .navigationSplitViewColumnWidth(min: CompactColumns.list, ideal: CompactColumns.list, max: 400)
         } detail: {
-            if let item = sharedItem {
-                SharedMeetingDetail(item: item, controller: controller).id(item.directory)
-            } else if let entry = shownEntry {
+            if let entry = shownEntry {
                 /// Not re-identified per recording: the view reloads itself on an entry
                 /// change, and tearing it down rebuilt the toolbar, which jumped.
                 RecordingDetail(
@@ -88,7 +86,7 @@ struct LibraryView: View {
             let open = OpenRecording(entry, controller: controller)
             open.load(entry)
             opened = open
-            await open.playback.loadWaveform()
+            await open.playback.loadWaveform(shared: open.sharedWaveform)
         }
         .onDisappear { opened?.playback.stop() }
         .alert("Meeting sync", isPresented: Binding(get: { controller.team.error != nil }, set: { if !$0 { controller.team.error = nil } })) {
@@ -156,46 +154,45 @@ struct LibraryView: View {
         return true
     }
 
-    /// Shown only beside a recording: a shared meeting and an empty selection have nothing
-    /// to put in it.
+    /// Shown only beside a recording: an empty selection has nothing to put in it.
     private var inspectorPresented: Binding<Bool> {
         Binding(get: { showsInspector && shownEntry != nil }, set: { shown in
             if shownEntry != nil { inspectorShown.wrappedValue = shown }
         })
     }
 
-    private var sharedItem: SharedLibraryItem? {
-        (filter == .shared ? shared : linked).first { $0.directory == controller.selection }
-    }
-
-    /// The recording the detail shows, when it shows one.
+    /// The recording the detail shows, when it shows one: this Mac's own, or someone else's
+    /// from a team folder.
     private var shownEntry: LibraryEntry? {
-        guard filter != .shared, sharedItem == nil else { return nil }
-        return controller.selectedEntry
+        if let shared = (filter == .shared ? shared : linked).first(where: { $0.directory == controller.selection }) { return shared }
+        return filter == .shared ? nil : controller.selectedEntry
     }
 
     private var sidebarHidden: Bool { columns == .doubleColumn || columns == .detailOnly }
 
-    private var shared: [SharedLibraryItem] {
-        (controller.team.snapshot?.meetings ?? []).filter { item in
-            query.isEmpty || item.meeting.title.localizedStandardContains(query)
-                || item.meeting.transcript?.utterances.contains { ($0.speaker.label + " " + $0.text).localizedStandardContains(query) } == true
+    private var shared: [LibraryEntry] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return controller.team.entries }
+        return controller.team.entries.filter { entry in
+            Wording.title(of: entry).localizedCaseInsensitiveContains(needle)
+                || controller.team.meeting(entry.directory)?.transcript?.plainText.localizedCaseInsensitiveContains(needle) == true
         }
     }
 
-    private var linked: [SharedLibraryItem] {
-        guard filter == .all || filter == .transcribed, let state = controller.team.snapshot?.state else { return [] }
-        return shared.filter { state.linked.contains($0.directory) && (filter == .all || $0.meeting.transcript != nil) }
+    /// Shared meetings added to the library, listed among this Mac's own.
+    private var linked: [LibraryEntry] {
+        shared.filter { controller.team.isLinked($0.directory) && filter.includes($0) }
     }
 
     private var shown: [LibraryEntry] {
         let filtered = controller.library.filter { filter.includes($0, working: controller.working) }
         let needle = query.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return filtered }
-        return filtered.filter {
+        let own = needle.isEmpty ? filtered : filtered.filter {
             Wording.title(of: $0).localizedCaseInsensitiveContains(needle)
                 || (searchable[$0.directory]?.localizedCaseInsensitiveContains(needle) ?? false)
         }
+        let linked = linked
+        return linked.isEmpty ? own : (own + linked).sorted { $0.started > $1.started }
     }
 
     /// Transcript text for search, read once per library change off the main thread.

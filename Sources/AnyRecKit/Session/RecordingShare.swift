@@ -23,9 +23,16 @@ public enum RecordingShare {
     public enum Failure: Error, LocalizedError, Equatable {
         case nothingToShare
         case failed(String)
+        /// The meeting is in the team folder but its recording is still on its owner's Mac.
+        case notUploaded
+        case download(String)
+        case folderUnavailable(String)
 
         public var errorDescription: String? {
             switch self {
+            case .download(let reason): "The recording could not be downloaded: \(reason)"
+            case .folderUnavailable(let name): "The folder “\(name)” can't be reached. Check that its cloud app is running and signed in."
+            case .notUploaded: "The recording hasn't finished uploading from its owner's Mac."
             case .nothingToShare: "This recording has no merged file to share yet."
             case .failed(let reason): "The shared copy could not be made: \(reason)"
             }

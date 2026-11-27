@@ -29,6 +29,9 @@ public struct LibraryEntry: Sendable, Equatable, Identifiable {
     public let preview: String?
     public let revision: Date?
     public let noSpeechDetected: Bool
+    /// Someone else's recording, read from a team folder. `directory` is then the meeting's
+    /// folder in it, nothing in it may be written, and its files may not be on this Mac yet.
+    public var shared: SharedOrigin? = nil
 
     public var id: URL { directory }
     /// The old-style `rec-…` identity `recording.json` keeps, which a voiceprint's origin
@@ -129,7 +132,7 @@ public enum RecordingLibrary {
 
     /// The longest of the files that exist: the tracks run side by side, so the longest
     /// is the recording.
-    private static func duration(of files: [URL?]) -> TimeInterval {
+    static func duration(of files: [URL?]) -> TimeInterval {
         files.compactMap { $0 }.filter(exists)
             .map { CMTimeGetSeconds(AVURLAsset(url: $0).duration) }
             .filter { $0.isFinite }.max() ?? 0

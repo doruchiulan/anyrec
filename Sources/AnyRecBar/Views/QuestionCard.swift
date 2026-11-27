@@ -91,6 +91,9 @@ struct QuestionCard: View {
             return "Someone new. \(Wording.shortApp(app)) showed this name while they talked, about \(Wording.talk(speakers.row(for: speaker)?.talkTime ?? 0)) in total."
         case .samePerson: return "They sound alike, so AnyRec may have heard one person as two."
         case .sort: return "They talked right after each other, so AnyRec may have mixed them up. It has guessed each line. Change the ones that are wrong."
+        case .eachLine(.others, let lines, _, _):
+            let count = lines.count == 1 ? "this line" : "these \(lines.count) lines"
+            return "Nobody's voice matched \(count), and \(desk.reviewProvider.name) couldn't tell from the conversation. \(Wording.shortApp(app)) showed who was talking during each. Check a few, then use its guesses, or leave them as they are."
         case .eachLine(_, let lines, _, let several):
             let count = lines.count == 1 ? "this line" : "these \(lines.count) lines"
             return several

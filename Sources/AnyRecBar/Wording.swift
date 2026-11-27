@@ -88,7 +88,7 @@ enum Wording {
     /// The line under the title where an audio-only recording's picture would be:
     /// "Audio only · Microsoft Teams", or "Audio only · Display" for a whole screen.
     static func audioSurface(of entry: LibraryEntry) -> String {
-        audioSurface(app: entry.info?.appName, display: entry.info.map { $0.bundleID == nil } ?? false)
+        audioSurface(app: entry.info?.appName, display: entry.shared == nil && entry.info.map { $0.bundleID == nil } ?? false)
     }
 
     static func audioSurface(app: String?, display: Bool) -> String {
@@ -243,6 +243,16 @@ enum Wording {
         count == 0 ? "Nothing to check" : count == 1 ? "1 question" : "\(count) questions"
     }
 
+    /// The People panel with no question left. Lines nobody claimed may remain, which the
+    /// transcript shows as "Not sure who": saying everyone has a name beside them read as wrong.
+    static func nothingToAsk(unclaimed: Int) -> String {
+        switch unclaimed {
+        case 0: "Everyone has a name. Nothing to check."
+        case 1: "1 short bit has no name, and AnyRec can't tell who said it. Give it to someone under Not sure who, or leave it."
+        default: "\(unclaimed) short bits have no name, and AnyRec can't tell who said them. Give them to someone under Not sure who, or leave them."
+        }
+    }
+
     /// The first name, for buttons ("Yes, that's Madalin"). "Barbura, Claudiu (Contractor)"
     /// is Claudiu.
     static func firstName(_ name: String) -> String {
@@ -317,16 +327,48 @@ enum Wording {
     static let syncFolderFooter = "Recordings you sync go to this folder unless you choose another. Share it with your team as view-only so nobody can change your meetings; AnyRec puts back anything that is changed. Your recordings themselves stay in the recordings folder."
 
     /// The sync menu's second line, for a synced recording: what state the shared copy is in.
-    static func syncStatus(failure: String?, restored: Date?, uploaded: Bool?, now: Date = Date()) -> String {
+    static func syncStatus(failure: String?, restored: Date?, preparing: Bool = false, upload: SharedUpload?,
+                           now: Date = Date()) -> String {
         if let failure { return "Needs attention: \(failure)" }
+        if preparing { return "Preparing the shared copy…" }
+        if case .failed(let reason)? = upload { return "Couldn't upload: \(reason)" }
+        if case .uploading? = upload { return "Uploading…" }
         if let restored, now.timeIntervalSince(restored) < 86_400 {
             return "Restored at \(restored.formatted(date: .omitted, time: .shortened)): a shared file had been changed"
         }
-        switch uploaded {
-        case false?: return "Uploading…"
-        default: return "Up to date"
-        }
+        return upload == .notCloud ? "Up to date. This folder isn't in a cloud drive." : "Up to date"
     }
+
+    static func uploading(done: Int64, total: Int64) -> String {
+        done > 0 ? "Uploading \(size(done)) of \(size(total))" : "Waiting to upload \(size(total))"
+    }
+
+    /// What of the recording's separate tracks colleagues get, when not both.
+    static func sharedTracks(call: Bool, microphone: Bool) -> String? {
+        if call && !microphone { return "Your microphone isn't shared separately: mute couldn't be followed in this call" }
+        return nil
+    }
+
+    // Someone else's recording.
+
+    static func sharedBy(_ name: String?) -> String { name.map { "Shared by \($0)" } ?? "Shared with you" }
+
+    static func downloadsOnPlay(bytes: Int64?, cloud: String) -> String {
+        [bytes.map(size), "in \(cloud). Downloads when you play it."].compactMap { $0 }.joined(separator: " ")
+    }
+
+    static func downloading(done: Int64, total: Int64, cloud: String) -> String {
+        done > 0 ? "Downloading \(size(done)) of \(size(total))…" : "Getting \(size(total)) from \(cloud)…"
+    }
+
+    static func downloadStalled(cloud: String) -> String { "Waiting for \(cloud). Check that it's running and you're online." }
+
+    static func waitingForOwner(_ name: String?) -> String {
+        "Not uploaded yet. It plays as soon as \(name.map { "\($0)'s Mac" } ?? "its owner's Mac") finishes uploading."
+    }
+
+    /// The shared list's note while meetings' notes are on their way.
+    static func arriving(_ count: Int) -> String { count == 1 ? "1 meeting is on its way…" : "\(count) meetings are on their way…" }
 
     /// Shown in the folder picker when choosing where to sync.
     static let viewOnlyTip = "Share this folder with your team as view-only, so nobody can change your meetings. AnyRec puts back anything that is changed."
@@ -684,25 +726,39 @@ enum Wording {
     }
 
     static func reviewTitle(_ current: RecordingTranscript) -> String {
-        if let provider = current.reviewProvider { return "Reviewed with \(provider.name)" }
-        return current.reviewFailures.isEmpty ? "Transcript versions" : "Original transcript kept"
+        reviewTitle(provider: current.reviewProvider, failed: !current.reviewFailures.isEmpty)
     }
 
-    static func versions(_ sources: [TranscriptStore.SourceVersion]) -> String {
-        sources.count == 1 ? "1 source transcript" : "\(sources.count) source transcripts"
+    static func reviewTitle(provider: SummaryProvider?, failed: Bool) -> String {
+        if let provider { return "Reviewed with \(provider.name)" }
+        return failed ? "Original transcript kept" : "Transcript versions"
+    }
+
+    static func versions(_ sources: [TranscriptStore.SourceVersion]) -> String { versions(sources.count) }
+
+    static func versions(_ count: Int) -> String {
+        count == 1 ? "1 source transcript" : "\(count) source transcripts"
+    }
+
+    static func version(_ source: SharedSource) -> String {
+        version(engine: source.engine, role: source.compared ? .compared : .selected, written: source.written)
     }
 
     /// A version's row in View Sources: the engine, when it was written, and its part.
     static func version(_ source: TranscriptStore.SourceVersion) -> String {
-        let when = source.written.formatted(date: .abbreviated, time: .shortened)
-        let role: String
-        switch source.role {
-        case .selected: role = "Current · timing reference"
-        case .compared: role = "Compared"
-        case .earlier: role = "Earlier version"
+        version(engine: source.engine, role: source.role, written: source.written)
+    }
+
+    private static func version(engine: String, role: TranscriptStore.SourceVersion.Role, written: Date) -> String {
+        let when = written.formatted(date: .abbreviated, time: .shortened)
+        let part: String
+        switch role {
+        case .selected: part = "Current · timing reference"
+        case .compared: part = "Compared"
+        case .earlier: part = "Earlier version"
         }
-        let engine = TranscriptionEngine(rawValue: source.engine).map(engineName) ?? source.engine.capitalized
-        return "\(engine) · \(role) · \(when)"
+        let name = TranscriptionEngine(rawValue: engine).map(engineName) ?? engine.capitalized
+        return "\(name) · \(part) · \(when)"
     }
 
     /// Nil when the summary still describes the transcript.

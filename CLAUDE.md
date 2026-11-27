@@ -596,9 +596,8 @@ Invariants worth preserving:
   rows of a bold title, the time or date beside a line of what was said (the summary's
   first sentence, else the transcript's first words), and the app and length where Notes
   puts the folder; a status badge in the leading margin and a still on the right, with a
-  cloud badge on the still's corner when the synced copy is uploaded
-  (`RecordingCloud.isAvailable`, checked off the main thread every 30 s per visible row). Its task hangs off a zero-size view that is always
-  there: on an empty `Group` SwiftUI never ran it, and no row ever showed the cloud.
+  cloud mark on the still's corner (`TeamLibrary.mark`). Shared meetings added to the library
+  are rows among the owner's own, by date, saying who shared them.
 - A recording's waveform is decoded once and kept as `Cache/waveform.json`;
   its list thumbnail likewise as `Cache/thumbnail.jpg`.
   Decoding is the cost — about 4 s of CPU for a 100-minute call, however the samples are
@@ -764,7 +763,8 @@ Invariants worth preserving:
   one-way into a team folder (never reading anything back into it), and Share Files… only
   hands files to the system share sheet — the "Save to OneDrive/iCloud" export is gone, and
   old export folders are never deleted. The cloud badge (list and header) means exactly
-  "the synced copy is uploaded" (`RecordingCloud.isAvailable`); a saved Slack link or an old
+  "the synced copy is uploaded" (`CloudMark.uploaded`, from `TeamLibrary.marks`, with marks of
+  their own for going up, failed, and someone else's not here yet); a saved Slack link or an old
   export no longer shows one. The sync button's icon is the state, filled and tinted once synced
   so it cannot be read as the action: `checkmark.icloud.fill` in the accent colour synced and
   uploaded, `arrow.clockwise.icloud.fill` uploading, orange `exclamationmark.icloud.fill` needs
@@ -783,9 +783,40 @@ Invariants worth preserving:
   recording copied only when missing or the wrong size — and records `restored`.
 - File → Share Files… prepares playable media with captions and metadata through
   `RecordingShare.prepare`. Toolbar Share sends the finished summary through Slack.
-  `MeetingSync` records explicit per-meeting publication and connected team folders.
-  `SharedMeeting` contains the public transcript and summary. Linked entries read it
-  directly. Make a Copy imports it into a new local recording with its own transcript.
+- A synced meeting is everything its page needs, and opens in the same page as one's own
+  (`LibraryEntry.shared`, built by `SharedMeeting.entry(in:)` from `Meeting.json` alone), read
+  only: no desk writes (`SpeakerDesk.readOnly`), no summary, ticks or regeneration, and
+  nothing is ever written into the team folder by a viewer. Make a Copy is how a viewer edits.
+  Published: the merged file, `Tracks/Call audio.m4a`, `Tracks/Microphone.m4a`, `Meeting.json`
+  (transcript, summary, waveform, duration, size, roster, the call track's offset, every
+  file's size), `Sources.json` (selected and compared sources, without diagnostics),
+  `Preview.jpg`, `Summary.md`, `Transcript.md`. Never voiceprints, the library, the polls,
+  earlier sources or the raw microphone. Fields added after `mediaStamp` are optional, so
+  older manifests read and older versions ignore them.
+- The shared microphone is a rendering with every stretch the call was not listening
+  silenced (`SharedTrack`, the mix's own gate): the master holds what was said to the room
+  while muted. It is shared only where the mute was followed (`MicrophoneLive.followedMute`:
+  `muteRead`, or more than one live span in files from before that was kept); otherwise the
+  call's track is published alone and offers no switch, since it would be the meeting
+  without its recorder. A copy keeps the tracks to listen to, and `TranscriptionService.tracks`
+  returns none for it: transcribed here, the recorder would come back as this Mac's owner.
+- No file in a team folder is opened before it is here. `CloudFile` reads the file system's
+  own facts (they work for OneDrive, not only iCloud), on a fresh `URL` each time because a
+  `URL` caches what it was first asked; `fileExists` is true of a file that is only in the
+  cloud, and opening one blocks until it has arrived. The recording is fetched when something
+  is played (`Playback.ready`), the tracks when one is switched off, with the provider's own
+  `Progress` for that file (`CloudProgress`, what Finder's pie is drawn from), and there is no
+  time limit: a 90 s one failed on any long call. A recording missing beside its manifest has
+  not been uploaded by its owner yet, and is waited for. `TeamLibrary` is the one place that
+  polls (1.5 s while something moves, 8 s otherwise); rows read its `marks`, which change only
+  when a mark does.
+- Publishing is off `MeetingSync`'s actor, one at a time per recording, and a new meeting is
+  made whole outside the team folder and moved in. JSON there is written with sorted keys:
+  unsorted, Swift's per-launch hashing made an unchanged `Meeting.json` different bytes at
+  every launch, so each launch uploaded every meeting again and left conflict copies
+  ("Meeting-Alex's MacBook Pro.json"), which blocked Stop Syncing. A conflict copy of the
+  manifest carrying the meeting's id is removed; any other file found there is not ours.
+  Uploaded means every published file is (`SharedUpload`), the tracks included.
 - The merged file is named from `recording.json` — the title without unread counters
   or a trailing app segment, the app, and the start (`recording.json`'s `startedAt`, else the folder's name), as
   "Design review – Slack – 2026-11-03 10.08.mp4" — and the name is kept in

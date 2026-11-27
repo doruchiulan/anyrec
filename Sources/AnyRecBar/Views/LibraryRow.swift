@@ -5,9 +5,7 @@ struct LibraryRow: View {
     let entry: LibraryEntry
     let working: Bool
     let progress: String?
-    /// Where the recording was synced for the team, if it was; one of the places the cloud
-    /// mark looks.
-    var publication: MeetingPublication? = nil
+    var mark: CloudMark? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -34,7 +32,8 @@ struct LibraryRow: View {
                     Text(progress ?? entry.preview ?? Wording.size(entry.bytes))
                         .foregroundStyle(.secondary).lineLimit(1)
                 }
-                Label(Wording.rowSource(of: entry), systemImage: entry.info?.isCall == true ? "phone" : "record.circle")
+                Label(entry.shared.map { Wording.sharedBy($0.sharedBy) } ?? Wording.rowSource(of: entry),
+                      systemImage: entry.shared != nil ? "person.2" : entry.info?.isCall == true ? "phone" : "record.circle")
                     .foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -49,57 +48,28 @@ struct LibraryRow: View {
                     Color.clear.frame(width: 54, height: 54)
                 }
             }
-            .overlay(alignment: .bottomTrailing) { RowCloudMark(entry: entry, publication: publication).offset(x: 4, y: 4) }
+            .overlay(alignment: .bottomTrailing) {
+                if let mark { RowCloudMark(mark: mark).offset(x: 4, y: 4) }
+            }
         }
         .padding(.vertical, 6)
     }
 }
 
-/// A cloud badge on the row's square when the recording is uploaded somewhere: the team's
-/// sync folder, a shared link, or a OneDrive or iCloud copy. The same check as the
-/// recording page's (`RecordingCloud.isAvailable`), read off the main thread while the row
-/// is on screen, again every 30 s while the app is in front: it reads cloud status from
-/// disk, and a list holds many rows.
+/// Where the recording is, on the corner of the row's square (`TeamLibrary.mark`): its
+/// synced copy up, going up or in trouble; someone else's not on this Mac yet.
 private struct RowCloudMark: View {
-    let entry: LibraryEntry
-    let publication: MeetingPublication?
-    @Environment(\.scenePhase) private var phase
-    @State private var uploaded = false
-
-    private struct Poll: Equatable {
-        let phase: ScenePhase
-        let directory: URL
-        let folder: URL?
-        let revision: Date?
-    }
+    let mark: CloudMark
 
     var body: some View {
-        /// A zero-size view that is always there: on an empty `Group` (nothing to show
-        /// yet) SwiftUI never started the task, so no row ever found out it was synced.
-        HStack(spacing: 0) {
-            Color.clear.frame(width: 0, height: 0)
-            if uploaded {
-                Image(systemName: "icloud.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-                    .padding(3)
-                    .background(.background, in: Circle())
-                    .overlay(Circle().strokeBorder(.separator))
-                    .help("Recording available in the cloud")
-                    .accessibilityLabel("Recording available in the cloud")
-            }
-        }
-        .task(id: Poll(phase: phase, directory: entry.directory, folder: publication?.directory, revision: entry.revision)) {
-            repeat {
-                let available = await Task.detached(priority: .utility) { [entry, publication] in
-                    RecordingCloud.isAvailable(for: entry, publication: publication)
-                }.value
-                guard !Task.isCancelled else { return }
-                if uploaded != available { uploaded = available }
-                guard phase == .active else { return }
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
-            } while !Task.isCancelled
-        }
+        Image(systemName: mark.symbol)
+            .font(.caption)
+            .foregroundStyle(mark == .failed ? Color.orange : .accentColor)
+            .padding(3)
+            .background(.background, in: Circle())
+            .overlay(Circle().strokeBorder(.separator))
+            .help(mark.label)
+            .accessibilityLabel(mark.label)
     }
 }
 
@@ -134,8 +104,9 @@ private struct RowThumbnail: View {
         .frame(width: 54, height: 54)
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(.separator))
-        .task(id: entry.directory) {
-            if let url = await Thumbnail.of(entry) { image = NSImage(contentsOf: url) }
+        .task(id: entry.shared?.preview ?? entry.directory) {
+            if entry.shared != nil { image = await SharedPreview.image(entry.shared) }
+            else if let url = await Thumbnail.of(entry) { image = NSImage(contentsOf: url) }
         }
     }
 }
